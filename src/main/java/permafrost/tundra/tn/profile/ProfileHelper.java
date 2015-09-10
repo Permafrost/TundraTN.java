@@ -165,7 +165,7 @@ public class ProfileHelper {
      */
     public static Profile[] list() throws ServiceException {
         Vector summaries = ProfileStore.getProfileSummaryList(false, false);
-        List<IData> output = new ArrayList<IData>(summaries.size());
+        List<Profile> output = new ArrayList<Profile>(summaries.size());
 
         for (Object object : summaries) {
             if (object instanceof ProfileSummary) {
@@ -198,8 +198,8 @@ public class ProfileHelper {
      * @throws ServiceException If a database error occurs.
      */
     public static Collection<ProfileID> getExternalIDs(Profile profile) throws ServiceException {
-        List<ProfileID> list = new LinkedList<ProfileID>();
         Map<Integer, String> types = getExternalIDTypes();
+        List<ProfileID> list = new ArrayList<ProfileID>(types.size());
 
         if (profile != null) {
             for (Object object : IterableEnumeration.of(profile.getExternalIDs())) {
