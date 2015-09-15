@@ -32,7 +32,7 @@ import com.wm.app.tn.profile.Profile;
 import com.wm.app.tn.profile.ProfileStore;
 import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
-import permafrost.tundra.data.ReadOnlyIDataMap;
+import permafrost.tundra.data.IDataHelper;
 
 /**
  * A local in-memory cache of Trading Networks partner cache, to improve performance of Trading Networks
@@ -163,13 +163,13 @@ public class ProfileCache {
             Profile profile = ProfileHelper.get(id);
             if (profile != null) {
                 // make the cached profile a read only IData document
-                output = ReadOnlyIDataMap.of(ProfileHelper.toIData(profile));
+                output = ProfileHelper.toIData(profile);
                 // cache the profile against the internal ID
                 cache.put(id, output);
             }
         }
 
-        return output;
+        return IDataHelper.duplicate(output);
     }
 
     /**
