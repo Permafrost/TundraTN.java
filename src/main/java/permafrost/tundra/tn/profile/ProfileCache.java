@@ -24,6 +24,7 @@
 
 package permafrost.tundra.tn.profile;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -126,7 +127,14 @@ public class ProfileCache {
      */
     public static IData[] list(boolean seed) throws ServiceException {
         if (seed) seed();
-        return cache.values().toArray(new IData[cache.size()]);
+
+        List<IData> output = new ArrayList<IData>(cache.size());
+
+        for (IData profile : cache.values()) {
+            output.add(IDataHelper.duplicate(profile));
+        }
+
+        return output.toArray(new IData[output.size()]);
     }
 
     /**
