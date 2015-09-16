@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package permafrost.tundra.tn.delivery;
+package permafrost.tundra.tn.queue;
 
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
@@ -40,11 +40,11 @@ import java.sql.SQLException;
 /**
  * A collection of convenience methods for working with Trading Networks delivery queues.
  */
-public class DeliveryQueueHelper {
+public class QueueHelper {
     /**
      * Disallow instantiation of this class.
      */
-    private DeliveryQueueHelper() {}
+    private QueueHelper() {}
 
     /**
      * Returns the Trading Networks delivery queue associated with the given name.

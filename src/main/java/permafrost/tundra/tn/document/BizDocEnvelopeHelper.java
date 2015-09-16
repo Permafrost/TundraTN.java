@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package permafrost.tundra.tn.doc;
+package permafrost.tundra.tn.document;
 
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BizDocStore;
@@ -41,6 +41,18 @@ public class BizDocEnvelopeHelper {
      * Disallow instantiation of this class.
      */
     private BizDocEnvelopeHelper() {}
+
+    /**
+     * Returns a full BizDocEnvelope, if given either a subset or full BizDocEnvelope as an IData document.
+     *
+     * @param input             An IData document which could be a BizDocEnvelope, or could be a subset of a
+     *                          BizDocEnvelope that includes an InternalID key.
+     * @return                  The full BizDocEnvelope associated with the given IData document.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static BizDocEnvelope normalize(IData input) throws ServiceException {
+        return normalize(input, false);
+    }
 
     /**
      * Returns a full BizDocEnvelope, if given either a subset or full BizDocEnvelope as an IData document.
