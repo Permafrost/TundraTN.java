@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package permafrost.tundra.tn.queue;
+package permafrost.tundra.tn.delivery;
 
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
@@ -40,11 +40,11 @@ import java.sql.SQLException;
 /**
  * A collection of convenience methods for working with Trading Networks delivery queues.
  */
-public class QueueHelper {
+public class DeliveryQueueHelper {
     /**
      * Disallow instantiation of this class.
      */
-    private QueueHelper() {}
+    private DeliveryQueueHelper() {}
 
     /**
      * Returns the Trading Networks delivery queue associated with the given name.
@@ -182,10 +182,10 @@ public class QueueHelper {
     }
 
     /**
-     * Converts the given Trading Networks delivery queue to an IData document.
+     * Converts the given Trading Networks delivery queue to an IData doc.
      *
-     * @param input The queue to convert to an IData document representation.
-     * @return      An IData document representation of the given queue.
+     * @param input The queue to convert to an IData doc representation.
+     * @return      An IData doc representation of the given queue.
      * @throws ServiceException If a database error occurs.
      */
     public static IData toIData(DeliveryQueue input) throws ServiceException {
@@ -205,10 +205,10 @@ public class QueueHelper {
     }
 
     /**
-     * Converts the given list of Trading Networks delivery queues to an IData[] document list.
+     * Converts the given list of Trading Networks delivery queues to an IData[] doc list.
      *
-     * @param input The list of queues to convert to an IData[] document list representation.
-     * @return      An IData[] document list representation of the given queues.
+     * @param input The list of queues to convert to an IData[] doc list representation.
+     * @return      An IData[] doc list representation of the given queues.
      * @throws ServiceException If a database error occurs.
      */
     public static IData[] toIDataArray(DeliveryQueue[] input) throws ServiceException {

@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package permafrost.tundra.tn.document;
+package permafrost.tundra.tn.doc;
 
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BizDocStore;
@@ -54,11 +54,11 @@ public class BizDocEnvelopeHelper {
     public static BizDocEnvelope normalize(IData input, boolean includeContent) throws ServiceException {
         if (input == null) return null;
 
-        BizDocEnvelope output = null;
+        BizDocEnvelope document = null;
 
         if (input instanceof BizDocEnvelope) {
-            output = (BizDocEnvelope)input;
-            if (includeContent && output.getContent() == null) output = get(output.getInternalId(), includeContent);
+            document = (BizDocEnvelope)input;
+            if (includeContent && document.getContent() == null) document = get(document.getInternalId(), includeContent);
         } else {
             IDataCursor cursor = input.getCursor();
             String id = IDataUtil.getString(cursor, "InternalID");
@@ -66,17 +66,17 @@ public class BizDocEnvelopeHelper {
 
             if (id == null) throw new IllegalArgumentException("InternalID is required");
 
-            output = get(id, includeContent);
+            document = get(id, includeContent);
         }
 
-        return output;
+        return document;
     }
 
     /**
      * Returns the BizDocEnvelope associated with the given ID without its associated content parts.
      *
-     * @param id                The ID of the BizDoc to be returned.
-     * @return                  The BizDoc associated with the given ID.
+     * @param id                The ID of the BizDocEnvelope to be returned.
+     * @return                  The BizDocEnvelope associated with the given ID.
      * @throws ServiceException If a database exception occurs.
      */
     public static BizDocEnvelope get(String id) throws ServiceException {
@@ -94,14 +94,14 @@ public class BizDocEnvelopeHelper {
     public static BizDocEnvelope get(String id, boolean includeContent) throws ServiceException {
         if (id == null) return null;
 
-        BizDocEnvelope bizdoc = null;
+        BizDocEnvelope document = null;
 
         try {
-            bizdoc = BizDocStore.getDocument(id, includeContent);
+            document = BizDocStore.getDocument(id, includeContent);
         } catch(DatastoreException ex) {
             ExceptionHelper.raise(ex);
         }
 
-        return bizdoc;
+        return document;
     }
 }

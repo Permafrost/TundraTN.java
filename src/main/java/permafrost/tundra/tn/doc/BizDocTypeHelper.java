@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package permafrost.tundra.tn.document;
+package permafrost.tundra.tn.doc;
 
 import com.wm.app.tn.db.BizDocTypeStore;
 import com.wm.app.tn.doc.BizDocType;

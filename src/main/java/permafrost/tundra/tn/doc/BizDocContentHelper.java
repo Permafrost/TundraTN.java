@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package permafrost.tundra.tn.document;
+package permafrost.tundra.tn.doc;
 
 import java.io.IOException;
 import java.io.InputStream;
