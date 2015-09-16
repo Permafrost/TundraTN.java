@@ -34,21 +34,21 @@ import com.wm.data.IDataUtil;
 import permafrost.tundra.lang.ExceptionHelper;
 
 /**
- * A collection of convenience methods for working with Trading Networks BizDoc documents.
+ * A collection of convenience methods for working with Trading Networks BizDocEnvelope objects.
  */
-public class BizDocHelper {
+public class BizDocEnvelopeHelper {
     /**
      * Disallow instantiation of this class.
      */
-    private BizDocHelper() {}
+    private BizDocEnvelopeHelper() {}
 
     /**
-     * Returns a full BizDoc, if given either a subset or full BizDoc as an IData document.
+     * Returns a full BizDocEnvelope, if given either a subset or full BizDocEnvelope as an IData document.
      *
-     * @param input An IData document which could be a BizDoc, or could be a subset of a BizDoc that includes an
-     *              InternalID key.
-     * @param includeContent Whether to include all content parts with the returned BizDoc.
-     * @return The full BizDoc associated with the given IData document.
+     * @param input             An IData document which could be a BizDocEnvelope, or could be a subset of a
+     *                          BizDocEnvelope that includes an InternalID key.
+     * @param includeContent    Whether to include all content parts with the returned BizDocEnvelope.
+     * @return                  The full BizDocEnvelope associated with the given IData document.
      * @throws ServiceException If a database error occurs.
      */
     public static BizDocEnvelope normalize(IData input, boolean includeContent) throws ServiceException {
@@ -73,10 +73,10 @@ public class BizDocHelper {
     }
 
     /**
-     * Returns the BizDoc associated with the given ID.
+     * Returns the BizDocEnvelope associated with the given ID without its associated content parts.
      *
-     * @param id The ID of the BizDoc to be returned.
-     * @return   The BizDoc associated with the given ID.
+     * @param id                The ID of the BizDoc to be returned.
+     * @return                  The BizDoc associated with the given ID.
      * @throws ServiceException If a database exception occurs.
      */
     public static BizDocEnvelope get(String id) throws ServiceException {
@@ -84,11 +84,11 @@ public class BizDocHelper {
     }
 
     /**
-     * Returns the Trading Networks BizDoc, and optionally its content parts, associated with the given ID.
+     * Returns the BizDocEnvelope, and optionally its content parts, associated with the given ID.
      *
-     * @param id The ID of the BizDoc to be returned.
-     * @param includeContent Whether to include all content parts with the returned BizDoc.
-     * @return The BizDoc associated with the given ID.
+     * @param id                The ID of the BizDocEnvelope to be returned.
+     * @param includeContent    Whether to include all content parts with the returned BizDocEnvelope.
+     * @return                  The BizDocEnvelope associated with the given ID.
      * @throws ServiceException If a database exception occurs.
      */
     public static BizDocEnvelope get(String id, boolean includeContent) throws ServiceException {
