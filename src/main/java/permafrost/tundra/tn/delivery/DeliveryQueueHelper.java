@@ -85,6 +85,17 @@ public class DeliveryQueueHelper {
     }
 
     /**
+     * Refreshes the given Trading Networks delivery queue from the database.
+     *
+     * @param queue The queue to be refreshed.
+     * @return      The given queue, refreshed from the database.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static DeliveryQueue refresh(DeliveryQueue queue) throws ServiceException {
+        return get(queue.getQueueName());
+    }
+
+    /**
      * Returns a list of all registered Trading Networks delivery queues.
      *
      * @return A list of all registered Trading Networks delivery queues.
