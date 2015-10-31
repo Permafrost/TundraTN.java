@@ -24,12 +24,14 @@
 
 package permafrost.tundra.tn.document;
 
+import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BizDocStore;
 import com.wm.app.tn.db.DatastoreException;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
+import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import permafrost.tundra.lang.ExceptionHelper;
 
@@ -115,5 +117,51 @@ public class BizDocEnvelopeHelper {
         }
 
         return document;
+    }
+
+    /**
+     * Updates the status on the given BizDocEnvelope.
+     *
+     * @param bizdoc       The BizDocEnvelope to update the status on.
+     * @param systemStatus The system status to be set.
+     * @param userStatus   The user status to be set.
+     * @throws ServiceException If a database error is encountered.
+     */
+    public static void setStatus(BizDocEnvelope bizdoc, String systemStatus, String userStatus) throws ServiceException {
+        if (bizdoc == null) return;
+        BizDocStore.changeStatus(bizdoc, systemStatus, userStatus);
+    }
+
+    /**
+     * The implementation service for BizDocEnvelope logging.
+     */
+    private static final com.wm.lang.ns.NSName LOG_SERVICE = com.wm.lang.ns.NSName.create("tundra.tn:log");
+
+    /**
+     * Adds an activity log statement to the given BizDocEnvelope.
+     * TODO: convert this to a pure java service, rather than an invoke of a flow service.
+     *
+     * @param bizdoc         The BizDocEnvelope to add the activity log statement to.
+     * @param messageType    The type of message to be logged.
+     * @param messageClass   The class of the message to be logged.
+     * @param messageSummary The summary of the message to be logged.
+     * @param messageDetails The detail of the message to be logged.
+     * @throws ServiceException If an error occurs while logging.
+     */
+    public static void log(BizDocEnvelope bizdoc, String messageType, String messageClass, String messageSummary, String messageDetails) throws ServiceException {
+        IData input = IDataFactory.create();
+        IDataCursor cursor = input.getCursor();
+        IDataUtil.put(cursor, "$bizdoc", bizdoc);
+        IDataUtil.put(cursor, "$type", messageType);
+        IDataUtil.put(cursor, "$class", messageClass);
+        IDataUtil.put(cursor, "$summary", messageSummary);
+        IDataUtil.put(cursor, "$message", messageDetails);
+        cursor.destroy();
+
+        try {
+            Service.doInvoke(LOG_SERVICE, input);
+        } catch (Exception ex) {
+            ExceptionHelper.raise(ex);
+        }
     }
 }
