@@ -22,29 +22,44 @@
  * SOFTWARE.
  */
 
-package permafrost.tundra.tn.queue;
+package permafrost.tundra.tn.delivery;
 
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
+import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.QueueOperations;
+import com.wm.app.tn.db.SQLWrappers;
 import com.wm.app.tn.delivery.DeliveryQueue;
+import com.wm.app.tn.delivery.GuaranteedJob;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import permafrost.tundra.lang.ExceptionHelper;
-
 import java.io.IOException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 
 /**
  * A collection of convenience methods for working with Trading Networks delivery queues.
  */
-public class QueueHelper {
+public class DeliveryQueueHelper {
+    /**
+     * SQL statement to select head of a delivery queue in job creation datetime order.
+     */
+    private static final String SELECT_NEXT_DELIVERY_JOB_ORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED') AND TimeUpdated <= ?";
+
+    /**
+     * SQL statement to select head of a delivery queue in indeterminate order.
+     */
+    private static final String SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeUpdated <= ?)";
+
     /**
      * Disallow instantiation of this class.
      */
-    private QueueHelper() {}
+    private DeliveryQueueHelper() {}
 
     /**
      * Returns the Trading Networks delivery queue associated with the given name.
@@ -179,6 +194,64 @@ public class QueueHelper {
         } catch(Exception ex) {
             ExceptionHelper.raise(ex);
         }
+    }
+
+    /**
+     * Returns the head of the given delivery queue without dequeuing it.
+     *
+     * @param queue   The delivery queue whose head job is to be returned.
+     * @param ordered Whether jobs should be dequeued in strict creation datetime or first in first out (FIFO) order.
+     * @return        The job at the head of the given queue, or null if the queue is empty.
+     * @throws ServiceException
+     */
+    public static GuaranteedJob peek(DeliveryQueue queue, boolean ordered) throws ServiceException {
+        if (queue == null) return null;
+
+        Connection connection = null;
+        PreparedStatement statement = null;
+        ResultSet results = null;
+        GuaranteedJob task = null;
+
+        try {
+            connection = Datastore.getConnection();
+            statement = connection.prepareStatement(ordered ? SELECT_NEXT_DELIVERY_JOB_ORDERED_SQL : SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL);
+            statement.clearParameters();
+
+            String queueName = queue.getQueueName();
+            SQLWrappers.setChoppedString(statement, 1, queueName, "DeliveryQueue.QueueName");
+            SQLWrappers.setChoppedString(statement, 2, queueName, "DeliveryQueue.QueueName");
+            SQLWrappers.setTimestamp(statement, 3, new java.sql.Timestamp(new java.util.Date().getTime()));
+
+            results = statement.executeQuery();
+            if (results.next()) {
+                String id = results.getString(1);
+                task = GuaranteedJobHelper.get(id);
+            }
+            connection.commit();
+        } catch (SQLException ex) {
+            connection = Datastore.handleSQLException(connection, ex);
+            ExceptionHelper.raise(ex);
+        } finally {
+            SQLWrappers.close(results);
+            SQLWrappers.close(statement);
+            Datastore.releaseConnection(connection);
+        }
+
+        return task;
+    }
+
+    /**
+     * Dequeues the job at the head of the given delivery queue.
+     *
+     * @param queue   The delivery queue to dequeue the head job from.
+     * @param ordered Whether jobs should be dequeued in strict creation datetime or first in first out (FIFO) order.
+     * @return        The dequeued job that was at the head of the given queue, or null if queue is empty.
+     * @throws ServiceException If a database error is encountered.
+     */
+    public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered) throws ServiceException {
+        GuaranteedJob task = peek(queue, ordered);
+        GuaranteedJobHelper.setDelivering(task);
+        return task;
     }
 
     /**
