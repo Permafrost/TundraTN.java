@@ -259,7 +259,7 @@ public class DeliveryQueueHelper {
      * Returns the head of the given delivery queue without dequeuing it.
      *
      * @param queue   The delivery queue whose head job is to be returned.
-     * @param ordered Whether jobs should be dequeued in strict creation datetime or first in first out (FIFO) order.
+     * @param ordered Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
      * @return        The job at the head of the given queue, or null if the queue is empty.
      * @throws ServiceException
      */
@@ -303,7 +303,7 @@ public class DeliveryQueueHelper {
      * Dequeues the job at the head of the given delivery queue.
      *
      * @param queue   The delivery queue to dequeue the head job from.
-     * @param ordered Whether jobs should be dequeued in strict creation datetime or first in first out (FIFO) order.
+     * @param ordered Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
      * @return        The dequeued job that was at the head of the given queue, or null if queue is empty.
      * @throws ServiceException If a database error is encountered.
      */
