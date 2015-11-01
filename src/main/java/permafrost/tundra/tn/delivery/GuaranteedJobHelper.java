@@ -43,6 +43,7 @@ import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.text.MessageFormat;
 
 /**
  * A collection of convenience methods for working with Trading Networks delivery jobs.
@@ -235,7 +236,6 @@ public class GuaranteedJobHelper {
         if (job == null) return;
 
         job = refresh(job);
-        //BizDocEnvelope bizdoc = job.getBizDocEnvelope();
 
         int retryLimit = job.getRetryLimit();
         int retries = job.getRetries();
@@ -250,7 +250,7 @@ public class GuaranteedJobHelper {
         if (failed) {
             if (exhausted) {
                 if (retryLimit > 0) {
-                    log(job, "ERROR", "Delivery", java.text.MessageFormat.format("Exhausted all retries ({0}/{1})", retries, retryLimit), java.text.MessageFormat.format("Exhausted all retries ({0} of {1}) of delivery task ''{2}''", retries, retryLimit, job.getJobId()));
+                    log(job, "ERROR", "Delivery", MessageFormat.format("Exhausted all retries ({0}/{1})", retries, retryLimit), MessageFormat.format("Exhausted all retries ({0} of {1}) of delivery task ''{2}''", retries, retryLimit, job.getJobId()));
                 }
 
                 if (suspend) {
@@ -278,7 +278,7 @@ public class GuaranteedJobHelper {
                     }
 
                     BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), "QUEUED", isSuspended ? "REQUEUED" : "SUSPENDED");
-                    log(job, "MESSAGE", "Delivery", java.text.MessageFormat.format("Retries reset ({0}/{1})", retries, retryLimit), java.text.MessageFormat.format("Retries reset to ensure task is processed upon queue delivery resumption; if this task is not required to be processed again, it should be manually deleted. Next retry ({0} of {1}) scheduled no earlier than ''{2}''", retries, retryLimit, DateTimeHelper.format(nextRetry)));
+                    log(job, "MESSAGE", "Delivery", MessageFormat.format("Retries reset ({0}/{1})", retries, retryLimit), MessageFormat.format("Retries reset to ensure task is processed upon queue delivery resumption; if this task is not required to be processed again, it should be manually deleted. Next retry ({0} of {1}) scheduled no earlier than ''{2}''", retries, retryLimit, DateTimeHelper.format(nextRetry)));
                 }
             } else {
                 long nextRetry = calculateNextRetryDateTime(job);
@@ -286,7 +286,7 @@ public class GuaranteedJobHelper {
                 save(job);
 
                 BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), "QUEUED", "REQUEUED");
-                log(job, "MESSAGE", "Delivery", java.text.MessageFormat.format("Next retry scheduled ({0}/{1})", retries, retryLimit), java.text.MessageFormat.format("Next retry ({0} of {1}) scheduled no earlier than ''{2}''", retries, retryLimit, DateTimeHelper.format(nextRetry)));
+                log(job, "MESSAGE", "Delivery", MessageFormat.format("Next retry scheduled ({0}/{1})", retries, retryLimit), MessageFormat.format("Next retry ({0} of {1}) scheduled no earlier than ''{2}''", retries, retryLimit, DateTimeHelper.format(nextRetry)));
             }
         }
     }
