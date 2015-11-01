@@ -51,8 +51,10 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
@@ -279,7 +281,7 @@ public class DeliveryQueueHelper {
             String queueName = queue.getQueueName();
             SQLWrappers.setChoppedString(statement, 1, queueName, "DeliveryQueue.QueueName");
             SQLWrappers.setChoppedString(statement, 2, queueName, "DeliveryQueue.QueueName");
-            SQLWrappers.setTimestamp(statement, 3, new java.sql.Timestamp(new java.util.Date().getTime()));
+            SQLWrappers.setTimestamp(statement, 3, new Timestamp(new Date().getTime()));
 
             results = statement.executeQuery();
             if (results.next()) {
