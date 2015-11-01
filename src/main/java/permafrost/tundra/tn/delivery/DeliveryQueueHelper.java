@@ -269,7 +269,7 @@ public class DeliveryQueueHelper {
         Connection connection = null;
         PreparedStatement statement = null;
         ResultSet results = null;
-        GuaranteedJob task = null;
+        GuaranteedJob job = null;
 
         try {
             connection = Datastore.getConnection();
@@ -284,7 +284,7 @@ public class DeliveryQueueHelper {
             results = statement.executeQuery();
             if (results.next()) {
                 String id = results.getString(1);
-                task = GuaranteedJobHelper.get(id);
+                job = GuaranteedJobHelper.get(id);
             }
             connection.commit();
         } catch (SQLException ex) {
@@ -296,7 +296,7 @@ public class DeliveryQueueHelper {
             Datastore.releaseConnection(connection);
         }
 
-        return task;
+        return job;
     }
 
     /**
@@ -308,9 +308,9 @@ public class DeliveryQueueHelper {
      * @throws ServiceException If a database error is encountered.
      */
     public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered) throws ServiceException {
-        GuaranteedJob task = peek(queue, ordered);
-        GuaranteedJobHelper.setDelivering(task);
-        return task;
+        GuaranteedJob job = peek(queue, ordered);
+        GuaranteedJobHelper.setDelivering(job);
+        return job;
     }
 
     /**
