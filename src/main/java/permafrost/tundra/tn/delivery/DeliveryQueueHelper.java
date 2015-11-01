@@ -496,7 +496,7 @@ public class DeliveryQueueHelper {
      * @param timeToWait  The time in seconds to wait between each retry.
      * @param ordered     Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend     Whether to suspend the delivery queue on job retry exhaustion.
-     * @throws ServiceException If an error is enountered while processing jobs.
+     * @throws ServiceException If an error is encountered while processing jobs.
      */
     public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, boolean ordered, boolean suspend) throws ServiceException {
         if (queueName == null) throw new NullPointerException("queueName must not be null");
@@ -522,7 +522,7 @@ public class DeliveryQueueHelper {
      * @param timeToWait  The time in seconds to wait between each retry.
      * @param ordered     Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend     Whether to suspend the delivery queue on job retry exhaustion.
-     * @throws ServiceException If an error is enountered while processing jobs.
+     * @throws ServiceException If an error is encountered while processing jobs.
      */
     public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, boolean ordered, boolean suspend) throws ServiceException {
         boolean invokedByTradingNetworks = invokedByTradingNetworks();
@@ -535,14 +535,16 @@ public class DeliveryQueueHelper {
                 if (!invokedByTradingNetworks || queue.isEnabled() || queue.isDraining()) {
                     GuaranteedJob job = DeliveryQueueHelper.pop(queue, ordered);
                     if (job == null) {
+                        // there are no jobs currently waiting on the queue
                         if (results.size() > 0) {
-                            // wait for first job to finish or polling timeout; then loop again and see if there are now tasks on the queue
+                            // wait for first job to finish or polling timeout, then loop again and see if there are now jobs on the queue
                             awaitFirst(results, WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS, TimeUnit.MILLISECONDS);
                         } else {
-                            // if all threads have finished and there are no more tasks, then exit
+                            // if all threads have finished and there are no more jobs, then exit
                             break;
                         }
                     } else {
+                        // submit the job to the executor to be processed
                         results.add(executor.submit(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend)));
                     }
 
