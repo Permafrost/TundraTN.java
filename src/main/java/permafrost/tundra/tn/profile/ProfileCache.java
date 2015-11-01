@@ -68,14 +68,14 @@ public class ProfileCache {
     /**
      * The local in-memory cache of Trading Networks partner profiles.
      */
-    protected static ConcurrentMap<String, IData> cache = new ConcurrentHashMap<String, IData>();
+    protected ConcurrentMap<String, IData> cache = new ConcurrentHashMap<String, IData>();
 
     /**
      * Refreshes all Trading Networks partner profiles stored in the cache from the Trading Networks database.
      *
      * @throws ServiceException If a database error occurs.
      */
-    public static void refresh() throws ServiceException {
+    public void refresh() throws ServiceException {
         for (String id : cache.keySet()) {
              get(id, true);
         }
@@ -84,7 +84,7 @@ public class ProfileCache {
     /**
      * Removes all Trading Networks partner profiles from the cache.
      */
-    public static void clear() {
+    public void clear() {
         cache.clear();
     }
 
@@ -93,7 +93,7 @@ public class ProfileCache {
      *
      * @throws ServiceException
      */
-    public static void seed() throws ServiceException {
+    public void seed() throws ServiceException {
         List summaries = ProfileStore.getProfileSummaryList(false, false);
 
         if (summaries != null) {
@@ -112,7 +112,7 @@ public class ProfileCache {
      * @return The list of all cached Trading Networks partner profiles.
      * @throws ServiceException If a database error occurs.
      */
-    public static IData[] list() throws ServiceException {
+    public IData[] list() throws ServiceException {
         return list(false);
     }
 
@@ -125,7 +125,7 @@ public class ProfileCache {
      * @return The list of all cached Trading Networks partner profiles.
      * @throws ServiceException If a database error occurs.
      */
-    public static IData[] list(boolean seed) throws ServiceException {
+    public IData[] list(boolean seed) throws ServiceException {
         if (seed) seed();
 
         List<IData> output = new ArrayList<IData>(cache.size());
@@ -145,7 +145,7 @@ public class ProfileCache {
      * @return   The partner profile associated with the given internal ID.
      * @throws ServiceException If a database error occurs.
      */
-    public static IData get(String id) throws ServiceException {
+    public IData get(String id) throws ServiceException {
         return get(id, false);
     }
 
@@ -160,7 +160,7 @@ public class ProfileCache {
      * @return        The partner profile associated with the given internal ID.
      * @throws ServiceException If a database error occurs.
      */
-    public static IData get(String id, boolean refresh) throws ServiceException {
+    public IData get(String id, boolean refresh) throws ServiceException {
         if (id == null) return null;
 
         IData output = null;
@@ -190,7 +190,7 @@ public class ProfileCache {
      *             external ID.
      * @throws ServiceException If a database error occurs.
      */
-    public static IData get(String id, String type) throws ServiceException {
+    public IData get(String id, String type) throws ServiceException {
         return get(id, type, false);
     }
 
@@ -207,7 +207,7 @@ public class ProfileCache {
      *                external ID.
      * @throws ServiceException If a database error occurs.
      */
-    public static IData get(String id, String type, boolean refresh) throws ServiceException {
+    public IData get(String id, String type, boolean refresh) throws ServiceException {
         return get(new ProfileID(id, type), refresh);
     }
 
@@ -219,7 +219,7 @@ public class ProfileCache {
      * @return   The profile associated with the given ID, or null if no profile exists with the given ID.
      * @throws ServiceException If a database error occurs.
      */
-    public static IData get(ProfileID id) throws ServiceException {
+    public IData get(ProfileID id) throws ServiceException {
         return get(id, false);
     }
 
@@ -233,7 +233,7 @@ public class ProfileCache {
      * @return        The profile associated with the given ID, or null if no profile exists with the given ID.
      * @throws ServiceException If a database error occurs.
      */
-    public static IData get(ProfileID id, boolean refresh) throws ServiceException {
+    public IData get(ProfileID id, boolean refresh) throws ServiceException {
         if (id == null) return null;
 
         IData output = null;
@@ -253,7 +253,7 @@ public class ProfileCache {
      * @return The Trading Networks My Enterprise profile.
      * @throws ServiceException If a database error occurs.
      */
-    public static IData self() throws ServiceException {
+    public IData self() throws ServiceException {
         return self(false);
     }
 
@@ -265,7 +265,7 @@ public class ProfileCache {
      * @return          The Trading Networks My Enterprise profile.
      * @throws ServiceException If a database error occurs.
      */
-    public static IData self(boolean refresh) throws ServiceException {
+    public IData self(boolean refresh) throws ServiceException {
         IData output = null;
 
         String id = ProfileStore.getMyID();
