@@ -90,6 +90,11 @@ public class DeliveryQueueHelper {
     private static final NSName UPDATE_QUEUED_TASK_SERVICE_NAME = NSName.create("wm.tn.queuing:updateQueuedTask");
 
     /**
+     * The name of the service used to update a delivery queue.
+     */
+    private static final NSName UPDATE_QUEUE_SERVICE_NAME = NSName.create("wm.tn.queuing:updateQueue");
+
+    /**
      * How long to wait between each poll of a delivery queue for more jobs.
      */
     private static final long WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 50;
@@ -238,13 +243,13 @@ public class DeliveryQueueHelper {
     public static void save(DeliveryQueue queue) throws ServiceException {
         if (queue == null) return;
 
-        IData pipeline = IDataFactory.create();
-        IDataCursor cursor = pipeline.getCursor();
-        IDataUtil.put(cursor, "queue", queue);
-        cursor.destroy();
-
         try {
-            Service.doInvoke("wm.tn.queuing", "updateQueue", pipeline);
+            IData pipeline = IDataFactory.create();
+            IDataCursor cursor = pipeline.getCursor();
+            IDataUtil.put(cursor, "queue", queue);
+            cursor.destroy();
+
+            Service.doInvoke(UPDATE_QUEUE_SERVICE_NAME, pipeline);
         } catch(Exception ex) {
             ExceptionHelper.raise(ex);
         }
