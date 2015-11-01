@@ -138,7 +138,8 @@ public class ProfileHelper {
 
         try {
             // if the id is null or doesn't exist, this call returns null
-            profile = ProfileStore.getProfile(id);
+            ProfileSummary summary = ProfileStore.getProfileSummary(id);
+            if (summary != null) profile = ProfileStore.getProfile(id);
         } catch(ProfileStoreException ex) {
             ExceptionHelper.raise(ex);
         }
