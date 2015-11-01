@@ -583,7 +583,7 @@ public class DeliveryQueueHelper {
         if (concurrency <= 1) {
             executor = new DirectExecutorService();
         } else {
-            ThreadFactory threadFactory = new ServerThreadFactory("TundraTN/Queue '" + queue.getQueueName() + "'", state);
+            ThreadFactory threadFactory = new ServerThreadFactory(MessageFormat.format("TundraTN/Queue \"{0}\"", queue.getQueueName()), state);
             BlockingQueue<Runnable> workQueue = new SynchronousQueue<Runnable>(true);
             RejectedExecutionHandler handler = new BlockingRejectedExecutionHandler();
 
