@@ -33,6 +33,7 @@ import com.wm.app.tn.db.QueueOperations;
 import com.wm.app.tn.db.SQLWrappers;
 import com.wm.app.tn.delivery.DeliveryQueue;
 import com.wm.app.tn.delivery.GuaranteedJob;
+import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
@@ -41,6 +42,7 @@ import com.wm.lang.ns.NSName;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.server.ServerThreadFactory;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
+import permafrost.tundra.tn.profile.ProfileCache;
 import permafrost.tundra.util.concurrent.BlockingRejectedExecutionHandler;
 import permafrost.tundra.util.concurrent.DirectExecutorService;
 import java.io.IOException;
@@ -410,6 +412,16 @@ public class DeliveryQueueHelper {
 
                 IDataCursor cursor = pipeline.getCursor();
                 IDataUtil.put(cursor, "$task", job);
+
+                BizDocEnvelope bizdoc = job.getBizDocEnvelope();
+
+                if (bizdoc != null) {
+                    bizdoc = BizDocEnvelopeHelper.get(bizdoc.getInternalId(), true);
+                    IDataUtil.put(cursor, "bizdoc", bizdoc);
+                    IDataUtil.put(cursor, "sender", ProfileCache.getInstance().get(bizdoc.getSenderId()));
+                    IDataUtil.put(cursor, "receiver", ProfileCache.getInstance().get(bizdoc.getReceiverId()));
+                }
+
                 cursor.destroy();
 
                 output = Service.doInvoke(service, session, pipeline);
