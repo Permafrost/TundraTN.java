@@ -60,12 +60,15 @@ import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * A collection of convenience methods for working with Trading Networks delivery queues.
@@ -540,14 +543,23 @@ public class DeliveryQueueHelper {
                         // there are no jobs currently waiting on the queue
                         if (results.size() > 0) {
                             // wait for first job to finish or polling timeout, then loop again and see if there are now jobs on the queue
-                            awaitFirst(results, WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS, TimeUnit.MILLISECONDS);
+                            try {
+                                awaitFirst(results, WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS, TimeUnit.MILLISECONDS);
+                            } catch(CancellationException ex) {
+                                // do nothing as we don't care at this point if execution was cancelled
+                            } catch(ExecutionException ex) {
+                                // do nothing as we don't care at this point if execution failed
+                            } catch(TimeoutException ex) {
+                                // do nothing as we don't care if the timeout was reached
+                            }
                         } else {
                             // if all threads have finished and there are no more jobs, then exit
                             break;
                         }
                     } else {
                         // submit the job to the executor to be processed
-                        results.add(executor.submit(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend)));
+                        Callable task = new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend);
+                        results.add(executor.submit(task));
                     }
 
                     if (invokedByTradingNetworks) queue = DeliveryQueueHelper.refresh(queue);
@@ -563,7 +575,8 @@ public class DeliveryQueueHelper {
 
                 // wait a while for existing tasks to terminate
                 if (!executor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                    executor.shutdownNow(); // cancel currently executing tasks
+                    // cancel currently executing tasks
+                    executor.shutdownNow();
                     // wait a while for tasks to respond to being cancelled
                     executor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 }
