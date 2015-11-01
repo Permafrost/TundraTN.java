@@ -39,6 +39,7 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSName;
+import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.server.ServerThreadFactory;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
@@ -91,7 +92,7 @@ public class DeliveryQueueHelper {
     /**
      * How long to wait between each poll of a delivery queue for more jobs.
      */
-    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 100;
+    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 50;
 
     /**
      * How long to wait for an executor to shut down or terminate.
@@ -388,7 +389,7 @@ public class DeliveryQueueHelper {
             this.job = job;
             this.service = service;
             this.session = session;
-            this.pipeline = pipeline == null ? IDataFactory.create() : pipeline;
+            this.pipeline = pipeline == null ? IDataFactory.create() : IDataHelper.duplicate(pipeline);
             this.retryLimit = retryLimit;
             this.retryFactor = retryFactor;
             this.timeToWait = timeToWait;
@@ -407,7 +408,7 @@ public class DeliveryQueueHelper {
 
             try {
                 BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, "DEQUEUED");
-                GuaranteedJobHelper.log(job, "MESSAGE", "Processing", MessageFormat.format("Dequeued from {0} queue '{1}'", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service '{0}' attempting to process document", service.getFullName()));
+                GuaranteedJobHelper.log(job, "MESSAGE", "Processing", MessageFormat.format("Dequeued from {0} queue \"{1}\"", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service \"{0}\" attempting to process document", service.getFullName()));
                 GuaranteedJobHelper.setRetryStrategy(job, retryLimit, retryFactor, timeToWait);
 
                 IDataCursor cursor = pipeline.getCursor();
