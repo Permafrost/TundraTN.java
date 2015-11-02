@@ -36,6 +36,10 @@ import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.manage.OmiUtils;
 import com.wm.app.tn.profile.ProfileStore;
 import com.wm.app.tn.profile.ProfileSummary;
+import com.wm.data.IData;
+import com.wm.data.IDataCursor;
+import com.wm.data.IDataUtil;
+import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
@@ -244,13 +248,14 @@ public class GuaranteedJobHelper {
 
         DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
 
+        boolean statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
         boolean exhausted = retries >= retryLimit && status.equals("FAILED");
         boolean failed = (retries > 0 && status.equals("QUEUED")) || exhausted;
 
         if (failed) {
             if (exhausted) {
                 if (retryLimit > 0) {
-                    log(job, "ERROR", "Delivery", MessageFormat.format("Exhausted all retries ({0}/{1})", retries, retryLimit), MessageFormat.format("Exhausted all retries ({0} of {1}) of delivery task ''{2}''", retries, retryLimit, job.getJobId()));
+                    log(job, "ERROR", "Delivery", MessageFormat.format("Exhausted all retries ({0}/{1})", retries, retryLimit), MessageFormat.format("Exhausted all retries ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName));
                 }
 
                 if (suspend) {
@@ -269,24 +274,19 @@ public class GuaranteedJobHelper {
                     if (!isSuspended) {
                         // suspend the queue if not already suspended
                         DeliveryQueueHelper.suspend(queue);
-
-                        if (queue.getQueueType().equals("private")) {
-                            log(job, "WARNING", "Delivery", "Suspended receiver's private queue '" + queueName + "'", "Delivery of receiver's private queue '" + queueName + "' was suspended due to task exhaustion");
-                        } else {
-                            log(job, "WARNING", "Delivery", "Suspended public queue '" + queueName + "'", "Delivery of public queue '" + queueName + "' was suspended due to task exhaustion");
-                        }
+                        log(job, "WARNING", "Delivery", MessageFormat.format("Suspended {0} queue \"{1}\"", queue.getQueueType(), queueName), MessageFormat.format("Delivery of {0} queue \"{1}\" was suspended due to task \"{2}\" exhaustion", queue.getQueueType(), queueName, job.getJobId()));
                     }
 
-                    BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), "QUEUED", isSuspended ? "REQUEUED" : "SUSPENDED");
-                    log(job, "MESSAGE", "Delivery", MessageFormat.format("Retries reset ({0}/{1})", retries, retryLimit), MessageFormat.format("Retries reset to ensure task is processed upon queue delivery resumption; if this task is not required to be processed again, it should be manually deleted. Next retry ({0} of {1}) scheduled no earlier than ''{2}''", retries, retryLimit, DateTimeHelper.format(nextRetry)));
+                    BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), "QUEUED", isSuspended ? "REQUEUED" : "SUSPENDED", statusSilence);
+                    log(job, "MESSAGE", "Delivery", MessageFormat.format("Retries reset ({0}/{1})", retries, retryLimit), MessageFormat.format("Retries reset to ensure task is processed upon queue delivery resumption; if this task is not required to be processed again, it should be manually deleted. Next retry ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\" scheduled no earlier than \"{5}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
                 }
             } else {
                 long nextRetry = calculateNextRetryDateTime(job);
                 job.setTimeUpdated(nextRetry); // force this job to wait for its next retry
                 save(job);
 
-                BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), "QUEUED", "REQUEUED");
-                log(job, "MESSAGE", "Delivery", MessageFormat.format("Next retry scheduled ({0}/{1})", retries, retryLimit), MessageFormat.format("Next retry ({0} of {1}) scheduled no earlier than ''{2}''", retries, retryLimit, DateTimeHelper.format(nextRetry)));
+                BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), "QUEUED", "REQUEUED", statusSilence);
+                log(job, "MESSAGE", "Delivery", MessageFormat.format("Next retry scheduled ({0}/{1})", retries, retryLimit), MessageFormat.format("Next retry ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\" scheduled no earlier than \"{5}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
             }
         }
     }

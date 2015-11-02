@@ -32,6 +32,7 @@ import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.QueueOperations;
 import com.wm.app.tn.db.SQLWrappers;
 import com.wm.app.tn.delivery.DeliveryQueue;
+import com.wm.app.tn.delivery.DeliverySchedule;
 import com.wm.app.tn.delivery.GuaranteedJob;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.data.IData;
@@ -40,6 +41,7 @@ import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSName;
 import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.server.ServerThreadFactory;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
@@ -108,6 +110,11 @@ public class DeliveryQueueHelper {
      * How long to wait for an executor to shut down or terminate.
      */
     private static final long EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 60;
+
+    /**
+     * The bizdoc user status to use when a job is dequeued.
+     */
+    private static final String DEQUEUED_USER_STATUS = "DEQUEUED";
 
     /**
      * Disallow instantiation of this class.
@@ -404,7 +411,6 @@ public class DeliveryQueueHelper {
             this.retryFactor = retryFactor;
             this.timeToWait = timeToWait;
             this.suspend = suspend;
-            this.timeDequeued = System.currentTimeMillis();
         }
 
         /**
@@ -417,7 +423,9 @@ public class DeliveryQueueHelper {
             IData output = null;
 
             try {
-                BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, "DEQUEUED");
+                timeDequeued = System.currentTimeMillis();
+
+                BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, getStatusSilence(queue));
                 GuaranteedJobHelper.log(job, "MESSAGE", "Processing", MessageFormat.format("Dequeued from {0} queue \"{1}\"", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service \"{0}\" attempting to process document", service.getFullName()));
                 GuaranteedJobHelper.setRetryStrategy(job, retryLimit, retryFactor, timeToWait);
 
@@ -691,6 +699,33 @@ public class DeliveryQueueHelper {
             if (result) break;
         }
         return result;
+    }
+
+    /**
+     * Returns whether bizdoc status should be changed or not.
+     *
+     * @param queue The queue check for status silence on.
+     * @return      True if bizdoc status should not be changed, otherwise false.
+     */
+    public static boolean getStatusSilence(DeliveryQueue queue) {
+        boolean statusSilence = false;
+
+        if (queue != null) {
+            DeliverySchedule schedule = queue.getSchedule();
+
+            if (schedule != null) {
+                IData pipeline = schedule.getInputs();
+                if (pipeline != null) {
+                    IDataCursor cursor = pipeline.getCursor();
+                    try {
+                        statusSilence = BooleanHelper.parse(IDataUtil.getString(cursor, "$status.silence?"));
+                    } finally {
+                        cursor.destroy();
+                    }
+                }
+            }
+        }
+        return statusSilence;
     }
 
     /**
