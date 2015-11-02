@@ -24,6 +24,7 @@
 
 package permafrost.tundra.tn.document;
 
+import java.text.MessageFormat;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BizDocStore;
@@ -128,8 +129,41 @@ public class BizDocEnvelopeHelper {
      * @throws ServiceException If a database error is encountered.
      */
     public static void setStatus(BizDocEnvelope bizdoc, String systemStatus, String userStatus) throws ServiceException {
-        if (bizdoc == null) return;
-        BizDocStore.changeStatus(bizdoc, systemStatus, userStatus);
+        setStatus(bizdoc, systemStatus, userStatus, false);
+    }
+
+    /**
+     * Updates the status on the given BizDocEnvelope.
+     *
+     * @param bizdoc       The BizDocEnvelope to update the status on.
+     * @param systemStatus The system status to be set.
+     * @param userStatus   The user status to be set.
+     * @param silence      If true, the status is not changed.
+     * @throws ServiceException If a database error is encountered.
+     */
+    public static void setStatus(BizDocEnvelope bizdoc, String systemStatus, String userStatus, boolean silence) throws ServiceException {
+        if (bizdoc == null || silence) return;
+        BizDocStore.changeStatus(bizdoc.getInternalId(), systemStatus, userStatus);
+        log(bizdoc, "MESSAGE", "General", "Status changed", getStatusMessage(systemStatus, userStatus));
+    }
+
+    /**
+     * Returns a message suitable for logging about the given status changes.
+     *
+     * @param systemStatus The system status that was set.
+     * @param userStatus   The user status that was set.
+     * @return             A message suitable for logging about the given status changes.
+     */
+    private static String getStatusMessage(String systemStatus, String userStatus) {
+        String message = null;
+        if (systemStatus != null && userStatus != null) {
+            message = MessageFormat.format("System status changed to \"{0}\"; user status changed to \"{1}\"", systemStatus, userStatus);
+        } else if (systemStatus != null) {
+            message = MessageFormat.format("System status changed to \"{0}\"", systemStatus);
+        } else if (userStatus != null) {
+            message = MessageFormat.format("User status changed to \"{0}\"", userStatus);
+        }
+        return message;
     }
 
     /**
