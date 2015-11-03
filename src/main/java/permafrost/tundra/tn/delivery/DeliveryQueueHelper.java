@@ -55,9 +55,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.text.MessageFormat;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
@@ -637,7 +637,7 @@ public class DeliveryQueueHelper {
         boolean invokedByTradingNetworks = invokedByTradingNetworks();
         Session session = Service.getSession();
         ExecutorService executor = getExecutor(queue, InvokeState.getCurrentState(), concurrency);
-        Queue<Future<IData>> results = new LinkedList<Future<IData>>();
+        Queue<Future<IData>> results = new ArrayDeque<Future<IData>>();
 
         try {
             while(true) {

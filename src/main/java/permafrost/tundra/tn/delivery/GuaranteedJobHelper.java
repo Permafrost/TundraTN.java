@@ -36,10 +36,6 @@ import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.manage.OmiUtils;
 import com.wm.app.tn.profile.ProfileStore;
 import com.wm.app.tn.profile.ProfileSummary;
-import com.wm.data.IData;
-import com.wm.data.IDataCursor;
-import com.wm.data.IDataUtil;
-import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
@@ -49,7 +45,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.MessageFormat;
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -115,7 +111,7 @@ public class GuaranteedJobHelper {
 
         String[] taskIDs = list(bizdoc.getInternalId());
 
-        List<GuaranteedJob> output = new LinkedList<GuaranteedJob>();
+        List<GuaranteedJob> output = new ArrayList<GuaranteedJob>();
 
         for (String taskID : taskIDs) {
             output.add(get(taskID));
@@ -138,7 +134,7 @@ public class GuaranteedJobHelper {
         PreparedStatement statement = null;
         ResultSet resultSet = null;
 
-        List<String> output = new LinkedList<String>();
+        List<String> output = new ArrayList<String>();
 
         try {
             connection = Datastore.getConnection();
