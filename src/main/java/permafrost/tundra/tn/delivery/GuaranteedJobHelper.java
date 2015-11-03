@@ -46,8 +46,11 @@ import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.MessageFormat;
+import java.util.LinkedList;
+import java.util.List;
 
 /**
  * A collection of convenience methods for working with Trading Networks delivery jobs.
@@ -64,9 +67,14 @@ public class GuaranteedJobHelper {
     private static final String UPDATE_DELIVERY_JOB_RETRY_STRATEGY_SQL = "UPDATE DeliveryJob SET RetryLimit = ?, RetryFactor = ?, TimeToWait = ? WHERE JobID = ?";
 
     /**
-     * SQL statement for updating a Trading Networks delivery job status to "DELIVERING"
+     * SQL statement for updating a Trading Networks delivery job status to "DELIVERING".
      */
     private static final String UPDATE_DELIVERY_JOB_STATUS_TO_DELIVERING_SQL = "deliver.job.update.delivering";
+
+    /**
+     * SQL statement for selecting all Trading Networks delivery jobs for a specific bizdoc.
+     */
+    private static final String SELECT_DELIVERY_JOBS_FOR_BIZDOC_SQL = "delivery.jobid.select.docid";
 
     /**
      * Disallow instantiation of this class.
@@ -93,6 +101,68 @@ public class GuaranteedJobHelper {
     public static GuaranteedJob refresh(GuaranteedJob job) {
         if (job == null) return null;
         return get(job.getJobId());
+    }
+
+    /**
+     * Returns all delivery queue jobs associated with the given BizDocEnvelope.
+     *
+     * @param bizdoc The BizDocEnvelope to return all associated jobs for.
+     * @return       An array of all delivery queue jobs associated with the given BizDocEnvelope.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static GuaranteedJob[] list(BizDocEnvelope bizdoc) throws ServiceException {
+        if (bizdoc == null) return null;
+
+        String[] taskIDs = list(bizdoc.getInternalId());
+
+        List<GuaranteedJob> output = new LinkedList<GuaranteedJob>();
+
+        for (String taskID : taskIDs) {
+            output.add(get(taskID));
+        }
+
+        return output.toArray(new GuaranteedJob[output.size()]);
+    }
+
+    /**
+     * Returns all delivery queue jobs associated with the given BizDocEnvelope.
+     *
+     * @param internalID The internal ID of the BizDocEnvelope to return all associated jobs for.
+     * @return           An array of all delivery queue job IDs associated with the given BizDocEnvelope.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static String[] list(String internalID) throws ServiceException {
+        if (internalID == null) return null;
+
+        Connection connection = null;
+        PreparedStatement statement = null;
+        ResultSet resultSet = null;
+
+        List<String> output = new LinkedList<String>();
+
+        try {
+            connection = Datastore.getConnection();
+            statement = SQLStatements.prepareStatement(connection, SELECT_DELIVERY_JOBS_FOR_BIZDOC_SQL);
+            statement.clearParameters();
+
+            statement.setString(1, internalID);
+
+            resultSet = statement.executeQuery();
+            while(resultSet.next()) {
+                output.add(resultSet.getString(1));
+            }
+
+            connection.commit();
+        } catch (SQLException ex) {
+            connection = Datastore.handleSQLException(connection, ex);
+            ExceptionHelper.raise(ex);
+        } finally {
+            SQLWrappers.close(resultSet);
+            SQLStatements.releaseStatement(statement);
+            Datastore.releaseConnection(connection);
+        }
+
+        return output.toArray(new String[output.size()]);
     }
 
     /**
@@ -184,7 +254,8 @@ public class GuaranteedJobHelper {
     }
 
     /**
-     * Saves the given job to the Trading Networks database.
+     * Saves the given job to the Trading Networks database. This method differs from job.save() as this method
+     * preserves the job's updated time rather than setting it to current time as job.save() does.
      *
      * @param job The job to be saved.
      * @throws ServiceException If a database error is encountered.
