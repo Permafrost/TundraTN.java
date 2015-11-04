@@ -324,8 +324,6 @@ public class GuaranteedJobHelper {
 
         job = refresh(job);
 
-        boolean hasUnrecoverableErrors = hasUnrecoverableErrors(job);
-
         int retryLimit = job.getRetryLimit();
         int retries = job.getRetries();
         int status = job.getStatusVal();
@@ -338,15 +336,8 @@ public class GuaranteedJobHelper {
         boolean failed = (retries > 0 && status == GuaranteedJob.QUEUED) || exhausted;
 
         if (failed) {
-            if (exhausted || hasUnrecoverableErrors) {
-                if (hasUnrecoverableErrors) {
-                    log(job, "ERROR", "Delivery", "Delivery aborted", MessageFormat.format("Delivery task \"{0}\" on {1} queue \"{2}\" aborted due to unrecoverable errors", job.getJobId(), queue.getQueueType(), queueName));
-
-                    if (!suspend) {
-                        job.setStatus(GuaranteedJob.FAILED);
-                        save(job);
-                    }
-                } else if (retryLimit > 0) {
+            if (exhausted) {
+                if (retryLimit > 0) {
                     log(job, "ERROR", "Delivery", MessageFormat.format("Exhausted all retries ({0}/{1})", retries, retryLimit), MessageFormat.format("Exhausted all retries ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName));
                 }
 
