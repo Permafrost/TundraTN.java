@@ -73,6 +73,21 @@ public class GuaranteedJobHelper {
     private static final String SELECT_DELIVERY_JOBS_FOR_BIZDOC_SQL = "delivery.jobid.select.docid";
 
     /**
+     * The system status to use when queuing a BizDocEnvelope.
+     */
+    private static final String BIZDOC_ENVELOPE_QUEUED_SYSTEM_STATUS = "QUEUED";
+
+    /**
+     * The user status to use when retrying a BizDocEnvelope delivery queue job.
+     */
+    private static final String BIZDOC_ENVELOPE_REQUEUED_USER_STATUS = "REQUEUED";
+
+    /**
+     * The user status to use when suspending a delivery queue due to BizDocEnvelope delivery queue job exhaustion.
+     */
+    private static final String BIZDOC_ENVELOPE_SUSPENDED_USER_STATUS = "SUSPENDED";
+
+    /**
      * Disallow instantiation of this class.
      */
     private GuaranteedJobHelper() {}
@@ -162,8 +177,8 @@ public class GuaranteedJobHelper {
     }
 
     /**
-     * Update the retry settings on the given job using the given settings, or the retry settings on the receiver's profile
-     * if the given retryLimit <= 0.
+     * Update the retry settings on the given job using the given settings, or the retry settings on the receiver's
+     * profile if the given retryLimit <= 0.
      *
      * @param job               The job to be updated.
      * @param retryLimit        The number of retries this job should attempt.
@@ -296,7 +311,8 @@ public class GuaranteedJobHelper {
     }
 
     /**
-     * Re-enqueues the given job for delivery, unless it has reached its retry limit.
+     * Re-enqueues the given job for delivery, unless it has reached its retry limit or there are unrecoverable
+     * errors on the owning BizDocEnvelope.
      *
      * @param job     The job to be retried.
      * @param suspend Whether the owning delivery queue should be suspended if the job has
@@ -308,20 +324,29 @@ public class GuaranteedJobHelper {
 
         job = refresh(job);
 
+        boolean hasUnrecoverableErrors = hasUnrecoverableErrors(job);
+
         int retryLimit = job.getRetryLimit();
         int retries = job.getRetries();
-        String status = job.getStatus();
+        int status = job.getStatusVal();
         String queueName = job.getQueueName();
 
         DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
 
         boolean statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
-        boolean exhausted = retries >= retryLimit && status.equals("FAILED");
-        boolean failed = (retries > 0 && status.equals("QUEUED")) || exhausted;
+        boolean exhausted = retries >= retryLimit && status == GuaranteedJob.FAILED;
+        boolean failed = (retries > 0 && status == GuaranteedJob.QUEUED) || exhausted;
 
         if (failed) {
-            if (exhausted) {
-                if (retryLimit > 0) {
+            if (exhausted || hasUnrecoverableErrors) {
+                if (hasUnrecoverableErrors) {
+                    log(job, "ERROR", "Delivery", "Delivery aborted", MessageFormat.format("Delivery task \"{0}\" on {1} queue \"{2}\" aborted due to unrecoverable errors", job.getJobId(), queue.getQueueType(), queueName));
+
+                    if (!suspend) {
+                        job.setStatus(GuaranteedJob.FAILED);
+                        save(job);
+                    }
+                } else if (retryLimit > 0) {
                     log(job, "ERROR", "Delivery", MessageFormat.format("Exhausted all retries ({0}/{1})", retries, retryLimit), MessageFormat.format("Exhausted all retries ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName));
                 }
 
@@ -344,7 +369,7 @@ public class GuaranteedJobHelper {
                         log(job, "WARNING", "Delivery", MessageFormat.format("Suspended {0} queue \"{1}\"", queue.getQueueType(), queueName), MessageFormat.format("Delivery of {0} queue \"{1}\" was suspended due to task \"{2}\" exhaustion", queue.getQueueType(), queueName, job.getJobId()));
                     }
 
-                    BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), "QUEUED", isSuspended ? "REQUEUED" : "SUSPENDED", statusSilence);
+                    BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), BIZDOC_ENVELOPE_QUEUED_SYSTEM_STATUS, isSuspended ? BIZDOC_ENVELOPE_REQUEUED_USER_STATUS : BIZDOC_ENVELOPE_SUSPENDED_USER_STATUS, statusSilence);
                     log(job, "MESSAGE", "Delivery", MessageFormat.format("Retries reset ({0}/{1})", retries, retryLimit), MessageFormat.format("Retries reset to ensure task is processed upon queue delivery resumption; if this task is not required to be processed again, it should be manually deleted. Next retry ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\" scheduled no earlier than \"{5}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
                 }
             } else {
@@ -352,7 +377,7 @@ public class GuaranteedJobHelper {
                 job.setTimeUpdated(nextRetry); // force this job to wait for its next retry
                 save(job);
 
-                BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), "QUEUED", "REQUEUED", statusSilence);
+                BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), BIZDOC_ENVELOPE_QUEUED_SYSTEM_STATUS, BIZDOC_ENVELOPE_REQUEUED_USER_STATUS, statusSilence);
                 log(job, "MESSAGE", "Delivery", MessageFormat.format("Next retry scheduled ({0}/{1})", retries, retryLimit), MessageFormat.format("Next retry ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\" scheduled no earlier than \"{5}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
             }
         }
@@ -381,6 +406,17 @@ public class GuaranteedJobHelper {
         }
 
         return nextRetry;
+    }
+
+    /**
+     * Returns true if the owning BizDocEnvelope for the given GuaranteedJob has any unrecoverable errors.
+     *
+     * @param job The GuaranteedJob to check for unrecoverable errors.
+     * @return    True if the given GuaranteedJob has unrecoverable errors.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static boolean hasUnrecoverableErrors(GuaranteedJob job) throws ServiceException {
+        return BizDocEnvelopeHelper.hasUnrecoverableErrors(job.getBizDocEnvelope());
     }
 
     /**

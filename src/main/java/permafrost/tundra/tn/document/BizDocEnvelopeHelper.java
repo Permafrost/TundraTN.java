@@ -30,6 +30,8 @@ import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BizDocStore;
 import com.wm.app.tn.db.DatastoreException;
 import com.wm.app.tn.doc.BizDocEnvelope;
+import com.wm.app.tn.doc.BizDocErrorSet;
+import com.wm.app.tn.err.ActivityLogEntry;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
@@ -40,6 +42,11 @@ import permafrost.tundra.lang.ExceptionHelper;
  * A collection of convenience methods for working with Trading Networks BizDocEnvelope objects.
  */
 public class BizDocEnvelopeHelper {
+    /**
+     * The activity log message class that represents unrecoverable errors.
+     */
+    private static final String ACTIVITY_LOG_UNRECOVERABLE_MESSAGE_CLASS = "Unrecoverable";
+
     /**
      * Disallow instantiation of this class.
      */
@@ -121,6 +128,18 @@ public class BizDocEnvelopeHelper {
     }
 
     /**
+     * Refreshes the given BizDocEnvelope from the Trading Networks database.
+     *
+     * @param document The BizDocEnvelope to be refreshed.
+     * @return         The given BizDocEnvelope refreshed from the Trading Networks database.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static BizDocEnvelope refresh(BizDocEnvelope document) throws ServiceException {
+        if (document == null) return null;
+        return get(document.getInternalId());
+    }
+
+    /**
      * Updates the status on the given BizDocEnvelope.
      *
      * @param bizdoc       The BizDocEnvelope to update the status on.
@@ -197,5 +216,54 @@ public class BizDocEnvelopeHelper {
         } catch (Exception ex) {
             ExceptionHelper.raise(ex);
         }
+    }
+
+    /**
+     * Returns true if the given BizDocEnvelope has any unrecoverable errors.
+     *
+     * @param document      The BizDocEnvelope to check for unrecoverable errors.
+     * @return              True if the given BizDocEnvelope has unrecoverable errors.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static boolean hasUnrecoverableErrors(BizDocEnvelope document) throws ServiceException {
+        return hasErrors(document, ACTIVITY_LOG_UNRECOVERABLE_MESSAGE_CLASS);
+    }
+
+    /**
+     * Returns true if the given BizDocEnvelope has any errors.
+     *
+     * @param document      The BizDocEnvelope to check for errors.
+     * @return              True if the given BizDocEnvelope has errors.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static boolean hasErrors(BizDocEnvelope document) throws ServiceException {
+        return hasErrors(document, null);
+    }
+
+    /**
+     * Returns true if the given BizDocEnvelope has any errors of the given message class.
+     *
+     * @param document      The BizDocEnvelope to check for errors.
+     * @param messageClass  The class of error to check for.
+     * @return              True if the given BizDocEnvelope has errors of the given class.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static boolean hasErrors(BizDocEnvelope document, String messageClass) throws ServiceException {
+        boolean hasErrors = false;
+
+        if (document != null) {
+            BizDocErrorSet errorSet = refresh(document).getErrorSet();
+
+            if (errorSet != null && errorSet.getErrorCount() > 0) {
+                if (messageClass == null) {
+                    hasErrors = true;
+                } else {
+                    ActivityLogEntry[] activityLogEntries = errorSet.getErrors(messageClass);
+                    hasErrors = activityLogEntries != null && activityLogEntries.length > 0;
+                }
+            }
+        }
+
+        return hasErrors;
     }
 }
