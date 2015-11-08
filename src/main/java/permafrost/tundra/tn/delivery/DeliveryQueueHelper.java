@@ -273,7 +273,7 @@ public class DeliveryQueueHelper {
      * @param queue   The delivery queue whose head job is to be returned.
      * @param ordered Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
      * @return        The job at the head of the given queue, or null if the queue is empty.
-     * @throws ServiceException
+     * @throws ServiceException If a database error occurs.
      */
     public static GuaranteedJob peek(DeliveryQueue queue, boolean ordered) throws ServiceException {
         if (queue == null) return null;
@@ -291,13 +291,14 @@ public class DeliveryQueueHelper {
             String queueName = queue.getQueueName();
             SQLWrappers.setChoppedString(statement, 1, queueName, "DeliveryQueue.QueueName");
             SQLWrappers.setChoppedString(statement, 2, queueName, "DeliveryQueue.QueueName");
-            SQLWrappers.setTimestamp(statement, 3, new Timestamp(new Date().getTime()));
+            SQLWrappers.setTimestamp(statement, 3, new Timestamp(System.currentTimeMillis()));
 
             results = statement.executeQuery();
+
             if (results.next()) {
-                String id = results.getString(1);
-                job = GuaranteedJobHelper.get(id);
+                job = GuaranteedJobHelper.get(results.getString(1));
             }
+
             connection.commit();
         } catch (SQLException ex) {
             connection = Datastore.handleSQLException(connection, ex);
@@ -317,7 +318,7 @@ public class DeliveryQueueHelper {
      * @param queue   The delivery queue to dequeue the head job from.
      * @param ordered Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
      * @return        The dequeued job that was at the head of the given queue, or null if queue is empty.
-     * @throws ServiceException If a database error is encountered.
+     * @throws ServiceException If a database error occurs.
      */
     public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered) throws ServiceException {
         GuaranteedJob job = peek(queue, ordered);
@@ -424,7 +425,7 @@ public class DeliveryQueueHelper {
          * Invokes the provided service with the provided pipeline and session against the job.
          *
          * @return The output pipeline returned by the invocation.
-         * @throws Exception if the service encounters an error.
+         * @throws Exception If the service encounters an error.
          */
         public IData call() throws Exception {
             IData output = null;
