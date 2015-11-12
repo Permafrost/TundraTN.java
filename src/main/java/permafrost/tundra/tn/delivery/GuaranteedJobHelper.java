@@ -177,6 +177,19 @@ public class GuaranteedJobHelper {
     }
 
     /**
+     * Restarts the given job. This method, unlike JobMgr.restartJob, does not require the job status to be
+     * "STOPPED" or "FAILED", and will restart the given job regardless of its status.
+     *
+     * @param job The job to be restarted.
+     */
+    public static void restart(GuaranteedJob job) {
+        if (job != null) {
+            job.reset();
+            job.save();
+        }
+    }
+
+    /**
      * Update the retry settings on the given job using the given settings, or the retry settings on the receiver's
      * profile if the given retryLimit <= 0.
      *
