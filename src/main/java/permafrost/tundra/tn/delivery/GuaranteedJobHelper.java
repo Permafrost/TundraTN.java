@@ -36,6 +36,9 @@ import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.manage.OmiUtils;
 import com.wm.app.tn.profile.ProfileStore;
 import com.wm.app.tn.profile.ProfileSummary;
+import com.wm.data.IData;
+import com.wm.data.IDataCursor;
+import com.wm.data.IDataUtil;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
@@ -112,6 +115,33 @@ public class GuaranteedJobHelper {
     public static GuaranteedJob refresh(GuaranteedJob job) {
         if (job == null) return null;
         return get(job.getJobId());
+    }
+
+    /**
+     * Returns a GuaranteedJob, if given either a subset or full GuaranteedJob as an IData document.
+     *
+     * @param input             An IData document which could be a GuaranteedJob, or could be a subset of a
+     *                          GuaranteedJob that includes an TaskId key.
+     * @return                  The GuaranteedJob associated with the given IData document.
+     */
+    public static GuaranteedJob normalize(IData input) {
+        if (input == null) return null;
+
+        GuaranteedJob job = null;
+
+        if (input instanceof GuaranteedJob) {
+            job = (GuaranteedJob)input;
+        } else {
+            IDataCursor cursor = input.getCursor();
+            String id = IDataUtil.getString(cursor, "TaskId");
+            cursor.destroy();
+
+            if (id == null) throw new IllegalArgumentException("TaskId is required");
+
+            job = get(id);
+        }
+
+        return job;
     }
 
     /**
