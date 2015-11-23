@@ -44,6 +44,7 @@ import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.server.ServerThreadFactory;
+import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.profile.ProfileCache;
 import permafrost.tundra.util.concurrent.BlockingRejectedExecutionHandler;
@@ -430,8 +431,13 @@ public class DeliveryQueueHelper {
         public IData call() throws Exception {
             IData output = null;
 
+            Thread owningThread = Thread.currentThread();
+            String owningThreadPrefix = owningThread.getName();
+
             try {
                 timeDequeued = System.currentTimeMillis();
+
+                owningThread.setName(MessageFormat.format("{0}: Task \"{1}\" started at {2}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
 
                 BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence || getStatusSilence(queue));
                 GuaranteedJobHelper.log(job, "MESSAGE", "Processing", MessageFormat.format("Dequeued from {0} queue \"{1}\"", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service \"{0}\" attempting to process document", service.getFullName()));
@@ -452,9 +458,14 @@ public class DeliveryQueueHelper {
 
                 output = Service.doInvoke(service, session, pipeline);
 
+                owningThread.setName(MessageFormat.format("{0}: Task \"{1}\" completed at {2}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
                 setJobCompleted(output);
-            } catch(Throwable ex) {
+            } catch(Exception ex) {
+                owningThread.setName(MessageFormat.format("{0}: Task \"{1}\" failed at {2}: {3}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime"), ExceptionHelper.getMessage(ex)));
                 setJobCompleted(output, ex);
+                throw ex;
+            } finally {
+                owningThread.setName(owningThreadPrefix);
             }
 
             return output;
