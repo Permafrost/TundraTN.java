@@ -58,7 +58,6 @@ import java.sql.Timestamp;
 import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
@@ -70,6 +69,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -111,6 +111,11 @@ public class DeliveryQueueHelper {
      * How long to wait for an executor to shut down or terminate.
      */
     private static final long EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 60;
+
+    /**
+     * How long to wait for an idle thread to be removed from the executor pool.
+     */
+    private static final int EXECUTOR_THREAD_KEEP_ALIVE_TIMEOUT_SECONDS = 60;
 
     /**
      * The bizdoc user status to use when a job is dequeued.
@@ -695,20 +700,13 @@ public class DeliveryQueueHelper {
         } finally {
             try {
                 executor.shutdown();
-
                 // wait a while for existing tasks to terminate
-                if (!executor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                    // cancel currently executing tasks
-                    executor.shutdownNow();
-                    // wait a while for tasks to respond to being cancelled
-                    executor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                }
+                executor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             } catch (InterruptedException ex) {
-                // cancel if current thread also interrupted
-                executor.shutdownNow();
                 // preserve interrupt status
                 Thread.currentThread().interrupt();
             } finally {
+                executor.shutdownNow();
                 awaitAll(results);
             }
         }
@@ -732,7 +730,7 @@ public class DeliveryQueueHelper {
             BlockingQueue<Runnable> workQueue = new SynchronousQueue<Runnable>(true);
             RejectedExecutionHandler handler = new BlockingRejectedExecutionHandler();
 
-            executor = new java.util.concurrent.ThreadPoolExecutor(concurrency, concurrency, 1, TimeUnit.MINUTES, workQueue, threadFactory, handler);
+            executor = new ThreadPoolExecutor(concurrency, concurrency, EXECUTOR_THREAD_KEEP_ALIVE_TIMEOUT_SECONDS, TimeUnit.SECONDS, workQueue, threadFactory, handler);
         }
 
         return executor;
