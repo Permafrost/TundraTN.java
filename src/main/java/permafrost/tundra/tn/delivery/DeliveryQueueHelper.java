@@ -43,6 +43,7 @@ import com.wm.lang.ns.NSName;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
+import permafrost.tundra.lang.ThreadHelper;
 import permafrost.tundra.server.ServerThreadFactory;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
@@ -392,10 +393,9 @@ public class DeliveryQueueHelper {
          * @param retryFactor   The factor used to extend the time to wait on each retry.
          * @param timeToWait    The time in seconds to wait between each retry.
          * @param suspend       Whether to suspend the delivery queue on job retry exhaustion.
-         * @param statusSilence Whether the owning bizdoc's status should be updated to reflect job success/failure
          */
-        public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, String service, Session session, IData pipeline, int retryLimit, int retryFactor, int timeToWait, boolean suspend, boolean statusSilence) {
-            this(queue, job, service == null ? null : NSName.create(service), session, pipeline, retryLimit, retryFactor, timeToWait, suspend, statusSilence);
+        public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, String service, Session session, IData pipeline, int retryLimit, int retryFactor, int timeToWait, boolean suspend) {
+            this(queue, job, service == null ? null : NSName.create(service), session, pipeline, retryLimit, retryFactor, timeToWait, suspend);
         }
 
         /**
@@ -409,9 +409,8 @@ public class DeliveryQueueHelper {
          * @param retryFactor   The factor used to extend the time to wait on each retry.
          * @param timeToWait    The time in seconds to wait between each retry.
          * @param suspend       Whether to suspend the delivery queue on job retry exhaustion.
-         * @param statusSilence Whether the owning bizdoc's status should be updated to reflect job success/failure
          */
-        public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, int retryFactor, int timeToWait, boolean suspend, boolean statusSilence) {
+        public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, int retryFactor, int timeToWait, boolean suspend) {
             if (queue == null) throw new NullPointerException("queue must not be null");
             if (job == null) throw new NullPointerException("job must not be null");
             if (service == null) throw new NullPointerException("service must not be null");
@@ -425,6 +424,7 @@ public class DeliveryQueueHelper {
             this.retryFactor = retryFactor;
             this.timeToWait = timeToWait;
             this.suspend = suspend;
+            this.statusSilence = getStatusSilence(queue);
         }
 
         /**
@@ -444,7 +444,7 @@ public class DeliveryQueueHelper {
 
                 owningThread.setName(MessageFormat.format("{0}: Task \"{1}\" started at {2}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
 
-                BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence || getStatusSilence(queue));
+                BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence);
                 GuaranteedJobHelper.log(job, "MESSAGE", "Processing", MessageFormat.format("Dequeued from {0} queue \"{1}\"", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service \"{0}\" attempting to process document", service.getFullName()));
 
                 IDataCursor cursor = pipeline.getCursor();
@@ -534,109 +534,23 @@ public class DeliveryQueueHelper {
      * @param queueName         The name of the delivery queue whose queued jobs are to be processed.
      * @param service           The service to be invoked to process jobs on the given delivery queue.
      * @param pipeline          The input pipeline used when invoking the given service.
-     * @throws ServiceException If an error is encountered while processing jobs.
-     */
-    public static void each(String queueName, String service, IData pipeline) throws ServiceException {
-        each(queueName, service, pipeline, 1);
-    }
-
-    /**
-     * Dequeues each task on the given Trading Networks delivery queue, and processes the task using the given service
-     * and input pipeline; if concurrency > 1, tasks will be processed by a thread pool whose size is equal to the
-     * desired concurrency, otherwise they will be processed on the current thread.
-     *
-     * @param queueName         The name of the delivery queue whose queued jobs are to be processed.
-     * @param service           The service to be invoked to process jobs on the given delivery queue.
-     * @param pipeline          The input pipeline used when invoking the given service.
-     * @param concurrency       If > 1, this is the number of threads used to process jobs simultaneously.
-     * @throws ServiceException If an error is encountered while processing jobs.
-     */
-    public static void each(String queueName, String service, IData pipeline, int concurrency) throws ServiceException {
-        each(queueName, service, pipeline, concurrency, 1, 1, 0);
-    }
-
-    /**
-     * Dequeues each task on the given Trading Networks delivery queue, and processes the task using the given service
-     * and input pipeline; if concurrency > 1, tasks will be processed by a thread pool whose size is equal to the
-     * desired concurrency, otherwise they will be processed on the current thread.
-     *
-     * @param queueName         The name of the delivery queue whose queued jobs are to be processed.
-     * @param service           The service to be invoked to process jobs on the given delivery queue.
-     * @param pipeline          The input pipeline used when invoking the given service.
      * @param concurrency       If > 1, this is the number of threads used to process jobs simultaneously.
      * @param retryLimit        The number of retries this job should attempt.
      * @param retryFactor       The factor used to extend the time to wait on each retry.
      * @param timeToWait        The time in seconds to wait between each retry.
-     * @throws ServiceException If an error is encountered while processing jobs.
-     */
-    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait) throws ServiceException {
-        each(queueName, service, pipeline, concurrency, retryLimit, retryFactor, timeToWait, false);
-    }
-
-    /**
-     * Dequeues each task on the given Trading Networks delivery queue, and processes the task using the given service
-     * and input pipeline; if concurrency > 1, tasks will be processed by a thread pool whose size is equal to the
-     * desired concurrency, otherwise they will be processed on the current thread.
-     *
-     * @param queueName         The name of the delivery queue whose queued jobs are to be processed.
-     * @param service           The service to be invoked to process jobs on the given delivery queue.
-     * @param pipeline          The input pipeline used when invoking the given service.
-     * @param concurrency       If > 1, this is the number of threads used to process jobs simultaneously.
-     * @param retryLimit        The number of retries this job should attempt.
-     * @param retryFactor       The factor used to extend the time to wait on each retry.
-     * @param timeToWait        The time in seconds to wait between each retry.
-     * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
-     * @throws ServiceException If an error is encountered while processing jobs.
-     */
-    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, boolean ordered) throws ServiceException {
-        each(queueName, service, pipeline, concurrency, retryLimit, retryFactor, timeToWait, ordered, false);
-    }
-
-    /**
-     * Dequeues each task on the given Trading Networks delivery queue, and processes the task using the given service
-     * and input pipeline; if concurrency > 1, tasks will be processed by a thread pool whose size is equal to the
-     * desired concurrency, otherwise they will be processed on the current thread.
-     *
-     * @param queueName         The name of the delivery queue whose queued jobs are to be processed.
-     * @param service           The service to be invoked to process jobs on the given delivery queue.
-     * @param pipeline          The input pipeline used when invoking the given service.
-     * @param concurrency       If > 1, this is the number of threads used to process jobs simultaneously.
-     * @param retryLimit        The number of retries this job should attempt.
-     * @param retryFactor       The factor used to extend the time to wait on each retry.
-     * @param timeToWait        The time in seconds to wait between each retry.
+     * @param threadPriority    The thread priority used when processing tasks.
      * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, boolean ordered, boolean suspend) throws ServiceException {
-        each(queueName, service, pipeline, concurrency, retryLimit, retryFactor, timeToWait, ordered, suspend, false);
-    }
-
-    /**
-     * Dequeues each task on the given Trading Networks delivery queue, and processes the task using the given service
-     * and input pipeline; if concurrency > 1, tasks will be processed by a thread pool whose size is equal to the
-     * desired concurrency, otherwise they will be processed on the current thread.
-     *
-     * @param queueName         The name of the delivery queue whose queued jobs are to be processed.
-     * @param service           The service to be invoked to process jobs on the given delivery queue.
-     * @param pipeline          The input pipeline used when invoking the given service.
-     * @param concurrency       If > 1, this is the number of threads used to process jobs simultaneously.
-     * @param retryLimit        The number of retries this job should attempt.
-     * @param retryFactor       The factor used to extend the time to wait on each retry.
-     * @param timeToWait        The time in seconds to wait between each retry.
-     * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
-     * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
-     * @param statusSilence     Whether the owning bizdoc's status should be updated to reflect job success/failure
-     * @throws ServiceException If an error is encountered while processing jobs.
-     */
-    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, boolean ordered, boolean suspend, boolean statusSilence) throws ServiceException {
+    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean ordered, boolean suspend) throws ServiceException {
         if (queueName == null) throw new NullPointerException("queueName must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
 
         DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
         if (queue == null) throw new ServiceException("Queue '" + queueName + "' does not exist");
 
-        each(queue, NSName.create(service), pipeline, concurrency, retryLimit, retryFactor, timeToWait, ordered, suspend, statusSilence);
+        each(queue, NSName.create(service), pipeline, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, ordered, suspend);
     }
 
     /**
@@ -651,16 +565,27 @@ public class DeliveryQueueHelper {
      * @param retryLimit        The number of retries this job should attempt.
      * @param retryFactor       The factor used to extend the time to wait on each retry.
      * @param timeToWait        The time in seconds to wait between each retry.
+     * @param threadPriority    The thread priority used when processing tasks.
      * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
-     * @param statusSilence     Whether the owning bizdoc's status should be updated to reflect job success/failure
      * @throws ServiceException If an error is encountered while processing jobs.
      */
     @SuppressWarnings("unchecked")
-    public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, boolean ordered, boolean suspend, boolean statusSilence) throws ServiceException {
+    public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean ordered, boolean suspend) throws ServiceException {
+        // set owning thread priority and name
+        String previousThreadName = Thread.currentThread().getName();
+        int previousThreadPriority = Thread.currentThread().getPriority();
+        Thread.currentThread().setPriority(ThreadHelper.normalizePriority(threadPriority));
+
+        String threadName = getThreadPrefix(queue);
+        if (concurrency > 1) {
+            threadName = threadName + ": Task Manager/Producer";
+        }
+        Thread.currentThread().setName(threadName);
+
         boolean invokedByTradingNetworks = invokedByTradingNetworks();
         Session session = Service.getSession();
-        ExecutorService executor = getExecutor(queue, InvokeState.getCurrentState(), concurrency);
+        ExecutorService executor = getExecutor(queue, InvokeState.getCurrentState(), concurrency, threadPriority);
         Queue<Future<IData>> results = new ArrayDeque<Future<IData>>();
 
         try {
@@ -686,7 +611,7 @@ public class DeliveryQueueHelper {
                         }
                     } else {
                         // submit the job to the executor to be processed
-                        Callable task = new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, statusSilence);
+                        Callable task = new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend);
                         results.add(executor.submit(task));
                     }
 
@@ -708,6 +633,9 @@ public class DeliveryQueueHelper {
             } finally {
                 executor.shutdownNow();
                 awaitAll(results);
+                // restore owning thread priority and name
+                Thread.currentThread().setPriority(previousThreadPriority);
+                Thread.currentThread().setName(previousThreadName);
             }
         }
     }
@@ -718,15 +646,16 @@ public class DeliveryQueueHelper {
      * @param queue       The delivery queue to be processed.
      * @param state       The invoke state to be used by the thread pool.
      * @param concurrency The level of desired concurrency.
+     * @param priority    The thread priority to be used by the returned executor.
      * @return            An executor appropriate for the level of desired concurrency.
      */
-    private static ExecutorService getExecutor(DeliveryQueue queue, InvokeState state, int concurrency) {
+    private static ExecutorService getExecutor(DeliveryQueue queue, InvokeState state, int concurrency, int priority) {
         ExecutorService executor;
 
         if (concurrency <= 1) {
             executor = new DirectExecutorService();
         } else {
-            ThreadFactory threadFactory = new ServerThreadFactory(MessageFormat.format("TundraTN/Queue \"{0}\"", queue.getQueueName()), state);
+            ThreadFactory threadFactory = new ServerThreadFactory(getThreadPrefix(queue), state, priority);
             BlockingQueue<Runnable> workQueue = new SynchronousQueue<Runnable>(true);
             RejectedExecutionHandler handler = new BlockingRejectedExecutionHandler();
 
@@ -734,6 +663,16 @@ public class DeliveryQueueHelper {
         }
 
         return executor;
+    }
+
+    /**
+     * Returns the thread name prefix to be used for this delivery queue.
+     *
+     * @param queue The queue which will be processed by threads with the returned prefix.
+     * @return      The thread name prefix used when processing the qiven queue.
+     */
+    private static String getThreadPrefix(DeliveryQueue queue) {
+        return MessageFormat.format("TundraTN/Queue \"{0}\"", queue.getQueueName());
     }
 
     // waits for all futures in the given queue to complete
