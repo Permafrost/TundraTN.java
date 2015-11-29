@@ -106,7 +106,7 @@ public class DeliveryQueueHelper {
     /**
      * How long to wait between each poll of a delivery queue for more jobs.
      */
-    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 50;
+    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 5;
 
     /**
      * How long to wait for an executor to shut down or terminate.
