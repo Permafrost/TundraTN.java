@@ -49,6 +49,7 @@ import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.profile.ProfileCache;
 import permafrost.tundra.util.concurrent.BlockingRejectedExecutionHandler;
+import permafrost.tundra.util.concurrent.BlockingServerThreadPoolExecutor;
 import permafrost.tundra.util.concurrent.DirectExecutorService;
 import java.io.IOException;
 import java.sql.Connection;
@@ -585,7 +586,7 @@ public class DeliveryQueueHelper {
 
         boolean invokedByTradingNetworks = invokedByTradingNetworks();
         Session session = Service.getSession();
-        ExecutorService executor = getExecutor(queue, InvokeState.getCurrentState(), concurrency, threadPriority);
+        ExecutorService executor = getExecutor(queue, concurrency, threadPriority, InvokeState.getCurrentState());
         Queue<Future<IData>> results = new ArrayDeque<Future<IData>>();
 
         try {
@@ -625,14 +626,7 @@ public class DeliveryQueueHelper {
         } finally {
             try {
                 executor.shutdown();
-                // wait a while for existing tasks to terminate
-                executor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            } catch (InterruptedException ex) {
-                // preserve interrupt status
-                Thread.currentThread().interrupt();
             } finally {
-                executor.shutdownNow();
-                awaitAll(results);
                 // restore owning thread priority and name
                 Thread.currentThread().setPriority(previousThreadPriority);
                 Thread.currentThread().setName(previousThreadName);
@@ -643,23 +637,19 @@ public class DeliveryQueueHelper {
     /**
      * Returns an executor appropriate for the level of desired concurrency.
      *
-     * @param queue       The delivery queue to be processed.
-     * @param state       The invoke state to be used by the thread pool.
-     * @param concurrency The level of desired concurrency.
-     * @param priority    The thread priority to be used by the returned executor.
-     * @return            An executor appropriate for the level of desired concurrency.
+     * @param queue          The delivery queue to be processed.
+     * @param concurrency    The level of desired concurrency.
+     * @param threadPriority The thread priority to be used by the returned executor.
+     * @param invokeState    The invoke state to be used by the thread pool.
+     * @return               An executor appropriate for the level of desired concurrency.
      */
-    private static ExecutorService getExecutor(DeliveryQueue queue, InvokeState state, int concurrency, int priority) {
+    private static ExecutorService getExecutor(DeliveryQueue queue, int concurrency, int threadPriority, InvokeState invokeState) {
         ExecutorService executor;
 
         if (concurrency <= 1) {
             executor = new DirectExecutorService();
         } else {
-            ThreadFactory threadFactory = new ServerThreadFactory(getThreadPrefix(queue), state, priority);
-            BlockingQueue<Runnable> workQueue = new SynchronousQueue<Runnable>(true);
-            RejectedExecutionHandler handler = new BlockingRejectedExecutionHandler();
-
-            executor = new ThreadPoolExecutor(concurrency, concurrency, EXECUTOR_THREAD_KEEP_ALIVE_TIMEOUT_SECONDS, TimeUnit.SECONDS, workQueue, threadFactory, handler);
+            executor = new BlockingServerThreadPoolExecutor(concurrency, getThreadPrefix(queue), threadPriority, invokeState);
         }
 
         return executor;
