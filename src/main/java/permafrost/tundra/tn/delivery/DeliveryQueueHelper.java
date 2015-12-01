@@ -44,11 +44,9 @@ import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.ThreadHelper;
-import permafrost.tundra.server.ServerThreadFactory;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.profile.ProfileCache;
-import permafrost.tundra.util.concurrent.BlockingRejectedExecutionHandler;
 import permafrost.tundra.util.concurrent.BlockingServerThreadPoolExecutor;
 import permafrost.tundra.util.concurrent.DirectExecutorService;
 import java.io.IOException;
@@ -58,22 +56,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.text.MessageFormat;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Queue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
-import java.util.concurrent.RejectedExecutionHandler;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 /**
  * A collection of convenience methods for working with Trading Networks delivery queues.
@@ -110,14 +95,14 @@ public class DeliveryQueueHelper {
     private static final long WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 5;
 
     /**
-     * How long to wait for an executor to shut down or terminate.
+     * The suffix used on worker thread names.
      */
-    private static final long EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 60;
+    private static final String WORKER_THREAD_SUFFIX = ": Worker";
 
     /**
-     * How long to wait for an idle thread to be removed from the executor pool.
+     * The suffix used on supervisor thread names.
      */
-    private static final int EXECUTOR_THREAD_KEEP_ALIVE_TIMEOUT_SECONDS = 60;
+    private static final String SUPERVISOR_THREAD_SUFFIX = ": Supervisor";
 
     /**
      * The bizdoc user status to use when a job is dequeued.
@@ -571,8 +556,10 @@ public class DeliveryQueueHelper {
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    @SuppressWarnings("unchecked")
     public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean ordered, boolean suspend) throws ServiceException {
+        // normalize concurrency
+        if (concurrency <= 0) concurrency = 1;
+
         // set owning thread priority and name
         String previousThreadName = Thread.currentThread().getName();
         int previousThreadPriority = Thread.currentThread().getPriority();
@@ -580,40 +567,36 @@ public class DeliveryQueueHelper {
 
         String threadName = getThreadPrefix(queue);
         if (concurrency > 1) {
-            threadName = threadName + ": Task Manager/Producer";
+            threadName = threadName + SUPERVISOR_THREAD_SUFFIX;
+        } else {
+            threadName = threadName + WORKER_THREAD_SUFFIX;
         }
         Thread.currentThread().setName(threadName);
 
         boolean invokedByTradingNetworks = invokedByTradingNetworks();
         Session session = Service.getSession();
         ExecutorService executor = getExecutor(queue, concurrency, threadPriority, InvokeState.getCurrentState());
-        Queue<Future<IData>> results = new ArrayDeque<Future<IData>>();
 
         try {
             while(true) {
                 if (!invokedByTradingNetworks || queue.isEnabled() || queue.isDraining()) {
-                    GuaranteedJob job = DeliveryQueueHelper.pop(queue, ordered);
-                    if (job == null) {
-                        // there are no jobs currently waiting on the queue
-                        if (results.size() > 0) {
-                            // wait for first job to finish or polling timeout, then loop again and see if there are now jobs on the queue
-                            try {
-                                awaitFirst(results, WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS, TimeUnit.MILLISECONDS);
-                            } catch(CancellationException ex) {
-                                // do nothing as we don't care at this point if execution was cancelled
-                            } catch(ExecutionException ex) {
-                                // do nothing as we don't care at this point if execution failed
-                            } catch(TimeoutException ex) {
-                                // do nothing as we don't care if the timeout was reached
-                            }
-                        } else {
+                    int activeCount = 0;
+                    if (executor instanceof ThreadPoolExecutor) {
+                        activeCount = ((ThreadPoolExecutor)executor).getActiveCount();
+                    }
+
+                    if (activeCount < concurrency) {
+                        GuaranteedJob job = DeliveryQueueHelper.pop(queue, ordered);
+                        if (job != null) {
+                            // submit the job to the executor to be processed
+                            executor.submit(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend));
+                        } else if (activeCount == 0) {
                             // if all threads have finished and there are no more jobs, then exit
                             break;
                         }
                     } else {
-                        // submit the job to the executor to be processed
-                        Callable task = new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend);
-                        results.add(executor.submit(task));
+                        // sleep for a bit, then loop again
+                        Thread.sleep(WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS);
                     }
 
                     if (invokedByTradingNetworks) queue = DeliveryQueueHelper.refresh(queue);
@@ -624,13 +607,11 @@ public class DeliveryQueueHelper {
         } catch (Throwable ex) {
             ExceptionHelper.raise(ex);
         } finally {
-            try {
-                executor.shutdown();
-            } finally {
-                // restore owning thread priority and name
-                Thread.currentThread().setPriority(previousThreadPriority);
-                Thread.currentThread().setName(previousThreadName);
-            }
+            // restore owning thread priority and name
+            Thread.currentThread().setPriority(previousThreadPriority);
+            Thread.currentThread().setName(previousThreadName);
+
+            executor.shutdown();
         }
     }
 
@@ -649,7 +630,7 @@ public class DeliveryQueueHelper {
         if (concurrency <= 1) {
             executor = new DirectExecutorService();
         } else {
-            executor = new BlockingServerThreadPoolExecutor(concurrency, getThreadPrefix(queue), threadPriority, invokeState);
+            executor = new BlockingServerThreadPoolExecutor(concurrency, getThreadPrefix(queue) + WORKER_THREAD_SUFFIX, null, threadPriority, invokeState);
         }
 
         return executor;
@@ -663,69 +644,6 @@ public class DeliveryQueueHelper {
      */
     private static String getThreadPrefix(DeliveryQueue queue) {
         return MessageFormat.format("TundraTN/Queue \"{0}\"", queue.getQueueName());
-    }
-
-    // waits for all futures in the given queue to complete
-    protected static List<IData> awaitAll(Queue<Future<IData>> futures) {
-        List<IData> results = new ArrayList<IData>(futures.size());
-
-        while(futures.size() > 0) {
-            try {
-                results.add(awaitFirst(futures));
-            } catch (Throwable ex) {
-                // ignore all exceptions
-            }
-        }
-
-        return results;
-    }
-
-    /**
-     * Waits for the first/head future in the given queue to complete.
-     *
-     * @param futures A queue of futures.
-     * @param timeout How long to wait for the future to complete.
-     * @param unit    The time unit in which the timeout is specified.
-     * @return        The result returned by the first/head future in the given queue.
-     * @throws Exception If an exception was encountered by the future when it was executed.
-     */
-    private static IData awaitFirst(Queue<Future<IData>> futures, long timeout, TimeUnit unit) throws Exception {
-        return await(futures.poll(), timeout, unit);
-    }
-
-    /**
-     * Waits for the first/head future in the given queue to complete.
-     *
-     * @param futures A queue of futures.
-     * @return        The result returned by the first/head future in the given queue.
-     * @throws Exception If an exception was encountered by the future when it was executed.
-     */
-    private static IData awaitFirst(Queue<Future<IData>> futures) throws Exception {
-        return await(futures.poll());
-    }
-
-    /**
-     * Waits for the given future to complete, then returns the result.
-     *
-     * @param future  The future to wait to complete.
-     * @param timeout How long to wait for the future to complete.
-     * @param unit    The time unit in which the timeout is specified.
-     * @return        The result returned by the future.
-     * @throws Exception If an exception was encountered by the future when it was executed.
-     */
-    private static IData await(Future<IData> future, long timeout, TimeUnit unit) throws Exception {
-        return future == null ? null : future.get(timeout, unit);
-    }
-
-    /**
-     * Waits for the given future to complete, then returns the result.
-     *
-     * @param future  The future to wait to complete.
-     * @return        The result returned by the future.
-     * @throws Exception If an exception was encountered by the future when it was executed.
-     */
-    private static IData await(Future<IData> future) throws Exception {
-        return future == null ? null : future.get();
     }
 
     /**
