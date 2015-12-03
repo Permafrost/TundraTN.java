@@ -75,6 +75,11 @@ public class DeliveryQueueHelper {
     private static final String SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeUpdated <= ?)";
 
     /**
+     * The age a delivery job must be before it is eligible to be processed.
+     */
+    private static final long DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS = 750;
+
+    /**
      * The name of the service that Trading Networks uses to invoke delivery queue processing services.
      */
     private static final String DELIVER_BATCH_SERVICE_NAME = "wm.tn.queuing:deliverBatch";
@@ -284,7 +289,7 @@ public class DeliveryQueueHelper {
             String queueName = queue.getQueueName();
             SQLWrappers.setChoppedString(statement, 1, queueName, "DeliveryQueue.QueueName");
             SQLWrappers.setChoppedString(statement, 2, queueName, "DeliveryQueue.QueueName");
-            SQLWrappers.setTimestamp(statement, 3, new Timestamp(System.currentTimeMillis()));
+            SQLWrappers.setTimestamp(statement, 3, new Timestamp(System.currentTimeMillis() - DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS));
 
             results = statement.executeQuery();
 
