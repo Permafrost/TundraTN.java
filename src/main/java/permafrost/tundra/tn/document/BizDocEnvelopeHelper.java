@@ -36,6 +36,7 @@ import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
+import com.wm.lang.ns.NSName;
 import permafrost.tundra.lang.ExceptionHelper;
 
 /**
@@ -188,7 +189,7 @@ public class BizDocEnvelopeHelper {
     /**
      * The implementation service for BizDocEnvelope logging.
      */
-    private static final com.wm.lang.ns.NSName LOG_SERVICE = com.wm.lang.ns.NSName.create("tundra.tn:log");
+    private static final NSName LOG_SERVICE = NSName.create("tundra.tn:log");
 
     /**
      * Adds an activity log statement to the given BizDocEnvelope.
