@@ -95,9 +95,24 @@ public class DeliveryQueueHelper {
     private static final NSName UPDATE_QUEUE_SERVICE_NAME = NSName.create("wm.tn.queuing:updateQueue");
 
     /**
-     * How long to wait between each poll of a delivery queue for more jobs.
+     * The minimum wait between each poll of a delivery queue for more jobs.
      */
-    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 5;
+    private static final long MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 5;
+
+    /**
+     * The multiplication factor used to back off the wait time between polls of a delivery queue.
+     */
+    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_FACTOR = 5;
+
+    /**
+     * The maximum wait between each poll of a delivery queue for more jobs.
+     */
+    private static final long MAX_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 5 * 1000;
+
+    /**
+     * The wait between each refresh of a delivery queue settings from the database.
+     */
+    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS = 5 * 1000;
 
     /**
      * The suffix used on worker thread names.
@@ -582,6 +597,8 @@ public class DeliveryQueueHelper {
         Session session = Service.getSession();
         ExecutorService executor = getExecutor(queue, concurrency, threadPriority, InvokeState.getCurrentState());
 
+        long contiguousSleepCount = 0, nextDeliveryQueueRefreshTime = System.currentTimeMillis();
+
         try {
             while(true) {
                 if (!invokedByTradingNetworks || queue.isEnabled() || queue.isDraining()) {
@@ -591,6 +608,8 @@ public class DeliveryQueueHelper {
                     }
 
                     if (activeCount < concurrency) {
+                        contiguousSleepCount = 0;
+
                         GuaranteedJob job = DeliveryQueueHelper.pop(queue, ordered);
                         if (job != null) {
                             // submit the job to the executor to be processed
@@ -600,11 +619,23 @@ public class DeliveryQueueHelper {
                             break;
                         }
                     } else {
+                        // calculate the sleep duration, backed off as appropriate for this contiguous sleep count
+                        long sleepDuration = MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS * (WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_FACTOR ^ contiguousSleepCount++);
+
+                        // cap the sleep duration at the maximum allowed
+                        if (sleepDuration > MAX_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS || sleepDuration <= 0) {
+                            sleepDuration = MAX_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS;
+                        }
+
                         // sleep for a bit, then loop again
-                        Thread.sleep(WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS);
+                        Thread.sleep(sleepDuration);
                     }
 
-                    if (invokedByTradingNetworks) queue = DeliveryQueueHelper.refresh(queue);
+                    // refresh the delivery queue settings from the database, in case they have changed
+                    if (invokedByTradingNetworks && System.currentTimeMillis() >= nextDeliveryQueueRefreshTime) {
+                        queue = DeliveryQueueHelper.refresh(queue);
+                        nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS;
+                    }
                 } else {
                     break; // if invoked by TN and queue is disabled or suspended, then exit
                 }
