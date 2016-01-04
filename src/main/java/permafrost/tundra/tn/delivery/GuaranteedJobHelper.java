@@ -54,7 +54,7 @@ import java.util.List;
 /**
  * A collection of convenience methods for working with Trading Networks delivery jobs.
  */
-public class GuaranteedJobHelper {
+public final class GuaranteedJobHelper {
     /**
      * SQL statement for updating a Trading Networks delivery job.
      */

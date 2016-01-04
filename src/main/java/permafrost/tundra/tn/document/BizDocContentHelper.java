@@ -44,7 +44,7 @@ import permafrost.tundra.mime.MIMETypeHelper;
 /**
  * A collection of convenience methods for working with Trading Networks BizDocEnvelope content parts.
  */
-public class BizDocContentHelper {
+public final class BizDocContentHelper {
     /**
      * The default content part name for an XML BizDocEnvelope.
      */

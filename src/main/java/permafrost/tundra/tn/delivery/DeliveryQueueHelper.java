@@ -63,7 +63,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 /**
  * A collection of convenience methods for working with Trading Networks delivery queues.
  */
-public class DeliveryQueueHelper {
+public final class DeliveryQueueHelper {
     /**
      * SQL statement to select head of a delivery queue in job creation datetime order.
      */

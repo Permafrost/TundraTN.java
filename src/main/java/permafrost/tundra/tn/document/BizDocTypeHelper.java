@@ -33,7 +33,7 @@ import com.wm.data.IDataUtil;
 /**
  * A collection of convenience methods for working with Trading Networks BizDocType objects.
  */
-public class BizDocTypeHelper {
+public final class BizDocTypeHelper {
 
     /**
      * Returns the BizDocType object associated with the given the ID.

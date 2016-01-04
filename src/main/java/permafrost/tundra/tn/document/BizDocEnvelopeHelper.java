@@ -42,7 +42,7 @@ import permafrost.tundra.lang.ExceptionHelper;
 /**
  * A collection of convenience methods for working with Trading Networks BizDocEnvelope objects.
  */
-public class BizDocEnvelopeHelper {
+public final class BizDocEnvelopeHelper {
     /**
      * The activity log message class that represents unrecoverable errors.
      */

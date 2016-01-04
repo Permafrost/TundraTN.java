@@ -51,7 +51,7 @@ import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.IterableEnumeration;
 
-public class ProfileHelper {
+public final class ProfileHelper {
     /**
      * Disallow instantiation of this class.
      */
