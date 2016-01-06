@@ -43,6 +43,8 @@ import com.wm.lang.ns.NSName;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
+import permafrost.tundra.lang.IdentityHelper;
+import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.lang.ThreadHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
@@ -580,12 +582,14 @@ public final class DeliveryQueueHelper {
         // normalize concurrency
         if (concurrency <= 0) concurrency = 1;
 
+        String parentContext = IdentityHelper.generate();
+
         // set owning thread priority and name
         String previousThreadName = Thread.currentThread().getName();
         int previousThreadPriority = Thread.currentThread().getPriority();
         Thread.currentThread().setPriority(ThreadHelper.normalizePriority(threadPriority));
 
-        String threadName = getThreadPrefix(queue);
+        String threadName = getThreadPrefix(queue, parentContext);
         if (concurrency > 1) {
             threadName = threadName + SUPERVISOR_THREAD_SUFFIX;
         } else {
@@ -595,7 +599,7 @@ public final class DeliveryQueueHelper {
 
         boolean invokedByTradingNetworks = invokedByTradingNetworks();
         Session session = Service.getSession();
-        ExecutorService executor = getExecutor(queue, concurrency, threadPriority, InvokeState.getCurrentState());
+        ExecutorService executor = getExecutor(queue, concurrency, threadPriority, InvokeState.getCurrentState(), parentContext);
 
         long contiguousSleepCount = 0, nextDeliveryQueueRefreshTime = System.currentTimeMillis();
 
@@ -658,15 +662,16 @@ public final class DeliveryQueueHelper {
      * @param concurrency    The level of desired concurrency.
      * @param threadPriority The thread priority to be used by the returned executor.
      * @param invokeState    The invoke state to be used by the thread pool.
+     * @param parentContext  A unique parent context ID to be included in a thread name for diagnostics.
      * @return               An executor appropriate for the level of desired concurrency.
      */
-    private static ExecutorService getExecutor(DeliveryQueue queue, int concurrency, int threadPriority, InvokeState invokeState) {
+    private static ExecutorService getExecutor(DeliveryQueue queue, int concurrency, int threadPriority, InvokeState invokeState, String parentContext) {
         ExecutorService executor;
 
         if (concurrency <= 1) {
             executor = new DirectExecutorService();
         } else {
-            executor = new BlockingServerThreadPoolExecutor(concurrency, getThreadPrefix(queue) + WORKER_THREAD_SUFFIX, null, threadPriority, invokeState);
+            executor = new BlockingServerThreadPoolExecutor(concurrency, getThreadPrefix(queue, parentContext) + WORKER_THREAD_SUFFIX, null, threadPriority, invokeState);
         }
 
         return executor;
@@ -675,11 +680,22 @@ public final class DeliveryQueueHelper {
     /**
      * Returns the thread name prefix to be used for this delivery queue.
      *
-     * @param queue The queue which will be processed by threads with the returned prefix.
-     * @return      The thread name prefix used when processing the qiven queue.
+     * @param queue         The queue which will be processed by threads with the returned prefix.
+     * @param parentContext A unique parent context ID to be included in a thread name for diagnostics.
+     * @return              The thread name prefix used when processing the qiven queue.
      */
-    private static String getThreadPrefix(DeliveryQueue queue) {
-        return MessageFormat.format("TundraTN/Queue \"{0}\"", queue.getQueueName());
+    private static String getThreadPrefix(DeliveryQueue queue, String parentContext) {
+        String output;
+
+        int truncateLength = 25;
+
+        if (parentContext == null) {
+            output = MessageFormat.format("TundraTN/Queue \"{0}\"", StringHelper.truncate(queue.getQueueName(), truncateLength));
+        } else {
+            output = MessageFormat.format("TundraTN/Queue \"{0}\" ParentContext={1}", StringHelper.truncate(queue.getQueueName(), truncateLength), parentContext);
+        }
+
+        return output;
     }
 
     /**
