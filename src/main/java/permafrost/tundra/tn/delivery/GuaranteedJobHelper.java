@@ -49,6 +49,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.ConcurrentModificationException;
 import java.util.List;
 
 /**
@@ -295,10 +296,15 @@ public final class GuaranteedJobHelper {
             SQLWrappers.setChoppedString(statement, 1, JobMgr.getJobMgr().getServerId(), "DeliveryJob.ServerID");
             SQLWrappers.setCharString(statement, 2, job.getJobId());
 
-            statement.executeUpdate();
-            job.delivering();
-            connection.commit();
-        } catch (SQLException ex) {
+            int rowCount = statement.executeUpdate();
+
+            if (rowCount == 0) {
+                throw new ConcurrentModificationException("GuaranteedJob (ID=" + job.getJobId() + ") status could not be changed to DELIVERING due to modification by another thread or process");
+            } else {
+                job.delivering();
+                connection.commit();
+            }
+        } catch (Throwable ex) {
             connection = Datastore.handleSQLException(connection, ex);
             ExceptionHelper.raise(ex);
         } finally {
