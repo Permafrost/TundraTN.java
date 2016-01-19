@@ -690,9 +690,9 @@ public final class DeliveryQueueHelper {
         int truncateLength = 25;
 
         if (parentContext == null) {
-            output = MessageFormat.format("TundraTN/Queue \"{0}\"", StringHelper.truncate(queue.getQueueName(), truncateLength));
+            output = MessageFormat.format("TundraTN/Queue \"{0}\"", StringHelper.truncate(queue.getQueueName(), truncateLength, true));
         } else {
-            output = MessageFormat.format("TundraTN/Queue \"{0}\" ParentContext={1}", StringHelper.truncate(queue.getQueueName(), truncateLength), parentContext);
+            output = MessageFormat.format("TundraTN/Queue \"{0}\" ParentContext={1}", StringHelper.truncate(queue.getQueueName(), truncateLength, true), parentContext);
         }
 
         return output;
