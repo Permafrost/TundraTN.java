@@ -593,7 +593,7 @@ public final class DeliveryQueueHelper {
         Session session = Service.getSession();
         ExecutorService executor = getExecutor(queue, concurrency, threadPriority, InvokeState.getCurrentState(), parentContext);
 
-        long nextDeliveryQueueRefreshTime = System.currentTimeMillis();
+        long nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS;
 
         try {
             while(true) {
