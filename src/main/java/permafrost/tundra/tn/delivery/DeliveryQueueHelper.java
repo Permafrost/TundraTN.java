@@ -544,20 +544,20 @@ public final class DeliveryQueueHelper {
      * @param retryFactor       The factor used to extend the time to wait on each retry.
      * @param timeToWait        The time in seconds to wait between each retry.
      * @param threadPriority    The thread priority used when processing tasks.
-     * @param daemon            If true, all threads will be marked as daemons and execution will not end until the JVM
+     * @param daemonize         If true, all threads will be marked as daemons and execution will not end until the JVM
      *                          shuts down or the TN queue is disabled/suspended.
      * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean daemon, boolean ordered, boolean suspend) throws ServiceException {
+    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend) throws ServiceException {
         if (queueName == null) throw new NullPointerException("queueName must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
 
         DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
         if (queue == null) throw new ServiceException("Queue '" + queueName + "' does not exist");
 
-        each(queue, NSName.create(service), pipeline, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemon, ordered, suspend);
+        each(queue, NSName.create(service), pipeline, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend);
     }
 
     /**
@@ -573,13 +573,13 @@ public final class DeliveryQueueHelper {
      * @param retryFactor       The factor used to extend the time to wait on each retry.
      * @param timeToWait        The time in seconds to wait between each retry.
      * @param threadPriority    The thread priority used when processing tasks.
-     * @param daemon            If true, all threads will be marked as daemons and execution will not end until the JVM
+     * @param daemonize         If true, all threads will be marked as daemons and execution will not end until the JVM
      *                          shuts down or the TN queue is disabled/suspended.
      * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean daemon, boolean ordered, boolean suspend) throws ServiceException {
+    public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend) throws ServiceException {
         // normalize concurrency
         if (concurrency <= 0) concurrency = 1;
 
@@ -602,7 +602,7 @@ public final class DeliveryQueueHelper {
         boolean queueEnabled = queue.isEnabled() || queue.isDraining();
 
         Session session = Service.getSession();
-        ExecutorService executor = getExecutor(queue, concurrency, threadPriority, daemon, InvokeState.getCurrentState(), parentContext);
+        ExecutorService executor = getExecutor(queue, concurrency, threadPriority, daemonize, InvokeState.getCurrentState(), parentContext);
 
         long nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS, sleepDuration = 0L;
 
@@ -628,7 +628,7 @@ public final class DeliveryQueueHelper {
                             sleepDuration = 0L; // poll for another job immediately, because the assumption is if there was one pending job then there is probably more
                         } else if (activeCount == 0) {
                             // no pending jobs, and thread pool is idle
-                            if (daemon) {
+                            if (daemonize) {
                                 // calculate the next run time based on TN queue schedule so that we can sleep until that time
                                 sleepDuration = untilNextRun(queue);
                                 if (sleepDuration == 0L) {
@@ -673,18 +673,18 @@ public final class DeliveryQueueHelper {
      * @param queue          The delivery queue to be processed.
      * @param concurrency    The level of desired concurrency.
      * @param threadPriority The thread priority to be used by the returned executor.
-     * @param daemon         Whether the created threads should be daemon threads.
+     * @param threadDaemon   Whether the created threads should be daemons.
      * @param invokeState    The invoke state to be used by the thread pool.
      * @param parentContext  A unique parent context ID to be included in a thread name for diagnostics.
      * @return               An executor appropriate for the level of desired concurrency.
      */
-    private static ExecutorService getExecutor(DeliveryQueue queue, int concurrency, int threadPriority, boolean daemon, InvokeState invokeState, String parentContext) {
+    private static ExecutorService getExecutor(DeliveryQueue queue, int concurrency, int threadPriority, boolean threadDaemon, InvokeState invokeState, String parentContext) {
         ExecutorService executor;
 
         if (concurrency <= 1) {
             executor = new DirectExecutorService();
         } else {
-            executor = new BlockingServerThreadPoolExecutor(concurrency, getThreadPrefix(queue, parentContext) + WORKER_THREAD_SUFFIX, null, threadPriority, daemon, invokeState);
+            executor = new BlockingServerThreadPoolExecutor(concurrency, getThreadPrefix(queue, parentContext) + WORKER_THREAD_SUFFIX, null, threadPriority, threadDaemon, invokeState);
             ((BlockingServerThreadPoolExecutor)executor).allowCoreThreadTimeOut(true);
         }
 
