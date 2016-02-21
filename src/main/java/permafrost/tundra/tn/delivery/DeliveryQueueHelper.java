@@ -25,6 +25,7 @@
 package permafrost.tundra.tn.delivery;
 
 import com.wm.app.b2b.server.InvokeState;
+import com.wm.app.b2b.server.ServerAPI;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.b2b.server.Session;
@@ -83,7 +84,7 @@ public final class DeliveryQueueHelper {
     /**
      * The age a delivery job must be before it is eligible to be processed.
      */
-    private static final long DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS = 750;
+    private static final long DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS = 750L;
 
     /**
      * The name of the service that Trading Networks uses to invoke delivery queue processing services.
@@ -103,12 +104,12 @@ public final class DeliveryQueueHelper {
     /**
      * The minimum wait between each poll of a delivery queue for more jobs.
      */
-    private static final long MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 1;
+    private static final long MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 1L;
 
     /**
      * The wait between each refresh of a delivery queue settings from the database.
      */
-    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS = 5 * 1000;
+    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS = 5L * 1000L;
 
     /**
      * The suffix used on worker thread names.
@@ -586,7 +587,6 @@ public final class DeliveryQueueHelper {
         String previousThreadName = Thread.currentThread().getName();
         int previousThreadPriority = Thread.currentThread().getPriority();
         Thread.currentThread().setPriority(ThreadHelper.normalizePriority(threadPriority));
-        Thread.currentThread().setDaemon(daemon);
 
         String threadName = getThreadPrefix(queue, parentContext);
         if (concurrency > 1) {
@@ -602,11 +602,17 @@ public final class DeliveryQueueHelper {
         Session session = Service.getSession();
         ExecutorService executor = getExecutor(queue, concurrency, threadPriority, daemon, InvokeState.getCurrentState(), parentContext);
 
-        long nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS;
+        long nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS, sleepDuration = 0L;
 
         try {
-            while (true) {
-                if (!invokedByTradingNetworks || queueEnabled) {
+            // while not interrupted and (not invoked by TN or queue is enabled): process queued jobs
+            while (!Thread.interrupted() && (!invokedByTradingNetworks || queueEnabled)) {
+                try {
+                    if (sleepDuration > 0L) Thread.sleep(sleepDuration);
+
+                    // set default sleep duration for when there are no pending jobs in queue or all threads are busy
+                    sleepDuration = MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS;
+
                     int activeCount = 0;
                     if (executor instanceof ThreadPoolExecutor) {
                         activeCount = ((ThreadPoolExecutor)executor).getActiveCount();
@@ -617,28 +623,21 @@ public final class DeliveryQueueHelper {
                         if (job != null) {
                             // submit the job to the executor to be processed
                             executor.submit(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend));
+                            sleepDuration = 0L; // poll for another job immediately, because the assumption is if there was one pending job then there is probably more
                         } else if (activeCount == 0) {
                             // no pending jobs, and thread pool is idle
                             if (daemon) {
-                                // calculate the next run time based on TN queue schedule, and then sleep until that time
-                                long untilNextRun = untilNextRun(queue);
-                                if (untilNextRun == 0L) {
+                                // calculate the next run time based on TN queue schedule so that we can sleep until that time
+                                sleepDuration = untilNextRun(queue);
+                                if (sleepDuration == 0L) {
                                     // either the TN queue schedule was scheduled to run once or if it has now expired, so exit
                                     break;
-                                } else {
-                                    Thread.sleep(untilNextRun);
                                 }
                             } else {
                                 // if not daemon and all threads have finished and there are no more jobs, then exit
                                 break;
                             }
-                        } else {
-                            // no pending jobs in queue but some jobs are still being processed, so don't thrash the cpu by sleeping for a bit, then loop again
-                            Thread.sleep(MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS);
                         }
-                    } else {
-                        // all threads are busy, so don't thrash the cpu by sleeping for a bit, then loop again
-                        Thread.sleep(MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS);
                     }
 
                     // refresh the delivery queue settings from the database, in case they have changed
@@ -647,8 +646,12 @@ public final class DeliveryQueueHelper {
                         queueEnabled = queue.isEnabled() || queue.isDraining();
                         nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS;
                     }
-                } else {
-                    break; // if invoked by TN and queue is disabled or suspended, then exit
+                } catch(ServiceException ex) {
+                    // assume exception is recoverable, log it and then continue
+                    ServerAPI.logError(ex);
+                } catch(InterruptedException ex) {
+                    // exit if thread is interrupted
+                    break;
                 }
             }
         } catch(Throwable ex) {
