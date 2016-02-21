@@ -28,6 +28,7 @@ import com.wm.app.b2b.server.InvokeState;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.b2b.server.Session;
+import com.wm.app.b2b.server.scheduler.ScheduledTask;
 import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.QueueOperations;
 import com.wm.app.tn.db.SQLWrappers;
@@ -40,6 +41,7 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSName;
+import com.wm.util.Masks;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
@@ -58,6 +60,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.text.MessageFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -99,7 +103,7 @@ public final class DeliveryQueueHelper {
     /**
      * The minimum wait between each poll of a delivery queue for more jobs.
      */
-    private static final long MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 5;
+    private static final long MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 1;
 
     /**
      * The wait between each refresh of a delivery queue settings from the database.
@@ -537,18 +541,20 @@ public final class DeliveryQueueHelper {
      * @param retryFactor       The factor used to extend the time to wait on each retry.
      * @param timeToWait        The time in seconds to wait between each retry.
      * @param threadPriority    The thread priority used when processing tasks.
+     * @param daemon            If true, all threads will be marked as daemons and execution will not end until the JVM
+     *                          shuts down or the TN queue is disabled/suspended.
      * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean ordered, boolean suspend) throws ServiceException {
+    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean daemon, boolean ordered, boolean suspend) throws ServiceException {
         if (queueName == null) throw new NullPointerException("queueName must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
 
         DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
         if (queue == null) throw new ServiceException("Queue '" + queueName + "' does not exist");
 
-        each(queue, NSName.create(service), pipeline, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, ordered, suspend);
+        each(queue, NSName.create(service), pipeline, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemon, ordered, suspend);
     }
 
     /**
@@ -564,11 +570,13 @@ public final class DeliveryQueueHelper {
      * @param retryFactor       The factor used to extend the time to wait on each retry.
      * @param timeToWait        The time in seconds to wait between each retry.
      * @param threadPriority    The thread priority used when processing tasks.
+     * @param daemon            If true, all threads will be marked as daemons and execution will not end until the JVM
+     *                          shuts down or the TN queue is disabled/suspended.
      * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean ordered, boolean suspend) throws ServiceException {
+    public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean daemon, boolean ordered, boolean suspend) throws ServiceException {
         // normalize concurrency
         if (concurrency <= 0) concurrency = 1;
 
@@ -578,6 +586,7 @@ public final class DeliveryQueueHelper {
         String previousThreadName = Thread.currentThread().getName();
         int previousThreadPriority = Thread.currentThread().getPriority();
         Thread.currentThread().setPriority(ThreadHelper.normalizePriority(threadPriority));
+        Thread.currentThread().setDaemon(daemon);
 
         String threadName = getThreadPrefix(queue, parentContext);
         if (concurrency > 1) {
@@ -591,12 +600,12 @@ public final class DeliveryQueueHelper {
         boolean queueEnabled = queue.isEnabled() || queue.isDraining();
 
         Session session = Service.getSession();
-        ExecutorService executor = getExecutor(queue, concurrency, threadPriority, InvokeState.getCurrentState(), parentContext);
+        ExecutorService executor = getExecutor(queue, concurrency, threadPriority, daemon, InvokeState.getCurrentState(), parentContext);
 
         long nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS;
 
         try {
-            while(true) {
+            while (true) {
                 if (!invokedByTradingNetworks || queueEnabled) {
                     int activeCount = 0;
                     if (executor instanceof ThreadPoolExecutor) {
@@ -609,11 +618,26 @@ public final class DeliveryQueueHelper {
                             // submit the job to the executor to be processed
                             executor.submit(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend));
                         } else if (activeCount == 0) {
-                            // if all threads have finished and there are no more jobs, then exit
-                            break;
+                            // no pending jobs, and thread pool is idle
+                            if (daemon) {
+                                // calculate the next run time based on TN queue schedule, and then sleep until that time
+                                long untilNextRun = untilNextRun(queue);
+                                if (untilNextRun == 0L) {
+                                    // either the TN queue schedule was scheduled to run once or if it has now expired, so exit
+                                    break;
+                                } else {
+                                    Thread.sleep(untilNextRun);
+                                }
+                            } else {
+                                // if not daemon and all threads have finished and there are no more jobs, then exit
+                                break;
+                            }
+                        } else {
+                            // no pending jobs in queue but some jobs are still being processed, so don't thrash the cpu by sleeping for a bit, then loop again
+                            Thread.sleep(MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS);
                         }
                     } else {
-                        // don't thrash the cpu by sleeping for a bit, then loop again
+                        // all threads are busy, so don't thrash the cpu by sleeping for a bit, then loop again
                         Thread.sleep(MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS);
                     }
 
@@ -627,7 +651,7 @@ public final class DeliveryQueueHelper {
                     break; // if invoked by TN and queue is disabled or suspended, then exit
                 }
             }
-        } catch (Throwable ex) {
+        } catch(Throwable ex) {
             ExceptionHelper.raise(ex);
         } finally {
             // restore owning thread priority and name
@@ -644,17 +668,18 @@ public final class DeliveryQueueHelper {
      * @param queue          The delivery queue to be processed.
      * @param concurrency    The level of desired concurrency.
      * @param threadPriority The thread priority to be used by the returned executor.
+     * @param daemon         Whether the created threads should be daemon threads.
      * @param invokeState    The invoke state to be used by the thread pool.
      * @param parentContext  A unique parent context ID to be included in a thread name for diagnostics.
      * @return               An executor appropriate for the level of desired concurrency.
      */
-    private static ExecutorService getExecutor(DeliveryQueue queue, int concurrency, int threadPriority, InvokeState invokeState, String parentContext) {
+    private static ExecutorService getExecutor(DeliveryQueue queue, int concurrency, int threadPriority, boolean daemon, InvokeState invokeState, String parentContext) {
         ExecutorService executor;
 
         if (concurrency <= 1) {
             executor = new DirectExecutorService();
         } else {
-            executor = new BlockingServerThreadPoolExecutor(concurrency, getThreadPrefix(queue, parentContext) + WORKER_THREAD_SUFFIX, null, threadPriority, invokeState);
+            executor = new BlockingServerThreadPoolExecutor(concurrency, getThreadPrefix(queue, parentContext) + WORKER_THREAD_SUFFIX, null, threadPriority, daemon, invokeState);
         }
 
         return executor;
@@ -694,6 +719,72 @@ public final class DeliveryQueueHelper {
             if (result) break;
         }
         return result;
+    }
+
+    /**
+     * Returns the number of milliseconds to wait until the next scheduled run of the given delivery queue.
+     *
+     * @param  queue            A delivery queue.
+     * @return                  The number of milliseconds to wait.
+     * @throws ServiceException If a datetime parsing error occurs.
+     */
+    private static long untilNextRun(DeliveryQueue queue) throws ServiceException {
+        long next = nextRun(queue);
+        long now = System.currentTimeMillis();
+        return next > now ? next - now : 0L;
+    }
+
+    /**
+     * Parser for the datetimes to be parsed in a DeliverySchedule object.
+     */
+    private static final SimpleDateFormat DELIVERY_SCHEDULE_DATETIME_PARSER = new SimpleDateFormat("yyyy/MM/ddHH:mm:ss");
+
+    /**
+     * Returns the time in milliseconds of the next scheduled run of the given delivery queue.
+     *
+     * @param  queue            A delivery queue.
+     * @return                  The time in milliseconds of the next scheduled run.
+     * @throws ServiceException If a datetime parsing error occurs.
+     */
+    private static long nextRun(DeliveryQueue queue) throws ServiceException {
+        DeliverySchedule schedule = queue.getSchedule();
+        String type = schedule.getType();
+
+        long next = 0L, start = 0L, end = 0L;
+
+        try {
+            String endDate = schedule.getEndDate(), endTime = schedule.getEndTime();
+            if (endDate != null && endTime != null) {
+                end = DELIVERY_SCHEDULE_DATETIME_PARSER.parse(endDate + endTime).getTime();
+            }
+
+            boolean noOverlap = BooleanHelper.parse(schedule.getNoOverlap());
+
+            if (type.equals(DeliverySchedule.TYPE_REPEATING)) {
+                ScheduledTask.Simple repeatingTask = new ScheduledTask.Simple(Long.parseLong(schedule.getInterval()) * 1000L, noOverlap, start, end);
+
+                if (!repeatingTask.isExpired()) {
+                    repeatingTask.calcNextTime();
+                    next = repeatingTask.getNextRun();
+                }
+            } else if (type.equals(DeliverySchedule.TYPE_COMPLEX)) {
+                ScheduledTask.Mask complexTask = new ScheduledTask.Mask(Masks.buildLongMask(schedule.getMinutes()),
+                                                                        Masks.buildIntMask(schedule.getHours()),
+                                                                        Masks.buildIntMask(schedule.getDaysOfMonth()),
+                                                                        Masks.buildIntMask(schedule.getDaysOfWeek()),
+                                                                        Masks.buildIntMask(schedule.getMonths()),
+                                                                        noOverlap, start, end);
+
+                if (!complexTask.isExpired()) {
+                    complexTask.calcNextTime();
+                    next = complexTask.getNextRun();
+                }
+            }
+        } catch(ParseException ex) {
+            ExceptionHelper.raise(ex);
+        }
+
+        return next;
     }
 
     /**
