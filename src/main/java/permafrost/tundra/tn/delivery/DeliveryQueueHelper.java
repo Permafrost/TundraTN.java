@@ -683,6 +683,7 @@ public final class DeliveryQueueHelper {
             executor = new DirectExecutorService();
         } else {
             executor = new BlockingServerThreadPoolExecutor(concurrency, getThreadPrefix(queue, parentContext) + WORKER_THREAD_SUFFIX, null, threadPriority, daemon, invokeState);
+            ((BlockingServerThreadPoolExecutor)executor).allowCoreThreadTimeOut(true);
         }
 
         return executor;
