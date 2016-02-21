@@ -444,16 +444,18 @@ public final class DeliveryQueueHelper {
 
             try {
                 timeDequeued = System.currentTimeMillis();
+                BizDocEnvelope bizdoc = job.getBizDocEnvelope();
 
-                owningThread.setName(MessageFormat.format("{0}: Task \"{1}\" started at {2}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
+                owningThread.setName(MessageFormat.format("{0}: Task={1} Time={2} STARTED", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
 
-                BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence);
+                if (bizdoc != null) {
+                    BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence);
+                }
+
                 GuaranteedJobHelper.log(job, "MESSAGE", "Processing", MessageFormat.format("Dequeued from {0} queue \"{1}\"", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service \"{0}\" attempting to process document", service.getFullName()));
 
                 IDataCursor cursor = pipeline.getCursor();
                 IDataUtil.put(cursor, "$task", job);
-
-                BizDocEnvelope bizdoc = job.getBizDocEnvelope();
 
                 if (bizdoc != null) {
                     bizdoc = BizDocEnvelopeHelper.get(bizdoc.getInternalId(), true);
@@ -466,10 +468,10 @@ public final class DeliveryQueueHelper {
 
                 output = Service.doInvoke(service, session, pipeline);
 
-                owningThread.setName(MessageFormat.format("{0}: Task \"{1}\" completed at {2}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
+                owningThread.setName(MessageFormat.format("{0}: Task={1} Time={2} COMPLETED", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
                 setJobCompleted(output);
             } catch(Exception ex) {
-                owningThread.setName(MessageFormat.format("{0}: Task \"{1}\" failed at {2}: {3}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime"), ExceptionHelper.getMessage(ex)));
+                owningThread.setName(MessageFormat.format("{0}: Task={1} Time={2} FAILED: {3}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime"), ExceptionHelper.getMessage(ex)));
                 setJobCompleted(output, ex);
                 throw ex;
             } finally {
