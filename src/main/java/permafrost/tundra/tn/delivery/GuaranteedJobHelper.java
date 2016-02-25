@@ -24,6 +24,7 @@
 
 package permafrost.tundra.tn.delivery;
 
+import com.wm.app.b2b.server.ServerAPI;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.DeliveryStore;
@@ -35,6 +36,7 @@ import com.wm.app.tn.delivery.JobMgr;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.manage.OmiUtils;
 import com.wm.app.tn.profile.ProfileStore;
+import com.wm.app.tn.profile.ProfileStoreException;
 import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
@@ -90,6 +92,11 @@ public final class GuaranteedJobHelper {
      * The user status to use when suspending a delivery queue due to BizDocEnvelope delivery queue job exhaustion.
      */
     private static final String BIZDOC_ENVELOPE_SUSPENDED_USER_STATUS = "SUSPENDED";
+
+    /**
+     * The user status to use when a BizDocEnvelope's queued job is exhausted.
+     */
+    private static final String BIZDOC_ENVELOPE_EXHAUSTED_USER_STATUS = "EXHAUSTED";
 
     /**
      * Disallow instantiation of this class.
@@ -148,11 +155,11 @@ public final class GuaranteedJobHelper {
     /**
      * Returns all delivery queue jobs associated with the given BizDocEnvelope.
      *
-     * @param bizdoc The BizDocEnvelope to return all associated jobs for.
-     * @return       An array of all delivery queue jobs associated with the given BizDocEnvelope.
-     * @throws ServiceException If a database error occurs.
+     * @param bizdoc        The BizDocEnvelope to return all associated jobs for.
+     * @return              An array of all delivery queue jobs associated with the given BizDocEnvelope.
+     * @throws SQLException If a database error occurs.
      */
-    public static GuaranteedJob[] list(BizDocEnvelope bizdoc) throws ServiceException {
+    public static GuaranteedJob[] list(BizDocEnvelope bizdoc) throws SQLException {
         if (bizdoc == null) return null;
 
         String[] taskIDs = list(bizdoc.getInternalId());
@@ -169,11 +176,11 @@ public final class GuaranteedJobHelper {
     /**
      * Returns all delivery queue jobs associated with the given BizDocEnvelope.
      *
-     * @param internalID The internal ID of the BizDocEnvelope to return all associated jobs for.
-     * @return           An array of all delivery queue job IDs associated with the given BizDocEnvelope.
-     * @throws ServiceException If a database error occurs.
+     * @param internalID    The internal ID of the BizDocEnvelope to return all associated jobs for.
+     * @return              An array of all delivery queue job IDs associated with the given BizDocEnvelope.
+     * @throws SQLException If a database error occurs.
      */
-    public static String[] list(String internalID) throws ServiceException {
+    public static String[] list(String internalID) throws SQLException {
         if (internalID == null) return null;
 
         Connection connection = null;
@@ -197,7 +204,7 @@ public final class GuaranteedJobHelper {
             connection.commit();
         } catch (SQLException ex) {
             connection = Datastore.handleSQLException(connection, ex);
-            ExceptionHelper.raise(ex);
+            throw ex;
         } finally {
             SQLWrappers.close(resultSet);
             SQLStatements.releaseStatement(statement);
@@ -224,13 +231,14 @@ public final class GuaranteedJobHelper {
      * Update the retry settings on the given job using the given settings, or the retry settings on the receiver's
      * profile if the given retryLimit <= 0.
      *
-     * @param job               The job to be updated.
-     * @param retryLimit        The number of retries this job should attempt.
-     * @param retryFactor       The factor used to extend the time to wait on each retry.
-     * @param timeToWait        The time in seconds to wait between each retry.
-     * @throws ServiceException If a database error is encountered.
+     * @param job                       The job to be updated.
+     * @param retryLimit                The number of retries this job should attempt.
+     * @param retryFactor               The factor used to extend the time to wait on each retry.
+     * @param timeToWait                The time in seconds to wait between each retry.
+     * @throws ProfileStoreException    If a database error is encountered.
+     * @throws SQLException             If a database error is encountered.
      */
-    public static void setRetryStrategy(GuaranteedJob job, int retryLimit, int retryFactor, int timeToWait) throws ServiceException {
+    public static void setRetryStrategy(GuaranteedJob job, int retryLimit, int retryFactor, int timeToWait) throws ProfileStoreException, SQLException {
         if (job == null) return;
 
         Connection connection = null;
@@ -269,7 +277,7 @@ public final class GuaranteedJobHelper {
             }
         } catch (SQLException ex) {
             connection = Datastore.handleSQLException(connection, ex);
-            ExceptionHelper.raise(ex);
+            throw ex;
         } finally {
             SQLWrappers.close(statement);
             Datastore.releaseConnection(connection);
@@ -280,9 +288,9 @@ public final class GuaranteedJobHelper {
      * Update the given job's status to "DELIVERING".
      *
      * @param job               The job to be updated.
-     * @throws ServiceException If a database error is encountered.
+     * @throws SQLException     If a database error is encountered.
      */
-    protected static void setDelivering(GuaranteedJob job) throws ServiceException {
+    protected static void setDelivering(GuaranteedJob job) throws SQLException {
         if (job == null) return;
 
         Connection connection = null;
@@ -304,9 +312,9 @@ public final class GuaranteedJobHelper {
                 job.delivering();
                 connection.commit();
             }
-        } catch (Throwable ex) {
+        } catch (SQLException ex) {
             connection = Datastore.handleSQLException(connection, ex);
-            ExceptionHelper.raise(ex);
+            throw ex;
         } finally {
             SQLStatements.releaseStatement(statement);
             Datastore.releaseConnection(connection);
@@ -317,10 +325,11 @@ public final class GuaranteedJobHelper {
      * Saves the given job to the Trading Networks database. This method differs from job.save() as this method
      * preserves the job's updated time rather than setting it to current time as job.save() does.
      *
-     * @param job The job to be saved.
-     * @throws ServiceException If a database error is encountered.
+     * @param job           The job to be saved.
+     * @throws IOException  If an I/O error is encountered.
+     * @throws SQLException If a database error is encountered.
      */
-    protected static void save(GuaranteedJob job) throws ServiceException {
+    protected static void save(GuaranteedJob job) throws IOException, SQLException {
         if (job == null) return;
 
         Connection connection = null;
@@ -350,9 +359,7 @@ public final class GuaranteedJobHelper {
             connection.commit();
         } catch (SQLException ex) {
             connection = Datastore.handleSQLException(connection, ex);
-            ExceptionHelper.raise(ex);
-        } catch (IOException ex) {
-            ExceptionHelper.raise(ex);
+            throw ex;
         } finally {
             SQLStatements.releaseStatement(statement);
             Datastore.releaseConnection(connection);
@@ -363,13 +370,17 @@ public final class GuaranteedJobHelper {
      * Re-enqueues the given job for delivery, unless it has reached its retry limit or there are unrecoverable
      * errors on the owning BizDocEnvelope.
      *
-     * @param job     The job to be retried.
-     * @param suspend Whether the owning delivery queue should be suspended if the job has
-     *                reached its retry limit.
-     * @throws ServiceException If a database error is encountered.
+     * @param job               The job to be retried.
+     * @param suspend           Whether the owning delivery queue should be suspended if the job has
+     *                          reached its retry limit.
+     * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
+     * @throws IOException      If an I/O error is encountered.
+     * @throws SQLException     If a database error is encountered.
+     * @throws ServiceException If a service error is encountered.
      */
-    public static void retry(GuaranteedJob job, boolean suspend) throws ServiceException {
+    public static void retry(GuaranteedJob job, boolean suspend, String exhaustedStatus) throws IOException, SQLException, ServiceException {
         if (job == null) return;
+        if (exhaustedStatus == null) exhaustedStatus = BIZDOC_ENVELOPE_EXHAUSTED_USER_STATUS;
 
         job = refresh(job);
 
@@ -387,6 +398,7 @@ public final class GuaranteedJobHelper {
         if (failed) {
             if (exhausted) {
                 if (retryLimit > 0) {
+                    BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, exhaustedStatus, statusSilence);
                     log(job, "ERROR", "Delivery", MessageFormat.format("Exhausted all retries ({0}/{1})", retries, retryLimit), MessageFormat.format("Exhausted all retries ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName));
                 }
 

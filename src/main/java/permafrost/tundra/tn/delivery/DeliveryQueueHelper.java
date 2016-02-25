@@ -134,55 +134,37 @@ public final class DeliveryQueueHelper {
     /**
      * Returns the Trading Networks delivery queue associated with the given name.
      *
-     * @param queueName The name of the queue to return.
-     * @return The delivery queue with the given name.
-     * @throws ServiceException If a database error occurs.
+     * @param queueName     The name of the queue to return.
+     * @return              The delivery queue with the given name.
+     * @throws IOException  If an I/O error is encountered.
+     * @throws SQLException If a database error is encountered.
      */
-    public static DeliveryQueue get(String queueName) throws ServiceException {
+    public static DeliveryQueue get(String queueName) throws IOException, SQLException {
         if (queueName == null) return null;
-
-        DeliveryQueue queue = null;
-
-        try {
-            queue = QueueOperations.selectByName(queueName);
-        } catch(SQLException ex) {
-            ExceptionHelper.raise(ex);
-        } catch(IOException ex) {
-            ExceptionHelper.raise(ex);
-        }
-
-        return queue;
+        return QueueOperations.selectByName(queueName);
     }
 
     /**
      * Refreshes the given Trading Networks delivery queue from the database.
      *
-     * @param queue The queue to be refreshed.
-     * @return      The given queue, refreshed from the database.
-     * @throws ServiceException If a database error occurs.
+     * @param queue         The queue to be refreshed.
+     * @return              The given queue, refreshed from the database.
+     * @throws IOException  If an I/O error is encountered.
+     * @throws SQLException If a database error is encountered.
      */
-    public static DeliveryQueue refresh(DeliveryQueue queue) throws ServiceException {
+    public static DeliveryQueue refresh(DeliveryQueue queue) throws IOException, SQLException {
         return get(queue.getQueueName());
     }
 
     /**
      * Returns a list of all registered Trading Networks delivery queues.
      *
-     * @return A list of all registered Trading Networks delivery queues.
-     * @throws ServiceException If a database error occurs.
-     */
-    public static DeliveryQueue[] list() throws ServiceException {
-        DeliveryQueue[] output = null;
-
-        try {
-            output = QueueOperations.select(null);
-        } catch(SQLException ex) {
-            ExceptionHelper.raise(ex);
-        } catch(IOException ex) {
-            ExceptionHelper.raise(ex);
-        }
-
-        return output;
+     * @return              A list of all registered Trading Networks delivery queues.
+     * @throws IOException  If an I/O error is encountered.
+     * @throws SQLException If a database error is encountered.
+     * */
+    public static DeliveryQueue[] list() throws IOException, SQLException {
+        return QueueOperations.select(null);
     }
 
     /**
@@ -280,12 +262,12 @@ public final class DeliveryQueueHelper {
     /**
      * Returns the head of the given delivery queue without dequeuing it.
      *
-     * @param queue   The delivery queue whose head job is to be returned.
-     * @param ordered Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
-     * @return        The job at the head of the given queue, or null if the queue is empty.
-     * @throws ServiceException If a database error occurs.
+     * @param queue         The delivery queue whose head job is to be returned.
+     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
+     * @return              The job at the head of the given queue, or null if the queue is empty.
+     * @throws SQLException If a database error occurs.
      */
-    public static GuaranteedJob peek(DeliveryQueue queue, boolean ordered) throws ServiceException {
+    public static GuaranteedJob peek(DeliveryQueue queue, boolean ordered) throws SQLException {
         if (queue == null) return null;
 
         Connection connection = null;
@@ -312,7 +294,7 @@ public final class DeliveryQueueHelper {
             connection.commit();
         } catch (SQLException ex) {
             connection = Datastore.handleSQLException(connection, ex);
-            ExceptionHelper.raise(ex);
+            throw ex;
         } finally {
             SQLWrappers.close(results);
             SQLWrappers.close(statement);
@@ -325,12 +307,12 @@ public final class DeliveryQueueHelper {
     /**
      * Dequeues the job at the head of the given delivery queue.
      *
-     * @param queue   The delivery queue to dequeue the head job from.
-     * @param ordered Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
-     * @return        The dequeued job that was at the head of the given queue, or null if queue is empty.
-     * @throws ServiceException If a database error occurs.
+     * @param queue         The delivery queue to dequeue the head job from.
+     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
+     * @return              The dequeued job that was at the head of the given queue, or null if queue is empty.
+     * @throws SQLException If a database error occurs.
      */
-    public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered) throws ServiceException {
+    public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered) throws SQLException {
         GuaranteedJob job = peek(queue, ordered);
         GuaranteedJobHelper.setDelivering(job);
         return job;
@@ -340,6 +322,14 @@ public final class DeliveryQueueHelper {
      * Callable for invoking a given service against a given job.
      */
     private static class CallableGuaranteedJob implements Callable<IData> {
+        /**
+         * The number of retries when trying to complete a job.
+         */
+        private static int MAX_RETRIES = 60;
+        /**
+         * How long to wait between each retry when trying to complete a job.
+         */
+        private static long WAIT_BETWEEN_RETRIES_MILLISECONDS = 1000;
         /**
          * The job against which the service will be invoked.
          */
@@ -386,6 +376,11 @@ public final class DeliveryQueueHelper {
         private long timeDequeued;
 
         /**
+         * The user status a BizDocEnvelope is set to if all deliveries of the job are exhausted.
+         */
+        private String exhaustedStatus;
+
+        /**
          * Creates a new CallableGuaranteedJob which when called invokes the given service against the given job.
          *
          * @param job           The job to be processed.
@@ -397,8 +392,8 @@ public final class DeliveryQueueHelper {
          * @param timeToWait    The time in seconds to wait between each retry.
          * @param suspend       Whether to suspend the delivery queue on job retry exhaustion.
          */
-        public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, String service, Session session, IData pipeline, int retryLimit, int retryFactor, int timeToWait, boolean suspend) {
-            this(queue, job, service == null ? null : NSName.create(service), session, pipeline, retryLimit, retryFactor, timeToWait, suspend);
+        public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, String service, Session session, IData pipeline, int retryLimit, int retryFactor, int timeToWait, boolean suspend, String exhaustedStatus) {
+            this(queue, job, service == null ? null : NSName.create(service), session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus);
         }
 
         /**
@@ -413,7 +408,7 @@ public final class DeliveryQueueHelper {
          * @param timeToWait    The time in seconds to wait between each retry.
          * @param suspend       Whether to suspend the delivery queue on job retry exhaustion.
          */
-        public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, int retryFactor, int timeToWait, boolean suspend) {
+        public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, int retryFactor, int timeToWait, boolean suspend, String exhaustedStatus) {
             if (queue == null) throw new NullPointerException("queue must not be null");
             if (job == null) throw new NullPointerException("job must not be null");
             if (service == null) throw new NullPointerException("service must not be null");
@@ -428,6 +423,7 @@ public final class DeliveryQueueHelper {
             this.timeToWait = timeToWait;
             this.suspend = suspend;
             this.statusSilence = getStatusSilence(queue);
+            this.exhaustedStatus = exhaustedStatus;
         }
 
         /**
@@ -471,8 +467,11 @@ public final class DeliveryQueueHelper {
                 owningThread.setName(MessageFormat.format("{0}: Task={1} Time={2} COMPLETED", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
                 setJobCompleted(output);
             } catch(Exception ex) {
+                ServerAPI.logError(ex);
+
                 owningThread.setName(MessageFormat.format("{0}: Task={1} Time={2} FAILED: {3}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime"), ExceptionHelper.getMessage(ex)));
                 setJobCompleted(output, ex);
+
                 throw ex;
             } finally {
                 owningThread.setName(owningThreadPrefix);
@@ -500,34 +499,50 @@ public final class DeliveryQueueHelper {
          * @throws Exception If a database error occurs.
          */
         private void setJobCompleted(IData serviceOutput, Throwable exception) throws Exception {
-            IData input = IDataFactory.create();
+            int retry = 1;
 
-            IDataCursor cursor = input.getCursor();
-            IDataUtil.put(cursor, "taskid", job.getJobId());
-            IDataUtil.put(cursor, "queue", queue.getQueueName());
+            while(true) {
+                try {
+                    IData input = IDataFactory.create();
 
-            if (exception == null) {
-                IDataUtil.put(cursor, "status", "success");
-            } else {
-                IDataUtil.put(cursor, "status", "fail");
-                IDataUtil.put(cursor, "statusMsg", ExceptionHelper.getMessage(exception));
+                    IDataCursor cursor = input.getCursor();
+                    IDataUtil.put(cursor, "taskid", job.getJobId());
+                    IDataUtil.put(cursor, "queue", queue.getQueueName());
 
-                if (retryLimit > 0 && GuaranteedJobHelper.hasUnrecoverableErrors(job)) {
-                    // abort the delivery job so it won't be retried
-                    GuaranteedJobHelper.setRetryStrategy(job, 0, 1, 0);
-                    GuaranteedJobHelper.log(job, "ERROR", "Delivery", "Delivery aborted", MessageFormat.format("Delivery task \"{0}\" on {1} queue \"{2}\" was aborted due to unrecoverable errors being encountered, and will not be retried", job.getJobId(), queue.getQueueType(), queue.getQueueName()));
-                } else {
-                    GuaranteedJobHelper.setRetryStrategy(job, retryLimit, retryFactor, timeToWait);
+                    if (exception == null) {
+                        IDataUtil.put(cursor, "status", "success");
+                    } else {
+                        IDataUtil.put(cursor, "status", "fail");
+                        IDataUtil.put(cursor, "statusMsg", ExceptionHelper.getMessage(exception));
+
+                        if (retryLimit > 0 && GuaranteedJobHelper.hasUnrecoverableErrors(job)) {
+                            // abort the delivery job so it won't be retried
+                            GuaranteedJobHelper.setRetryStrategy(job, 0, 1, 0);
+                            GuaranteedJobHelper.log(job, "ERROR", "Delivery", "Delivery aborted", MessageFormat.format("Delivery task \"{0}\" on {1} queue \"{2}\" was aborted due to unrecoverable errors being encountered, and will not be retried", job.getJobId(), queue.getQueueType(), queue.getQueueName()));
+                        } else {
+                            GuaranteedJobHelper.setRetryStrategy(job, retryLimit, retryFactor, timeToWait);
+                        }
+                    }
+
+                    IDataUtil.put(cursor, "timeDequeued", timeDequeued);
+                    if (serviceOutput != null) IDataUtil.put(cursor, "serviceOutput", serviceOutput);
+                    cursor.destroy();
+
+                    Service.doInvoke(UPDATE_QUEUED_TASK_SERVICE_NAME, session, input);
+
+                    GuaranteedJobHelper.retry(job, suspend, exhaustedStatus);
+
+                    break;
+                } catch(Exception ex) {
+                    ServerAPI.logError(ex);
+
+                    if (retry++ >= MAX_RETRIES) {
+                        throw ex;
+                    } else {
+                        Thread.sleep(WAIT_BETWEEN_RETRIES_MILLISECONDS);
+                    }
                 }
             }
-
-            IDataUtil.put(cursor, "timeDequeued", timeDequeued);
-            if (serviceOutput != null) IDataUtil.put(cursor, "serviceOutput", serviceOutput);
-            cursor.destroy();
-
-            Service.doInvoke(UPDATE_QUEUED_TASK_SERVICE_NAME, session, input);
-
-            GuaranteedJobHelper.retry(job, suspend);
         }
     }
 
@@ -548,16 +563,19 @@ public final class DeliveryQueueHelper {
      *                          shuts down or the TN queue is disabled/suspended.
      * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
+     * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
+     * @throws IOException      If an I/O error is encountered.
+     * @throws SQLException     If a database error is encountered.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend) throws ServiceException {
+    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws IOException, SQLException, ServiceException {
         if (queueName == null) throw new NullPointerException("queueName must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
 
         DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
         if (queue == null) throw new ServiceException("Queue '" + queueName + "' does not exist");
 
-        each(queue, NSName.create(service), pipeline, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend);
+        each(queue, NSName.create(service), pipeline, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus);
     }
 
     /**
@@ -577,9 +595,10 @@ public final class DeliveryQueueHelper {
      *                          shuts down or the TN queue is disabled/suspended.
      * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
+     * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend) throws ServiceException {
+    public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws ServiceException {
         // normalize concurrency
         if (concurrency <= 0) concurrency = 1;
 
@@ -624,7 +643,7 @@ public final class DeliveryQueueHelper {
                         GuaranteedJob job = DeliveryQueueHelper.pop(queue, ordered);
                         if (job != null) {
                             // submit the job to the executor to be processed
-                            executor.submit(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend));
+                            executor.submit(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus));
                             sleepDuration = 0L; // poll for another job immediately, because the assumption is if there was one pending job then there is probably more
                         } else if (activeCount == 0) {
                             // no pending jobs, and thread pool is idle
