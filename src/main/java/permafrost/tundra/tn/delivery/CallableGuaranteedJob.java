@@ -1,0 +1,280 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2016 Lachlan Dowding
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+package permafrost.tundra.tn.delivery;
+
+import com.wm.app.b2b.server.ServerAPI;
+import com.wm.app.b2b.server.Service;
+import com.wm.app.b2b.server.Session;
+import com.wm.app.tn.delivery.DeliveryQueue;
+import com.wm.app.tn.delivery.GuaranteedJob;
+import com.wm.app.tn.doc.BizDocEnvelope;
+import com.wm.data.IData;
+import com.wm.data.IDataCursor;
+import com.wm.data.IDataFactory;
+import com.wm.data.IDataUtil;
+import com.wm.lang.ns.NSName;
+import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.lang.ExceptionHelper;
+import permafrost.tundra.time.DateTimeHelper;
+import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
+import permafrost.tundra.tn.profile.ProfileCache;
+import java.text.MessageFormat;
+import java.util.concurrent.Callable;
+
+/**
+ * Callable for invoking a given service against a given job.
+ */
+public class CallableGuaranteedJob implements Callable<IData> {
+    /**
+     * The name of the service used to update the completion status of a delivery queue job.
+     */
+    private static final NSName UPDATE_QUEUED_TASK_SERVICE_NAME = NSName.create("wm.tn.queuing:updateQueuedTask");
+    /**
+     * The bizdoc user status to use when a job is dequeued.
+     */
+    private static final String DEQUEUED_USER_STATUS = "DEQUEUED";
+    /**
+     * The number of retries when trying to complete a job.
+     */
+    private static int MAX_RETRIES = 60;
+    /**
+     * How long to wait between each retry when trying to complete a job.
+     */
+    private static long WAIT_BETWEEN_RETRIES_MILLISECONDS = 1000;
+    /**
+     * The job against which the service will be invoked.
+     */
+    private GuaranteedJob job;
+
+    /**
+     * The delivery queue from which the job was dequeued.
+     */
+    private DeliveryQueue queue;
+
+    /**
+     * The service to be invoked.
+     */
+    private NSName service;
+
+    /**
+     * The pipeline the service is invoked with.
+     */
+    private IData pipeline;
+
+    /**
+     * The session the service is invoked under.
+     */
+    private Session session;
+
+    /**
+     * The retry settings to be used when retrying the job.
+     */
+    private int retryLimit, retryFactor, timeToWait;
+
+    /**
+     * Whether the deliver queue should be suspended on retry exhaustion.
+     */
+    private boolean suspend;
+
+    /**
+     * Whether the owning bizdoc's status should be changed to reflect job success/failure.
+     */
+    private boolean statusSilence;
+
+    /**
+     * The time the job was dequeued.
+     */
+    private long timeDequeued;
+
+    /**
+     * The user status a BizDocEnvelope is set to if all deliveries of the job are exhausted.
+     */
+    private String exhaustedStatus;
+
+    /**
+     * Creates a new CallableGuaranteedJob which when called invokes the given service against the given job.
+     *
+     * @param job           The job to be processed.
+     * @param service       The service to be invoked to process the given job.
+     * @param session       The session used when invoking the given service.
+     * @param pipeline      The input pipeline used when invoking the given service.
+     * @param retryLimit    The number of retries this job should attempt.
+     * @param retryFactor   The factor used to extend the time to wait on each retry.
+     * @param timeToWait    The time in seconds to wait between each retry.
+     * @param suspend       Whether to suspend the delivery queue on job retry exhaustion.
+     */
+    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, String service, Session session, IData pipeline, int retryLimit, int retryFactor, int timeToWait, boolean suspend, String exhaustedStatus) {
+        this(queue, job, service == null ? null : NSName.create(service), session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus);
+    }
+
+    /**
+     * Creates a new CallableGuaranteedJob which when called invokes the given service against the given job.
+     *
+     * @param job           The job to be processed.
+     * @param service       The service to be invoked to process the given job.
+     * @param session       The session used when invoking the given service.
+     * @param pipeline      The input pipeline used when invoking the given service.
+     * @param retryLimit    The number of retries this job should attempt.
+     * @param retryFactor   The factor used to extend the time to wait on each retry.
+     * @param timeToWait    The time in seconds to wait between each retry.
+     * @param suspend       Whether to suspend the delivery queue on job retry exhaustion.
+     */
+    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, int retryFactor, int timeToWait, boolean suspend, String exhaustedStatus) {
+        if (queue == null) throw new NullPointerException("queue must not be null");
+        if (job == null) throw new NullPointerException("job must not be null");
+        if (service == null) throw new NullPointerException("service must not be null");
+
+        this.queue = queue;
+        this.job = job;
+        this.service = service;
+        this.session = session;
+        this.pipeline = pipeline == null ? IDataFactory.create() : IDataHelper.duplicate(pipeline);
+        this.retryLimit = retryLimit;
+        this.retryFactor = retryFactor;
+        this.timeToWait = timeToWait;
+        this.suspend = suspend;
+        this.statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
+        this.exhaustedStatus = exhaustedStatus;
+    }
+
+    /**
+     * Invokes the provided service with the provided pipeline and session against the job.
+     *
+     * @return The output pipeline returned by the invocation.
+     * @throws Exception If the service encounters an error.
+     */
+    public IData call() throws Exception {
+        IData output = null;
+
+        Thread owningThread = Thread.currentThread();
+        String owningThreadPrefix = owningThread.getName();
+
+        try {
+            timeDequeued = System.currentTimeMillis();
+            BizDocEnvelope bizdoc = job.getBizDocEnvelope();
+
+            owningThread.setName(MessageFormat.format("{0}: Task={1} Time={2} STARTED", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
+
+            if (bizdoc != null) {
+                BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence);
+            }
+
+            GuaranteedJobHelper.log(job, "MESSAGE", "Processing", MessageFormat.format("Dequeued from {0} queue \"{1}\"", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service \"{0}\" attempting to process document", service.getFullName()));
+
+            IDataCursor cursor = pipeline.getCursor();
+            IDataUtil.put(cursor, "$task", job);
+
+            if (bizdoc != null) {
+                bizdoc = BizDocEnvelopeHelper.get(bizdoc.getInternalId(), true);
+                IDataUtil.put(cursor, "bizdoc", bizdoc);
+                IDataUtil.put(cursor, "sender", ProfileCache.getInstance().get(bizdoc.getSenderId()));
+                IDataUtil.put(cursor, "receiver", ProfileCache.getInstance().get(bizdoc.getReceiverId()));
+            }
+
+            cursor.destroy();
+
+            output = Service.doInvoke(service, session, pipeline);
+
+            owningThread.setName(MessageFormat.format("{0}: Task={1} Time={2} COMPLETED", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
+            setJobCompleted(output);
+        } catch(Exception ex) {
+            ServerAPI.logError(ex);
+
+            owningThread.setName(MessageFormat.format("{0}: Task={1} Time={2} FAILED: {3}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime"), ExceptionHelper.getMessage(ex)));
+            setJobCompleted(output, ex);
+
+            throw ex;
+        } finally {
+            owningThread.setName(owningThreadPrefix);
+        }
+
+        return output;
+    }
+
+    /**
+     * Sets the job as successfully completed.
+     *
+     * @param serviceOutput The output of the service used to process the job.
+     * @throws Exception If a database error occurs.
+     */
+    private void setJobCompleted(IData serviceOutput) throws Exception {
+        setJobCompleted(serviceOutput, null);
+    }
+
+    /**
+     * Sets the job as either successfully or unsuccessfully completed, depending on whether
+     * and exception is provided.
+     *
+     * @param serviceOutput The output of the service used to process the job.
+     * @param exception Optional exception encountered while processing the job.
+     * @throws Exception If a database error occurs.
+     */
+    private void setJobCompleted(IData serviceOutput, Throwable exception) throws Exception {
+        int retry = 1;
+
+        while(true) {
+            try {
+                IData input = IDataFactory.create();
+
+                IDataCursor cursor = input.getCursor();
+                IDataUtil.put(cursor, "taskid", job.getJobId());
+                IDataUtil.put(cursor, "queue", queue.getQueueName());
+
+                if (exception == null) {
+                    IDataUtil.put(cursor, "status", "success");
+                } else {
+                    IDataUtil.put(cursor, "status", "fail");
+                    IDataUtil.put(cursor, "statusMsg", ExceptionHelper.getMessage(exception));
+
+                    if (retryLimit > 0 && GuaranteedJobHelper.hasUnrecoverableErrors(job)) {
+                        // abort the delivery job so it won't be retried
+                        GuaranteedJobHelper.setRetryStrategy(job, 0, 1, 0);
+                        GuaranteedJobHelper.log(job, "ERROR", "Delivery", "Delivery aborted", MessageFormat.format("Delivery task \"{0}\" on {1} queue \"{2}\" was aborted due to unrecoverable errors being encountered, and will not be retried", job.getJobId(), queue.getQueueType(), queue.getQueueName()));
+                    } else {
+                        GuaranteedJobHelper.setRetryStrategy(job, retryLimit, retryFactor, timeToWait);
+                    }
+                }
+
+                IDataUtil.put(cursor, "timeDequeued", timeDequeued);
+                if (serviceOutput != null) IDataUtil.put(cursor, "serviceOutput", serviceOutput);
+                cursor.destroy();
+
+                Service.doInvoke(UPDATE_QUEUED_TASK_SERVICE_NAME, session, input);
+
+                GuaranteedJobHelper.retry(job, suspend, exhaustedStatus);
+
+                break;
+            } catch(Exception ex) {
+                ServerAPI.logError(ex);
+
+                if (retry++ >= MAX_RETRIES) {
+                    throw ex;
+                } else {
+                    Thread.sleep(WAIT_BETWEEN_RETRIES_MILLISECONDS);
+                }
+            }
+        }
+    }
+}

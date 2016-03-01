@@ -99,6 +99,11 @@ public final class GuaranteedJobHelper {
     private static final String BIZDOC_ENVELOPE_EXHAUSTED_USER_STATUS = "EXHAUSTED";
 
     /**
+     * The default timeout for database queries.
+     */
+    private static final int DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS = 30;
+
+    /**
      * Disallow instantiation of this class.
      */
     private GuaranteedJobHelper() {}
@@ -192,6 +197,7 @@ public final class GuaranteedJobHelper {
         try {
             connection = Datastore.getConnection();
             statement = SQLStatements.prepareStatement(connection, SELECT_DELIVERY_JOBS_FOR_BIZDOC_SQL);
+            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
             statement.clearParameters();
 
             statement.setString(1, internalID);
@@ -265,6 +271,7 @@ public final class GuaranteedJobHelper {
 
                 connection = Datastore.getConnection();
                 statement = connection.prepareStatement(UPDATE_DELIVERY_JOB_RETRY_STRATEGY_SQL);
+                statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
                 statement.clearParameters();
 
                 statement.setInt(1, job.getRetryLimit());
@@ -299,6 +306,7 @@ public final class GuaranteedJobHelper {
         try {
             connection = Datastore.getConnection();
             statement = SQLStatements.prepareStatement(connection, UPDATE_DELIVERY_JOB_STATUS_TO_DELIVERING_SQL);
+            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
             statement.clearParameters();
 
             SQLWrappers.setChoppedString(statement, 1, JobMgr.getJobMgr().getServerId(), "DeliveryJob.ServerID");
@@ -338,6 +346,7 @@ public final class GuaranteedJobHelper {
         try {
             connection = Datastore.getConnection();
             statement = SQLStatements.prepareStatement(connection, UPDATE_DELIVERY_JOB_SQL);
+            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
             statement.clearParameters();
 
             // instead of setting TimeUpdated to now, set it to the time in the job object
