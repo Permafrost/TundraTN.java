@@ -26,6 +26,9 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 
+/**
+ * Processes jobs on a TN delivery queue via a bizdoc processing service.
+ */
 public class DeliveryQueueProcessor {
     /**
      * The name of the service that Trading Networks uses to invoke delivery queue processing services.
@@ -230,7 +233,7 @@ public class DeliveryQueueProcessor {
                                         // calculate the next run time based on TN queue schedule so that we can sleep until that time
                                         sleepDuration = untilNextRun(queue);
                                         if (sleepDuration == 0L) {
-                                            // either the TN queue schedule was scheduled to run once or if it has now expired, so exit
+                                            // either the TN queue schedule was scheduled to run once or it has now expired, so exit
                                             break;
                                         }
                                     } else {
