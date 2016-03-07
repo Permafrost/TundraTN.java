@@ -91,7 +91,12 @@ public class CallableGuaranteedJob implements Callable<IData> {
     /**
      * The retry settings to be used when retrying the job.
      */
-    private int retryLimit, retryFactor, timeToWait;
+    private int retryLimit, timeToWait;
+
+    /**
+     * The retry factor to be used when retrying the job.
+     */
+    private float retryFactor;
 
     /**
      * Whether the deliver queue should be suspended on retry exhaustion.
@@ -125,7 +130,7 @@ public class CallableGuaranteedJob implements Callable<IData> {
      * @param timeToWait    The time in seconds to wait between each retry.
      * @param suspend       Whether to suspend the delivery queue on job retry exhaustion.
      */
-    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, String service, Session session, IData pipeline, int retryLimit, int retryFactor, int timeToWait, boolean suspend, String exhaustedStatus) {
+    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, String service, Session session, IData pipeline, int retryLimit, float retryFactor, int timeToWait, boolean suspend, String exhaustedStatus) {
         this(queue, job, service == null ? null : NSName.create(service), session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus);
     }
 
@@ -141,10 +146,11 @@ public class CallableGuaranteedJob implements Callable<IData> {
      * @param timeToWait    The time in seconds to wait between each retry.
      * @param suspend       Whether to suspend the delivery queue on job retry exhaustion.
      */
-    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, int retryFactor, int timeToWait, boolean suspend, String exhaustedStatus) {
+    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, float retryFactor, int timeToWait, boolean suspend, String exhaustedStatus) {
         if (queue == null) throw new NullPointerException("queue must not be null");
         if (job == null) throw new NullPointerException("job must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
+        if (retryFactor < 1.0f) throw new IllegalArgumentException("retryFactor must not be less than zero");
 
         this.queue = queue;
         this.job = job;

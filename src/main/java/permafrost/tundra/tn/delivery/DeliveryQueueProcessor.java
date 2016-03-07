@@ -50,12 +50,10 @@ public class DeliveryQueueProcessor {
      * The suffix used on supervisor thread names.
      */
     private static final String SUPERVISOR_THREAD_SUFFIX = ": Supervisor";
-
     /**
      * List of the threads currently processing queues, to prevent multiple processes per queue.
      */
     private static ConcurrentMap<String, Thread> queueProcessingThreads = new ConcurrentHashMap<String, Thread>();
-
     /**
      * Whether queue processing is started.
      */
@@ -145,7 +143,7 @@ public class DeliveryQueueProcessor {
      * @throws SQLException     If a database error is encountered.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws IOException, SQLException, ServiceException {
+    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, float retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws IOException, SQLException, ServiceException {
         if (queueName == null) throw new NullPointerException("queueName must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
 
@@ -175,10 +173,12 @@ public class DeliveryQueueProcessor {
      * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, int retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws ServiceException {
+    public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, float retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws ServiceException {
         if (isStarted) {
             // normalize concurrency
             if (concurrency <= 0) concurrency = 1;
+            // normalize retryFactor
+            if (retryFactor < 1.0f) retryFactor = 1.0f;
 
             // only allow one supervisor thread at a time to process a given queue; if a new supervisor is started while
             // there is an existing supervisor, the new supervisor exits immediately

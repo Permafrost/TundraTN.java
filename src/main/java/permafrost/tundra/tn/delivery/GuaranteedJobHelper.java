@@ -42,9 +42,11 @@ import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataUtil;
 import permafrost.tundra.lang.ExceptionHelper;
+import permafrost.tundra.math.BigDecimalHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -102,6 +104,16 @@ public final class GuaranteedJobHelper {
      * The default timeout for database queries.
      */
     private static final int DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS = 30;
+
+    /**
+     * The number of decimal places expected in fixed decimal point retry factor.
+     */
+    private static final int RETRY_FACTOR_DECIMAL_PRECISION = 3;
+
+    /**
+     * The multiplier to use to pack a decimal retry factor into an int.
+     */
+    private static final float RETRY_FACTOR_DECIMAL_MULTIPLIER = (float)Math.pow(10, RETRY_FACTOR_DECIMAL_PRECISION);
 
     /**
      * Disallow instantiation of this class.
@@ -244,7 +256,7 @@ public final class GuaranteedJobHelper {
      * @throws ProfileStoreException    If a database error is encountered.
      * @throws SQLException             If a database error is encountered.
      */
-    public static void setRetryStrategy(GuaranteedJob job, int retryLimit, int retryFactor, int timeToWait) throws ProfileStoreException, SQLException {
+    public static void setRetryStrategy(GuaranteedJob job, int retryLimit, float retryFactor, int timeToWait) throws ProfileStoreException, SQLException {
         if (job == null) return;
 
         Connection connection = null;
@@ -266,7 +278,15 @@ public final class GuaranteedJobHelper {
 
             if (taskRetryLimit != retryLimit || taskRetryFactor != retryFactor || taskTTW != timeToWait) {
                 job.setRetryLimit(retryLimit);
-                job.setRetryFactor(retryFactor);
+
+                float packedFactor = retryFactor * RETRY_FACTOR_DECIMAL_MULTIPLIER;
+                if (retryFactor >= RETRY_FACTOR_DECIMAL_MULTIPLIER || packedFactor % 1 != 0) {
+                    // if retry factor has decimal precision, pack it into an integer by multiplying with a factor
+                    // which preserves the configured precision
+                    job.setRetryFactor(Math.round(packedFactor));
+                } else {
+                    job.setRetryFactor(Math.round(retryFactor));
+                }
                 job.setTTW(timeToWait);
 
                 connection = Datastore.getConnection();
@@ -455,11 +475,17 @@ public final class GuaranteedJobHelper {
         long nextRetry = now;
 
         int retryCount = job.getRetries();
-        int retryFactor = job.getRetryFactor();
+        float retryFactor = job.getRetryFactor();
         int ttw = (int)job.getTTW();
 
         if (ttw > 0) {
-            if (retryFactor > 1 && retryCount > 1) {
+            if (retryFactor > 1.0f && retryCount > 1) {
+                // if retryFactor is a packed decimal convert it to a fixed point decimal number (this is how we provide
+                // support for non-integer retry factors)
+                if (retryFactor >= RETRY_FACTOR_DECIMAL_MULTIPLIER) {
+                    retryFactor = BigDecimalHelper.round(new BigDecimal(retryFactor / RETRY_FACTOR_DECIMAL_MULTIPLIER), RETRY_FACTOR_DECIMAL_PRECISION).floatValue();
+                }
+
                 nextRetry = now + (long)(ttw * Math.pow(retryFactor, retryCount - 1));
             } else {
                 nextRetry = now + ttw;
