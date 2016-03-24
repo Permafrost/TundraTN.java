@@ -49,6 +49,8 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.Date;
+import javax.xml.datatype.Duration;
 
 /**
  * A collection of convenience methods for working with Trading Networks delivery queues.
@@ -67,7 +69,7 @@ public final class DeliveryQueueHelper {
     /**
      * The age a delivery job must be before it is eligible to be processed.
      */
-    private static final long DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS = 750L;
+    private static final long DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS = 500L;
 
     /**
      * The name of the service used to update a delivery queue.
@@ -221,7 +223,34 @@ public final class DeliveryQueueHelper {
      * @throws SQLException If a database error occurs.
      */
     public static GuaranteedJob peek(DeliveryQueue queue, boolean ordered) throws SQLException {
+        return peek(queue, ordered, null);
+    }
+
+    /**
+     * Returns the head of the given delivery queue without dequeuing it.
+     *
+     * @param queue         The delivery queue whose head job is to be returned.
+     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
+     * @param age           The minimum age a job must be before it can be dequeued.
+     * @return              The job at the head of the given queue, or null if the queue is empty.
+     * @throws SQLException If a database error occurs.
+     */
+    public static GuaranteedJob peek(DeliveryQueue queue, boolean ordered, Duration age) throws SQLException {
+        return peek(queue, ordered, age == null ? DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS : age.getTimeInMillis(new Date()));
+    }
+
+    /**
+     * Returns the head of the given delivery queue without dequeuing it.
+     *
+     * @param queue         The delivery queue whose head job is to be returned.
+     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
+     * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
+     * @return              The job at the head of the given queue, or null if the queue is empty.
+     * @throws SQLException If a database error occurs.
+     */
+    public static GuaranteedJob peek(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
         if (queue == null) return null;
+        if (age < DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS) age = DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS;
 
         Connection connection = null;
         PreparedStatement statement = null;
@@ -237,7 +266,7 @@ public final class DeliveryQueueHelper {
             String queueName = queue.getQueueName();
             SQLWrappers.setChoppedString(statement, 1, queueName, "DeliveryQueue.QueueName");
             SQLWrappers.setChoppedString(statement, 2, queueName, "DeliveryQueue.QueueName");
-            SQLWrappers.setTimestamp(statement, 3, new Timestamp(System.currentTimeMillis() - DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS));
+            SQLWrappers.setTimestamp(statement, 3, new Timestamp(System.currentTimeMillis() - age));
 
             results = statement.executeQuery();
 
@@ -267,7 +296,33 @@ public final class DeliveryQueueHelper {
      * @throws SQLException If a database error occurs.
      */
     public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered) throws SQLException {
-        GuaranteedJob job = peek(queue, ordered);
+        return pop(queue, ordered, null);
+    }
+
+    /**
+     * Dequeues the job at the head of the given delivery queue.
+     *
+     * @param queue         The delivery queue to dequeue the head job from.
+     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
+     * @param age           The minimum age a job must be before it can be dequeued.
+     * @return              The dequeued job that was at the head of the given queue, or null if queue is empty.
+     * @throws SQLException If a database error occurs.
+     */
+    public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered, Duration age) throws SQLException {
+        return pop(queue, ordered, age == null ? DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS : age.getTimeInMillis(new Date()));
+    }
+
+    /**
+     * Dequeues the job at the head of the given delivery queue.
+     *
+     * @param queue         The delivery queue to dequeue the head job from.
+     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
+     * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
+     * @return              The dequeued job that was at the head of the given queue, or null if queue is empty.
+     * @throws SQLException If a database error occurs.
+     */
+    public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
+        GuaranteedJob job = peek(queue, ordered, age);
         GuaranteedJobHelper.setDelivering(job);
         return job;
     }
