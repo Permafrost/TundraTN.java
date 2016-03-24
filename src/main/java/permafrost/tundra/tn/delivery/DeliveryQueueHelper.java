@@ -59,17 +59,17 @@ public final class DeliveryQueueHelper {
     /**
      * SQL statement to select head of a delivery queue in job creation datetime order.
      */
-    private static final String SELECT_NEXT_DELIVERY_JOB_ORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED') AND TimeUpdated <= ?";
+    private static final String SELECT_NEXT_DELIVERY_JOB_ORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED') AND TimeCreated <= ? AND TimeUpdated <= ?";
 
     /**
      * SQL statement to select head of a delivery queue in indeterminate order.
      */
-    private static final String SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeUpdated <= ?)";
+    private static final String SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeCreated <= ? AND TimeUpdated <= ?)";
 
     /**
      * The age a delivery job must be before it is eligible to be processed.
      */
-    private static final long DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS = 500L;
+    private static final long DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS = 250L;
 
     /**
      * The name of the service used to update a delivery queue.
@@ -250,7 +250,7 @@ public final class DeliveryQueueHelper {
      */
     public static GuaranteedJob peek(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
         if (queue == null) return null;
-        if (age < DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS) age = DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS;
+        if (age < 0) age = 0;
 
         Connection connection = null;
         PreparedStatement statement = null;
@@ -266,7 +266,10 @@ public final class DeliveryQueueHelper {
             String queueName = queue.getQueueName();
             SQLWrappers.setChoppedString(statement, 1, queueName, "DeliveryQueue.QueueName");
             SQLWrappers.setChoppedString(statement, 2, queueName, "DeliveryQueue.QueueName");
-            SQLWrappers.setTimestamp(statement, 3, new Timestamp(System.currentTimeMillis() - age));
+
+            long now = System.currentTimeMillis();
+            SQLWrappers.setTimestamp(statement, 3, new Timestamp(now - age));
+            SQLWrappers.setTimestamp(statement, 4, new Timestamp(now));
 
             results = statement.executeQuery();
 

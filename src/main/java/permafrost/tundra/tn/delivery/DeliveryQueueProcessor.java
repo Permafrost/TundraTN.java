@@ -25,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
+import javax.xml.datatype.Duration;
 
 /**
  * Processes jobs on a TN delivery queue via a bizdoc processing service.
@@ -129,6 +130,7 @@ public class DeliveryQueueProcessor {
      * @param queueName         The name of the delivery queue whose queued jobs are to be processed.
      * @param service           The service to be invoked to process jobs on the given delivery queue.
      * @param pipeline          The input pipeline used when invoking the given service.
+     * @param age               The minimum age a task must be before it is processed.
      * @param concurrency       If > 1, this is the number of threads used to process jobs simultaneously.
      * @param retryLimit        The number of retries this job should attempt.
      * @param retryFactor       The factor used to extend the time to wait on each retry.
@@ -143,14 +145,14 @@ public class DeliveryQueueProcessor {
      * @throws SQLException     If a database error is encountered.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(String queueName, String service, IData pipeline, int concurrency, int retryLimit, float retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws IOException, SQLException, ServiceException {
+    public static void each(String queueName, String service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws IOException, SQLException, ServiceException {
         if (queueName == null) throw new NullPointerException("queueName must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
 
         DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
         if (queue == null) throw new ServiceException("Queue '" + queueName + "' does not exist");
 
-        each(queue, NSName.create(service), pipeline, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus);
+        each(queue, NSName.create(service), pipeline, age, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus);
     }
 
     /**
@@ -161,6 +163,7 @@ public class DeliveryQueueProcessor {
      * @param queue             The delivery queue whose queued jobs are to be processed.
      * @param service           The service to be invoked to process jobs on the given delivery queue.
      * @param pipeline          The input pipeline used when invoking the given service.
+     * @param age               The minimum age a task must be before it is processed.
      * @param concurrency       If > 1, this is the number of threads used to process jobs simultaneously.
      * @param retryLimit        The number of retries this job should attempt.
      * @param retryFactor       The factor used to extend the time to wait on each retry.
@@ -173,7 +176,7 @@ public class DeliveryQueueProcessor {
      * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(DeliveryQueue queue, NSName service, IData pipeline, int concurrency, int retryLimit, float retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws ServiceException {
+    public static void each(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws ServiceException {
         if (isStarted) {
             // normalize concurrency
             if (concurrency <= 0) concurrency = 1;
@@ -222,7 +225,7 @@ public class DeliveryQueueProcessor {
                             }
 
                             if (activeCount < concurrency) {
-                                GuaranteedJob job = DeliveryQueueHelper.pop(queue, ordered);
+                                GuaranteedJob job = DeliveryQueueHelper.pop(queue, ordered, age);
                                 if (job != null) {
                                     // submit the job to the executor to be processed
                                     executor.submit(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus));
