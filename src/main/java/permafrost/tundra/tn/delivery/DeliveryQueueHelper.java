@@ -69,7 +69,7 @@ public final class DeliveryQueueHelper {
     /**
      * The age a delivery job must be before it is eligible to be processed.
      */
-    private static final long DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS = 250L;
+    private static final long DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS = 750L;
 
     /**
      * The name of the service used to update a delivery queue.
