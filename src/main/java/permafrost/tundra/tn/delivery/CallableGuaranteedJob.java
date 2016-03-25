@@ -42,6 +42,7 @@ import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.profile.ProfileCache;
 import java.text.MessageFormat;
 import java.util.concurrent.Callable;
+import javax.xml.datatype.Duration;
 
 /**
  * Callable for invoking a given service against a given job.
@@ -89,9 +90,14 @@ public class CallableGuaranteedJob implements Callable<IData> {
     private Session session;
 
     /**
-     * The retry settings to be used when retrying the job.
+     * The maximum number of retries.
      */
-    private int retryLimit, timeToWait;
+    private int retryLimit;
+
+    /**
+     * The time to wait between retries.
+     */
+    private Duration timeToWait;
 
     /**
      * The retry factor to be used when retrying the job.
@@ -127,10 +133,10 @@ public class CallableGuaranteedJob implements Callable<IData> {
      * @param pipeline      The input pipeline used when invoking the given service.
      * @param retryLimit    The number of retries this job should attempt.
      * @param retryFactor   The factor used to extend the time to wait on each retry.
-     * @param timeToWait    The time in seconds to wait between each retry.
+     * @param timeToWait    The time to wait between each retry.
      * @param suspend       Whether to suspend the delivery queue on job retry exhaustion.
      */
-    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, String service, Session session, IData pipeline, int retryLimit, float retryFactor, int timeToWait, boolean suspend, String exhaustedStatus) {
+    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, String service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus) {
         this(queue, job, service == null ? null : NSName.create(service), session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus);
     }
 
@@ -143,10 +149,10 @@ public class CallableGuaranteedJob implements Callable<IData> {
      * @param pipeline      The input pipeline used when invoking the given service.
      * @param retryLimit    The number of retries this job should attempt.
      * @param retryFactor   The factor used to extend the time to wait on each retry.
-     * @param timeToWait    The time in seconds to wait between each retry.
+     * @param timeToWait    The time to wait between each retry.
      * @param suspend       Whether to suspend the delivery queue on job retry exhaustion.
      */
-    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, float retryFactor, int timeToWait, boolean suspend, String exhaustedStatus) {
+    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus) {
         if (queue == null) throw new NullPointerException("queue must not be null");
         if (job == null) throw new NullPointerException("job must not be null");
         if (service == null) throw new NullPointerException("service must not be null");

@@ -52,7 +52,9 @@ import java.sql.SQLException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.ConcurrentModificationException;
+import java.util.Date;
 import java.util.List;
+import javax.xml.datatype.Duration;
 
 /**
  * A collection of convenience methods for working with Trading Networks delivery jobs.
@@ -250,11 +252,26 @@ public final class GuaranteedJobHelper {
      * @param job                       The job to be updated.
      * @param retryLimit                The number of retries this job should attempt.
      * @param retryFactor               The factor used to extend the time to wait on each retry.
-     * @param timeToWait                The time in seconds to wait between each retry.
+     * @param timeToWait                The time to wait between each retry.
      * @throws ProfileStoreException    If a database error is encountered.
      * @throws SQLException             If a database error is encountered.
      */
-    public static void setRetryStrategy(GuaranteedJob job, int retryLimit, float retryFactor, int timeToWait) throws ProfileStoreException, SQLException {
+    public static void setRetryStrategy(GuaranteedJob job, int retryLimit, float retryFactor, Duration timeToWait) throws ProfileStoreException, SQLException {
+        setRetryStrategy(job, retryLimit, retryFactor, timeToWait == null ? 0 : timeToWait.getTimeInMillis(new Date()));
+    }
+
+    /**
+     * Update the retry settings on the given job using the given settings, or the retry settings on the receiver's
+     * profile if the given retryLimit <= 0.
+     *
+     * @param job                       The job to be updated.
+     * @param retryLimit                The number of retries this job should attempt.
+     * @param retryFactor               The factor used to extend the time to wait on each retry.
+     * @param timeToWait                The time in milliseconds to wait between each retry.
+     * @throws ProfileStoreException    If a database error is encountered.
+     * @throws SQLException             If a database error is encountered.
+     */
+    public static void setRetryStrategy(GuaranteedJob job, int retryLimit, float retryFactor, long timeToWait) throws ProfileStoreException, SQLException {
         if (job == null) return;
 
         Connection connection = null;
@@ -469,7 +486,7 @@ public final class GuaranteedJobHelper {
      * @return    The datetime, as the number of milliseconds since the epoch, at which the job should next be retried.
      */
     private static long calculateNextRetryDateTime(GuaranteedJob job) {
-        long now = new java.util.Date().getTime();
+        long now = System.currentTimeMillis();
         long nextRetry = now;
 
         int retryCount = job.getRetries();

@@ -134,7 +134,7 @@ public class DeliveryQueueProcessor {
      * @param concurrency       If > 1, this is the number of threads used to process jobs simultaneously.
      * @param retryLimit        The number of retries this job should attempt.
      * @param retryFactor       The factor used to extend the time to wait on each retry.
-     * @param timeToWait        The time in seconds to wait between each retry.
+     * @param timeToWait        The time to wait between each retry.
      * @param threadPriority    The thread priority used when processing tasks.
      * @param daemonize         If true, all threads will be marked as daemons and execution will not end until the JVM
      *                          shuts down or the TN queue is disabled/suspended.
@@ -145,7 +145,7 @@ public class DeliveryQueueProcessor {
      * @throws SQLException     If a database error is encountered.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(String queueName, String service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws IOException, SQLException, ServiceException {
+    public static void each(String queueName, String service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws IOException, SQLException, ServiceException {
         if (queueName == null) throw new NullPointerException("queueName must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
 
@@ -167,7 +167,7 @@ public class DeliveryQueueProcessor {
      * @param concurrency       If > 1, this is the number of threads used to process jobs simultaneously.
      * @param retryLimit        The number of retries this job should attempt.
      * @param retryFactor       The factor used to extend the time to wait on each retry.
-     * @param timeToWait        The time in seconds to wait between each retry.
+     * @param timeToWait        The time to wait between each retry.
      * @param threadPriority    The thread priority used when processing tasks.
      * @param daemonize         If true, all threads will be marked as daemons and execution will not end until the JVM
      *                          shuts down or the TN queue is disabled/suspended.
@@ -176,7 +176,7 @@ public class DeliveryQueueProcessor {
      * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, int timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws ServiceException {
+    public static void each(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws ServiceException {
         if (isStarted) {
             // normalize concurrency
             if (concurrency <= 0) concurrency = 1;
