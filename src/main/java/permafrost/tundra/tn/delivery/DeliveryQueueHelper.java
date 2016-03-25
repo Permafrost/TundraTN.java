@@ -269,7 +269,7 @@ public final class DeliveryQueueHelper {
 
             long now = System.currentTimeMillis();
             SQLWrappers.setTimestamp(statement, 3, new Timestamp(now - age));
-            SQLWrappers.setTimestamp(statement, 4, new Timestamp(now));
+            SQLWrappers.setTimestamp(statement, 4, new Timestamp(now - DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS));
 
             results = statement.executeQuery();
 
