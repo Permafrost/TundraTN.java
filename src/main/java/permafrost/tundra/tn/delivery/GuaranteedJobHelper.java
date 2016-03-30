@@ -294,11 +294,10 @@ public final class GuaranteedJobHelper {
             if (taskRetryLimit != retryLimit || taskRetryFactor != retryFactor || taskTTW != timeToWait) {
                 job.setRetryLimit(retryLimit);
 
-                float packedFactor = retryFactor * RETRY_FACTOR_DECIMAL_MULTIPLIER;
-                if (retryFactor >= RETRY_FACTOR_DECIMAL_MULTIPLIER || packedFactor % 1 != 0) {
+                if (retryFactor >= RETRY_FACTOR_DECIMAL_MULTIPLIER || retryFactor % 1 != 0) {
                     // if retry factor has decimal precision, pack it into an integer by multiplying with a factor
                     // which preserves the configured precision
-                    job.setRetryFactor(Math.round(packedFactor));
+                    job.setRetryFactor(Math.round(retryFactor * RETRY_FACTOR_DECIMAL_MULTIPLIER));
                 } else {
                     job.setRetryFactor(Math.round(retryFactor));
                 }
