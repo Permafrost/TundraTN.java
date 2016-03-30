@@ -156,7 +156,7 @@ public class CallableGuaranteedJob implements Callable<IData> {
         if (queue == null) throw new NullPointerException("queue must not be null");
         if (job == null) throw new NullPointerException("job must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
-        if (retryFactor < 1.0f) throw new IllegalArgumentException("retryFactor must not be less than zero");
+        if (retryFactor < 1.0f) throw new IllegalArgumentException("retryFactor must not be less than one");
 
         this.queue = queue;
         this.job = job;
