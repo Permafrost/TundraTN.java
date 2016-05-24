@@ -124,7 +124,7 @@ public final class BizDocContentHelper {
             contentType = contentPart.getMimeType();
         }
 
-        return contentType == null ? MIMETypeHelper.DEFAULT_MIME_TYPE : contentType;
+        return contentType == null ? MIMETypeHelper.DEFAULT_MIME_TYPE_STRING : contentType;
     }
 
     /**
