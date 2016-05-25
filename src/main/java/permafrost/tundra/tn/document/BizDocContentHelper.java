@@ -37,7 +37,7 @@ import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocType;
 import com.wm.app.tn.doc.FFDocType;
 import com.wm.app.tn.doc.XMLDocType;
-import permafrost.tundra.io.StreamHelper;
+import permafrost.tundra.io.InputStreamHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.mime.MIMETypeHelper;
 
@@ -141,7 +141,7 @@ public final class BizDocContentHelper {
         InputStream content = null;
 
         try {
-            content = StreamHelper.normalize(contentPart.getContent(document.getInternalId()));
+            content = InputStreamHelper.normalize(contentPart.getContent(document.getInternalId()));
         } catch (IOException ex) {
             ExceptionHelper.raise(ex);
         }
