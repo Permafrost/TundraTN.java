@@ -33,6 +33,7 @@ import com.wm.app.tn.profile.Profile;
 import com.wm.app.tn.profile.ProfileStore;
 import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
+import permafrost.tundra.data.CopyOnWriteIDataMap;
 import permafrost.tundra.data.IDataHelper;
 
 /**
@@ -177,7 +178,7 @@ public class ProfileCache {
             }
         }
 
-        return IDataHelper.duplicate(output);
+        return CopyOnWriteIDataMap.of(output);
     }
 
     /**
