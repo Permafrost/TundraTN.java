@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -327,7 +328,7 @@ public class DeliveryQueueProcessor {
      * @return True if the invocation call stack includes the WmTN/wm.tn.queuing:deliverBatch service.
      */
     private static boolean invokedByTradingNetworks() {
-        java.util.Iterator iterator = InvokeState.getCurrentState().getCallStack().iterator();
+        Iterator iterator = InvokeState.getCurrentState().getCallStack().iterator();
         boolean result = false;
         while(iterator.hasNext()) {
             result = iterator.next().toString().equals(DELIVER_BATCH_SERVICE_NAME);
