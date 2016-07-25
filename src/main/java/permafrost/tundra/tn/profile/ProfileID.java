@@ -65,8 +65,8 @@ public class ProfileID {
     /**
      * Returns true if the given object is considered equivalent to this object.
      *
-     * @param object The object to compare for equivalence with.
-     * @return True if the two objects are considered equivalent.
+     * @param object    The object to compare for equivalence with.
+     * @return          True if the two objects are considered equivalent.
      */
     @Override
     public boolean equals(Object object) {
@@ -140,8 +140,8 @@ public class ProfileID {
     /**
      * Returns an internal ID representation of this ID, if one exists.
      *
-     * @return An internal ID representation of this ID, if one exists.
-     * @throws ProfileStoreException If a database error occurs.
+     * @return                          An internal ID representation of this ID, if one exists.
+     * @throws ProfileStoreException    If a database error occurs.
      */
     public ProfileID toInternalID() throws ProfileStoreException {
         ProfileID output = null;

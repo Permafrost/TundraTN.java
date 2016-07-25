@@ -92,7 +92,7 @@ public class ProfileCache {
     /**
      * Seeds the cache with all partner profiles from the Trading Networks database.
      *
-     * @throws ServiceException
+     * @throws ServiceException If an error occurs.
      */
     public void seed() throws ServiceException {
         List summaries = ProfileStore.getProfileSummaryList(false, false);
@@ -110,7 +110,7 @@ public class ProfileCache {
     /**
      * Returns a list of all the cached Trading Networks partner profiles.
      *
-     * @return The list of all cached Trading Networks partner profiles.
+     * @return                  The list of all cached Trading Networks partner profiles.
      * @throws ServiceException If a database error occurs.
      */
     public IData[] list() throws ServiceException {
@@ -121,9 +121,9 @@ public class ProfileCache {
      * Returns a list of all the cached Trading Networks partner profiles, optionally seeded from the Trading Networks
      * database.
      *
-     * @param seed If true, the local cache will first be seeded with all Trading Networks partner profiles from the
-     *             Trading Networks database.
-     * @return The list of all cached Trading Networks partner profiles.
+     * @param seed              If true, the local cache will first be seeded with all Trading Networks partner profiles
+     *                          from the Trading Networks database.
+     * @return                  The list of all cached Trading Networks partner profiles.
      * @throws ServiceException If a database error occurs.
      */
     public IData[] list(boolean seed) throws ServiceException {
@@ -142,8 +142,8 @@ public class ProfileCache {
      * Returns the Trading Networks partner profile associated with the given internal ID from the cache if cached, or
      * from the Trading Networks database if not cached (at which time it will be lazily cached).
      *
-     * @param id The internal ID associated with the partner profile to be returned.
-     * @return   The partner profile associated with the given internal ID.
+     * @param id                The internal ID associated with the partner profile to be returned.
+     * @return                  The partner profile associated with the given internal ID.
      * @throws ServiceException If a database error occurs.
      */
     public IData get(String id) throws ServiceException {
@@ -155,10 +155,10 @@ public class ProfileCache {
      * from the Trading Networks database if not cached or if a refresh is requested (at which time it will be lazily
      * cached).
      *
-     * @param id      The internal ID associated with the partner profile to be returned.
-     * @param refresh If true, the partner profile is first reloaded from the Trading Networks database before being
-     *                returned.
-     * @return        The partner profile associated with the given internal ID.
+     * @param id                The internal ID associated with the partner profile to be returned.
+     * @param refresh           If true, the partner profile is first reloaded from the Trading Networks database before
+     *                          being returned.
+     * @return                  The partner profile associated with the given internal ID.
      * @throws ServiceException If a database error occurs.
      */
     public IData get(String id, boolean refresh) throws ServiceException {
@@ -185,10 +185,10 @@ public class ProfileCache {
      * Returns the Trading Networks partner profile associated with the given external ID from the cache if cached, or
      * from the Trading Networks database if not cached (at which time it will be lazily cached).
      *
-     * @param id   The external ID associated with the profile to be returned.
-     * @param type The type of external ID specified.
-     * @return     The profile associated with the given external ID, or null if no profile exists with the given
-     *             external ID.
+     * @param id                The external ID associated with the profile to be returned.
+     * @param type              The type of external ID specified.
+     * @return                  The profile associated with the given external ID, or null if no profile exists with the
+     *                          given external ID.
      * @throws ServiceException If a database error occurs.
      */
     public IData get(String id, String type) throws ServiceException {
@@ -200,12 +200,12 @@ public class ProfileCache {
      * from the Trading Networks database if not cached or if a refresh is requested (at which time it will be lazily
      * cached).
      *
-     * @param id      The external ID associated with the profile to be returned.
-     * @param type    The type of external ID specified.
-     * @param refresh If true, the partner profile is first reloaded from the Trading Networks database before being
-     *                returned.
-     * @return        The profile associated with the given external ID, or null if no profile exists with the given
-     *                external ID.
+     * @param id                The external ID associated with the profile to be returned.
+     * @param type              The type of external ID specified.
+     * @param refresh           If true, the partner profile is first reloaded from the Trading Networks database before
+     *                          being returned.
+     * @return                  The profile associated with the given external ID, or null if no profile exists with the
+     *                          given external ID.
      * @throws ServiceException If a database error occurs.
      */
     public IData get(String id, String type, boolean refresh) throws ServiceException {
@@ -216,8 +216,8 @@ public class ProfileCache {
      * Returns the Trading Networks partner profile associated with the given ID from the cache if cached, or
      * from the Trading Networks database if not cached (at which time it will be lazily cached).
      *
-     * @param id The ID associated with the profile to be returned.
-     * @return   The profile associated with the given ID, or null if no profile exists with the given ID.
+     * @param id                The ID associated with the profile to be returned.
+     * @return                  The profile associated with the given ID, or null if no profile exists with the given ID.
      * @throws ServiceException If a database error occurs.
      */
     public IData get(ProfileID id) throws ServiceException {
@@ -229,9 +229,10 @@ public class ProfileCache {
      * from the Trading Networks database if not cached or if a refresh is requested (at which time it will be lazily
      * cached).
      *
-     * @param id      The ID associated with the profile to be returned.
-     * @param refresh If true, the profile is first reloaded from the Trading Networks database before being returned.
-     * @return        The profile associated with the given ID, or null if no profile exists with the given ID.
+     * @param id                The ID associated with the profile to be returned.
+     * @param refresh           If true, the profile is first reloaded from the Trading Networks database before being
+     *                          returned.
+     * @return                  The profile associated with the given ID, or null if no profile exists with the given ID.
      * @throws ServiceException If a database error occurs.
      */
     public IData get(ProfileID id, boolean refresh) throws ServiceException {
@@ -251,7 +252,7 @@ public class ProfileCache {
      * Returns the Trading Networks My Enterprise profile from the cache if cached, or from the Trading Networks
      * database if not cached (at which time it will be lazily cached).
      *
-     * @return The Trading Networks My Enterprise profile.
+     * @return                  The Trading Networks My Enterprise profile.
      * @throws ServiceException If a database error occurs.
      */
     public IData self() throws ServiceException {
@@ -262,8 +263,9 @@ public class ProfileCache {
      * Returns the Trading Networks My Enterprise profile from the cache if cached, or from the Trading Networks
      * database if not cached or if a refresh is requested (at which time it will be lazily cached).
      *
-     * @param refresh   If true, the profile is first reloaded from the Trading Networks database before being returned.
-     * @return          The Trading Networks My Enterprise profile.
+     * @param refresh           If true, the profile is first reloaded from the Trading Networks database before being
+     *                          returned.
+     * @return                  The Trading Networks My Enterprise profile.
      * @throws ServiceException If a database error occurs.
      */
     public IData self(boolean refresh) throws ServiceException {

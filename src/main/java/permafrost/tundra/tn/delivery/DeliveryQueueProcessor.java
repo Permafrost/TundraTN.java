@@ -84,6 +84,8 @@ public class DeliveryQueueProcessor {
 
     /**
      * Interrupts and therefore shuts down the processing supervisor associated with the given queue.
+     *
+     * @param queueName The name of the queue whose processing is to be interrupted.
      */
     public static void interrupt(String queueName) {
         if (queueName == null) return;
@@ -105,7 +107,7 @@ public class DeliveryQueueProcessor {
     /**
      * Returns a list of all currently processing queues and the associated processing thread.
      *
-     * @return A list of all currently processing queues and the associated processing thread.
+     * @return                  A list of all currently processing queues and the associated processing thread.
      * @throws IOException      If an I/O error occurs.
      * @throws ServiceException If a service invocation error occurs.
      * @throws SQLException     If a database error occurs.
@@ -125,14 +127,14 @@ public class DeliveryQueueProcessor {
 
     /**
      * Dequeues each task on the given Trading Networks delivery queue, and processes the task using the given service
-     * and input pipeline; if concurrency > 1, tasks will be processed by a thread pool whose size is equal to the
-     * desired concurrency, otherwise they will be processed on the current thread.
+     * and input pipeline; if concurrency greater than 1, tasks will be processed by a thread pool whose size is equal
+     * to the desired concurrency, otherwise they will be processed on the current thread.
      *
      * @param queueName         The name of the delivery queue whose queued jobs are to be processed.
      * @param service           The service to be invoked to process jobs on the given delivery queue.
      * @param pipeline          The input pipeline used when invoking the given service.
      * @param age               The minimum age a task must be before it is processed.
-     * @param concurrency       If > 1, this is the number of threads used to process jobs simultaneously.
+     * @param concurrency       If greater than 1, this is the number of threads used to process jobs simultaneously.
      * @param retryLimit        The number of retries this job should attempt.
      * @param retryFactor       The factor used to extend the time to wait on each retry.
      * @param timeToWait        The time to wait between each retry.
@@ -158,14 +160,14 @@ public class DeliveryQueueProcessor {
 
     /**
      * Dequeues each task on the given Trading Networks delivery queue, and processes the task using the given service
-     * and input pipeline; if concurrency > 1, tasks will be processed by a thread pool whose size is equal to the
-     * desired concurrency, otherwise they will be processed on the current thread.
+     * and input pipeline; if concurrency greater than 1, tasks will be processed by a thread pool whose size is equal
+     * to the desired concurrency, otherwise they will be processed on the current thread.
      *
      * @param queue             The delivery queue whose queued jobs are to be processed.
      * @param service           The service to be invoked to process jobs on the given delivery queue.
      * @param pipeline          The input pipeline used when invoking the given service.
      * @param age               The minimum age a task must be before it is processed.
-     * @param concurrency       If > 1, this is the number of threads used to process jobs simultaneously.
+     * @param concurrency       If greater than 1, this is the number of threads used to process jobs simultaneously.
      * @param retryLimit        The number of retries this job should attempt.
      * @param retryFactor       The factor used to extend the time to wait on each retry.
      * @param timeToWait        The time to wait between each retry.

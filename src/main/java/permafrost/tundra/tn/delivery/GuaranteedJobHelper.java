@@ -247,7 +247,7 @@ public final class GuaranteedJobHelper {
 
     /**
      * Update the retry settings on the given job using the given settings, or the retry settings on the receiver's
-     * profile if the given retryLimit <= 0.
+     * profile if the given retryLimit is less than or equal to 0.
      *
      * @param job                       The job to be updated.
      * @param retryLimit                The number of retries this job should attempt.
@@ -262,7 +262,7 @@ public final class GuaranteedJobHelper {
 
     /**
      * Update the retry settings on the given job using the given settings, or the retry settings on the receiver's
-     * profile if the given retryLimit <= 0.
+     * profile if the given retryLimit is less than or equal to 0.
      *
      * @param job                       The job to be updated.
      * @param retryLimit                The number of retries this job should attempt.

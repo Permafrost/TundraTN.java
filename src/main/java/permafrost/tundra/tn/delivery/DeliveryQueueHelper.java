@@ -125,7 +125,7 @@ public final class DeliveryQueueHelper {
     /**
      * Enables the delivery of the given Trading Networks delivery queue.
      *
-     * @param queue The queue to enable delivery on.
+     * @param queue             The queue to enable delivery on.
      * @throws ServiceException If a database error occurs.
      */
     public static void enable(DeliveryQueue queue) throws ServiceException {
@@ -137,7 +137,7 @@ public final class DeliveryQueueHelper {
     /**
      * Disables the delivery of the given Trading Networks delivery queue.
      *
-     * @param queue The queue to enable delivery on.
+     * @param queue             The queue to enable delivery on.
      * @throws ServiceException If a database error occurs.
      */
     public static void disable(DeliveryQueue queue) throws ServiceException {
@@ -149,7 +149,7 @@ public final class DeliveryQueueHelper {
     /**
      * Drains the delivery of the given Trading Networks delivery queue.
      *
-     * @param queue The queue to enable delivery on.
+     * @param queue             The queue to enable delivery on.
      * @throws ServiceException If a database error occurs.
      */
     public static void drain(DeliveryQueue queue) throws ServiceException {
@@ -161,7 +161,7 @@ public final class DeliveryQueueHelper {
     /**
      * Suspends the delivery of the given Trading Networks delivery queue.
      *
-     * @param queue The queue to enable delivery on.
+     * @param queue             The queue to enable delivery on.
      * @throws ServiceException If a database error occurs.
      */
     public static void suspend(DeliveryQueue queue) throws ServiceException {
@@ -173,9 +173,9 @@ public final class DeliveryQueueHelper {
     /**
      * Returns the number of jobs currently queued in the given Trading Networks delivery queue.
      *
-     * @param queue The queue to return the length of.
-     * @return      The length of the given queue, which is the number of delivery jobs with a status
-     *              of QUEUED or DELIVERING.
+     * @param queue             The queue to return the length of.
+     * @return                  The length of the given queue, which is the number of delivery jobs with a status
+     *                          of QUEUED or DELIVERING.
      * @throws ServiceException If a database error occurs.
      */
     public static int length(DeliveryQueue queue) throws ServiceException {
@@ -196,7 +196,7 @@ public final class DeliveryQueueHelper {
     /**
      * Updates the given Trading Networks delivery queue with any changes that may have occurred.
      *
-     * @param queue The queue whose changes are to be saved.
+     * @param queue             The queue whose changes are to be saved.
      * @throws ServiceException If a database error occurs.
      */
     public static void save(DeliveryQueue queue) throws ServiceException {
@@ -413,8 +413,8 @@ public final class DeliveryQueueHelper {
     /**
      * Converts the given Trading Networks delivery queue to an IData doc.
      *
-     * @param input The queue to convert to an IData doc representation.
-     * @return      An IData doc representation of the given queue.
+     * @param input             The queue to convert to an IData doc representation.
+     * @return                  An IData doc representation of the given queue.
      * @throws ServiceException If a database error occurs.
      */
     public static IData toIData(DeliveryQueue input) throws ServiceException {
@@ -437,8 +437,8 @@ public final class DeliveryQueueHelper {
     /**
      * Converts the given list of Trading Networks delivery queues to an IData[] doc list.
      *
-     * @param input The list of queues to convert to an IData[] doc list representation.
-     * @return      An IData[] doc list representation of the given queues.
+     * @param input             The list of queues to convert to an IData[] doc list representation.
+     * @return                  An IData[] doc list representation of the given queues.
      * @throws ServiceException If a database error occurs.
      */
     public static IData[] toIDataArray(DeliveryQueue[] input) throws ServiceException {

@@ -60,8 +60,9 @@ public final class ProfileHelper {
     /**
      * Returns the partner profile associated with the given internal or external ID from the Trading Networks database.
      *
-     * @param id An ID associated with the partner profile to be returned.
-     * @return The partner profile summary associated with the given ID, or null if no profile for this ID exists.
+     * @param id                An ID associated with the partner profile to be returned.
+     * @return                  The partner profile summary associated with the given ID, or null if no profile for this
+     *                          ID exists.
      * @throws ServiceException If a database error occurs.
      */
     public static ProfileSummary getProfileSummary(ProfileID id) throws ServiceException {
@@ -82,8 +83,9 @@ public final class ProfileHelper {
     /**
      * Returns the partner profile summary associated with the given internal ID from the Trading Networks database.
      *
-     * @param id An internal ID associated with the partner profile to be returned.
-     * @return The partner profile summary associated with the given internal ID, or null if no profile for this ID exists.
+     * @param id                An internal ID associated with the partner profile to be returned.
+     * @return                  The partner profile summary associated with the given internal ID, or null if no profile
+     *                          for this ID exists.
      * @throws ServiceException If a database error occurs.
      */
     public static ProfileSummary getProfileSummary(String id) throws ServiceException {
@@ -105,8 +107,9 @@ public final class ProfileHelper {
     /**
      * Returns the partner profile associated with the given ID from the Trading Networks database.
      *
-     * @param id An ID associated with the partner profile to be returned.
-     * @return The partner profile associated with the given ID, or null if no profile for this ID exists.
+     * @param id                An ID associated with the partner profile to be returned.
+     * @return                  The partner profile associated with the given ID, or null if no profile for this ID
+     *                          exists.
      * @throws ServiceException If a database error occurs.
      */
     public static Profile get(ProfileID id) throws ServiceException {
@@ -127,8 +130,9 @@ public final class ProfileHelper {
     /**
      * Returns the partner profile associated with the given internal ID from the Trading Networks database.
      *
-     * @param id An internal ID associated with the partner profile to be returned.
-     * @return The partner profile associated with the given internal ID, or null if no profile for this ID exists.
+     * @param id                An internal ID associated with the partner profile to be returned.
+     * @return                  The partner profile associated with the given internal ID, or null if no profile for
+     *                          this ID exists.
      * @throws ServiceException If a database error occurs.
      */
     public static Profile get(String id) throws ServiceException {
@@ -150,8 +154,9 @@ public final class ProfileHelper {
     /**
      * Returns the My Enterprise profile from the Trading Networks database.
      *
-     * @return The My Enterprise profile from the Trading Networks database, or null if no My Enterprise profile exists.
-     * @throws ServiceException
+     * @return                  The My Enterprise profile from the Trading Networks database, or null if no My
+     *                          Enterprise profile exists.
+     * @throws ServiceException If a database error occurs.
      */
     public static Profile self() throws ServiceException {
         return get(ProfileStore.getMyID());
@@ -160,7 +165,7 @@ public final class ProfileHelper {
     /**
      * Returns a list of all partner cache from the Trading Networks database.
      *
-     * @return A list of all partner cache from the Trading Networks database.
+     * @return                  A list of all partner cache from the Trading Networks database.
      * @throws ServiceException If a database error occurs.
      */
     public static Profile[] list() throws ServiceException {
@@ -181,8 +186,8 @@ public final class ProfileHelper {
     /**
      * Returns all external IDs associated with the given profile as an array of ProfileID objects.
      *
-     * @param profile The profile whose external IDs are to be returned.
-     * @return The external IDs associated with the given profile.
+     * @param profile           The profile whose external IDs are to be returned.
+     * @return                  The external IDs associated with the given profile.
      * @throws ServiceException If a database error occurs.
      */
     public static ProfileID[] getExternalIDsAsArray(Profile profile) throws ServiceException {
@@ -193,8 +198,8 @@ public final class ProfileHelper {
     /**
      * Returns all external IDs associated with the given profile as a collection of ProfileID objects.
      *
-     * @param profile The profile whose external IDs are to be returned.
-     * @return The external IDs associated with the given profile.
+     * @param profile           The profile whose external IDs are to be returned.
+     * @return                  The external IDs associated with the given profile.
      * @throws ServiceException If a database error occurs.
      */
     public static Collection<ProfileID> getExternalIDs(Profile profile) throws ServiceException {
@@ -217,9 +222,9 @@ public final class ProfileHelper {
      * Converts a Trading Networks partner profile to an IData representation which is a superset of
      * both the Profile and ProfileSummary objects.
      *
-     * @param profile The partner profile to convert to an IData representation.
-     * @return An IData representation of the given partner profile.
-     * @throws ServiceException
+     * @param profile           The partner profile to convert to an IData representation.
+     * @return                  An IData representation of the given partner profile.
+     * @throws ServiceException If a database error occurs.
      */
     public static IData toIData(Profile profile) throws ServiceException {
         if (profile == null) return null;
@@ -252,9 +257,9 @@ public final class ProfileHelper {
      * Converts a list of Trading Networks partner profiles to an IData[] representation which is a superset of
      * both the Profile and ProfileSummary objects.
      *
-     * @param profiles The list of partner profiles to convert to an IData[] representation.
-     * @return An IData[] representation of the given partner profiles.
-     * @throws ServiceException
+     * @param profiles          The list of partner profiles to convert to an IData[] representation.
+     * @return                  An IData[] representation of the given partner profiles.
+     * @throws ServiceException If a database error occurs.
      */
     public static IData[] toIDataArray(Profile[] profiles) throws ServiceException {
         if (profiles == null) return null;
@@ -271,8 +276,8 @@ public final class ProfileHelper {
     /**
      * Returns all external IDs associated with the given profile as an IData.
      *
-     * @param profile The profile whose external IDs are to be returned.
-     * @return The external IDs associated with the given profile.
+     * @param profile           The profile whose external IDs are to be returned.
+     * @return                  The external IDs associated with the given profile.
      * @throws ServiceException If a database error occurs.
      */
     private static IData getExternalIDsAsIData(Profile profile) throws ServiceException {
@@ -295,8 +300,8 @@ public final class ProfileHelper {
     /**
      * Returns all delivery methods associated with the given profile as an IData.
      *
-     * @param profile The profile whose delivery methods are to be returned.
-     * @return  The delivery methods associated with the given profile with the delivery protocol as the key.
+     * @param profile   The profile whose delivery methods are to be returned.
+     * @return          The delivery methods associated with the given profile with the delivery protocol as the key.
      */
     private static IData getDeliveryAsIData(Profile profile) {
         if (profile == null) return null;
@@ -324,9 +329,9 @@ public final class ProfileHelper {
     /**
      * Returns the extended fields for a given partner profile internal ID.
      *
-     * @param id The internal ID of the profile to return the associated extended fields for.
-     * @return The extended fields associated with the given profile internal ID.
-     * @throws ServiceException
+     * @param id                The internal ID of the profile to return the associated extended fields for.
+     * @return                  The extended fields associated with the given profile internal ID.
+     * @throws ServiceException If a database error occurs.
      */
     private static IData getExtendedFieldsAsIData(String id) throws ServiceException {
         if (id == null) return null;
@@ -376,7 +381,7 @@ public final class ProfileHelper {
     /**
      * Returns all Trading Networks external ID types as a map, where ID is the key to the map.
      *
-     * @return All registered external ID types in Trading Networks by ID.
+     * @return                  All registered external ID types in Trading Networks by ID.
      * @throws ServiceException If a database error occurs.
      */
     private static Map<Integer, String> getExternalIDTypes() throws ServiceException {

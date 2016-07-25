@@ -127,14 +127,16 @@ public class CallableGuaranteedJob implements Callable<IData> {
     /**
      * Creates a new CallableGuaranteedJob which when called invokes the given service against the given job.
      *
-     * @param job           The job to be processed.
-     * @param service       The service to be invoked to process the given job.
-     * @param session       The session used when invoking the given service.
-     * @param pipeline      The input pipeline used when invoking the given service.
-     * @param retryLimit    The number of retries this job should attempt.
-     * @param retryFactor   The factor used to extend the time to wait on each retry.
-     * @param timeToWait    The time to wait between each retry.
-     * @param suspend       Whether to suspend the delivery queue on job retry exhaustion.
+     * @param queue             The delivery queue on which the job queued.
+     * @param job               The job to be processed.
+     * @param service           The service to be invoked to process the given job.
+     * @param session           The session used when invoking the given service.
+     * @param pipeline          The input pipeline used when invoking the given service.
+     * @param retryLimit        The number of retries this job should attempt.
+     * @param retryFactor       The factor used to extend the time to wait on each retry.
+     * @param timeToWait        The time to wait between each retry.
+     * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
+     * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhaused.
      */
     public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, String service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus) {
         this(queue, job, service == null ? null : NSName.create(service), session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus);
@@ -143,14 +145,16 @@ public class CallableGuaranteedJob implements Callable<IData> {
     /**
      * Creates a new CallableGuaranteedJob which when called invokes the given service against the given job.
      *
-     * @param job           The job to be processed.
-     * @param service       The service to be invoked to process the given job.
-     * @param session       The session used when invoking the given service.
-     * @param pipeline      The input pipeline used when invoking the given service.
-     * @param retryLimit    The number of retries this job should attempt.
-     * @param retryFactor   The factor used to extend the time to wait on each retry.
-     * @param timeToWait    The time to wait between each retry.
-     * @param suspend       Whether to suspend the delivery queue on job retry exhaustion.
+     * @param queue             The delivery queue on which the job queued.
+     * @param job               The job to be processed.
+     * @param service           The service to be invoked to process the given job.
+     * @param session           The session used when invoking the given service.
+     * @param pipeline          The input pipeline used when invoking the given service.
+     * @param retryLimit        The number of retries this job should attempt.
+     * @param retryFactor       The factor used to extend the time to wait on each retry.
+     * @param timeToWait        The time to wait between each retry.
+     * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
+     * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhaused.
      */
     public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus) {
         if (queue == null) throw new NullPointerException("queue must not be null");
@@ -174,8 +178,8 @@ public class CallableGuaranteedJob implements Callable<IData> {
     /**
      * Invokes the provided service with the provided pipeline and session against the job.
      *
-     * @return The output pipeline returned by the invocation.
-     * @throws Exception If the service encounters an error.
+     * @return              The output pipeline returned by the invocation.
+     * @throws Exception    If the service encounters an error.
      */
     public IData call() throws Exception {
         IData output = null;
@@ -229,7 +233,7 @@ public class CallableGuaranteedJob implements Callable<IData> {
      * Sets the job as successfully completed.
      *
      * @param serviceOutput The output of the service used to process the job.
-     * @throws Exception If a database error occurs.
+     * @throws Exception    If a database error occurs.
      */
     private void setJobCompleted(IData serviceOutput) throws Exception {
         setJobCompleted(serviceOutput, null);
@@ -240,8 +244,8 @@ public class CallableGuaranteedJob implements Callable<IData> {
      * and exception is provided.
      *
      * @param serviceOutput The output of the service used to process the job.
-     * @param exception Optional exception encountered while processing the job.
-     * @throws Exception If a database error occurs.
+     * @param exception     Optional exception encountered while processing the job.
+     * @throws Exception    If a database error occurs.
      */
     private void setJobCompleted(IData serviceOutput, Throwable exception) throws Exception {
         int retry = 1;
