@@ -311,12 +311,35 @@ public final class ProfileHelper {
 
         try {
             Destination preferred = profile.getPreferredDestination();
-            if (preferred != null) IDataUtil.put(cursor, "Preferred Protocol", IDataHelper.normalize(preferred));
+            if (preferred != null) cursor.insertAfter("Preferred Protocol", IDataHelper.normalize(preferred));
 
             for (Object object : IterableEnumeration.of(profile.getDestinations())) {
                 if (object instanceof Destination) {
                     Destination destination = (Destination)object;
-                    IDataUtil.put(cursor, destination.getProtocolDisplayName(), IDataHelper.normalize(destination));
+                    String name = destination.getProtocolDisplayName();
+                    // protocol display name can be null, so use protocol when this happens
+                    if (name == null) name = destination.getProtocol();
+
+                    // only add the destination if name isn't null
+                    if (name != null) {
+                        // take a copy of the destination so we can fix some field values for backwards-compatibility
+                        IData copy = IDataFactory.create();
+                        IDataUtil.merge(destination, copy);
+                        
+                        IDataCursor copyCursor = copy.getCursor();
+
+                        // fix protocol to be an actual protocol rather than the destination name for custom destinations
+                        String protocol = IDataUtil.getString(copyCursor, "B2BService");
+                        if (protocol != null) {
+                            IDataUtil.put(copyCursor, "Protocol", protocol);
+                        }
+
+                        // add name to the destination structure
+                        IDataUtil.put(copyCursor, "DestinationName", name);
+                        copyCursor.destroy();
+
+                        cursor.insertAfter(name, IDataHelper.normalize(copy));
+                    }
                 }
             }
         } finally {

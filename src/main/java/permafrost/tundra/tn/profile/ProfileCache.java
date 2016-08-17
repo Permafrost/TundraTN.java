@@ -33,8 +33,8 @@ import com.wm.app.tn.profile.Profile;
 import com.wm.app.tn.profile.ProfileStore;
 import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
-import permafrost.tundra.data.CopyOnWriteIDataMap;
 import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.data.ImmutableIData;
 
 /**
  * A local in-memory cache of Trading Networks partner cache, to improve performance of Trading Networks
@@ -178,7 +178,7 @@ public class ProfileCache {
             }
         }
 
-        return CopyOnWriteIDataMap.of(output);
+        return ImmutableIData.of(output);
     }
 
     /**
