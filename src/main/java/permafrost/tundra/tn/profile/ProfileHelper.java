@@ -47,7 +47,9 @@ import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
+import com.wm.data.MBoolean;
 import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.IterableEnumeration;
 
@@ -336,6 +338,8 @@ public final class ProfileHelper {
 
                         // add name to the destination structure
                         IDataUtil.put(copyCursor, "DestinationName", name);
+                        // add whether destination is the primary destination as a boolean string
+                        IDataUtil.put(copyCursor, "IsPrimary", BooleanHelper.emit(destination.isPrimary()));
                         copyCursor.destroy();
 
                         cursor.insertAfter(name, IDataHelper.normalize(copy));
