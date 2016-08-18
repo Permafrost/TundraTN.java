@@ -34,7 +34,6 @@ import java.util.TreeMap;
 import java.util.Vector;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.profile.Corporation;
-import com.wm.app.tn.profile.Destination;
 import com.wm.app.tn.profile.ExtendedProfileField;
 import com.wm.app.tn.profile.ID;
 import com.wm.app.tn.profile.LookupStore;
@@ -47,9 +46,7 @@ import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
-import com.wm.data.MBoolean;
 import permafrost.tundra.data.IDataHelper;
-import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.IterableEnumeration;
 
@@ -228,6 +225,7 @@ public final class ProfileHelper {
      * @return                  An IData representation of the given partner profile.
      * @throws ServiceException If a database error occurs.
      */
+    @SuppressWarnings("unchecked")
     public static IData toIData(Profile profile) throws ServiceException {
         if (profile == null) return null;
 
@@ -243,7 +241,8 @@ public final class ProfileHelper {
                 try {
                     IDataUtil.put(cursor, "ExternalID", getExternalIDsAsIData(profile));
                     IDataUtil.put(cursor, "ExtendedFields", getExtendedFieldsAsIData(partnerID));
-                    IDataUtil.put(cursor, "DeliveryMethods", getDeliveryAsIData(profile));
+                    IDataUtil.put(cursor, "Delivery", DestinationHelper.toIDataArray(IterableEnumeration.of(profile.getDestinations())));
+                    IDataUtil.put(cursor, "DeliveryMethods", DestinationHelper.toIData(IterableEnumeration.of(profile.getDestinations()), profile.getPreferredDestination()));
                 } finally {
                     cursor.destroy();
                 }
@@ -291,60 +290,6 @@ public final class ProfileHelper {
         try {
             for (ProfileID profileID : getExternalIDs(profile)) {
                 IDataUtil.put(cursor, profileID.getType(), profileID.getValue());
-            }
-        } finally {
-            cursor.destroy();
-        }
-
-        return output;
-    }
-
-    /**
-     * Returns all delivery methods associated with the given profile as an IData.
-     *
-     * @param profile   The profile whose delivery methods are to be returned.
-     * @return          The delivery methods associated with the given profile with the delivery protocol as the key.
-     */
-    private static IData getDeliveryAsIData(Profile profile) {
-        if (profile == null) return null;
-
-        IData output = IDataFactory.create();
-        IDataCursor cursor = output.getCursor();
-
-        try {
-            Destination preferred = profile.getPreferredDestination();
-            if (preferred != null) cursor.insertAfter("Preferred Protocol", IDataHelper.normalize(preferred));
-
-            for (Object object : IterableEnumeration.of(profile.getDestinations())) {
-                if (object instanceof Destination) {
-                    Destination destination = (Destination)object;
-                    String name = destination.getProtocolDisplayName();
-                    // protocol display name can be null, so use protocol when this happens
-                    if (name == null) name = destination.getProtocol();
-
-                    // only add the destination if name isn't null
-                    if (name != null) {
-                        // take a copy of the destination so we can fix some field values for backwards-compatibility
-                        IData copy = IDataFactory.create();
-                        IDataUtil.merge(destination, copy);
-                        
-                        IDataCursor copyCursor = copy.getCursor();
-
-                        // fix protocol to be an actual protocol rather than the destination name for custom destinations
-                        String protocol = IDataUtil.getString(copyCursor, "B2BService");
-                        if (protocol != null) {
-                            IDataUtil.put(copyCursor, "Protocol", protocol);
-                        }
-
-                        // add name to the destination structure
-                        IDataUtil.put(copyCursor, "DestinationName", name);
-                        // add whether destination is the primary destination as a boolean string
-                        IDataUtil.put(copyCursor, "IsPrimary", BooleanHelper.emit(destination.isPrimary()));
-                        copyCursor.destroy();
-
-                        cursor.insertAfter(name, IDataHelper.normalize(copy));
-                    }
-                }
             }
         } finally {
             cursor.destroy();
