@@ -24,11 +24,16 @@
 
 package permafrost.tundra.tn.document;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.text.MessageFormat;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BizDocStore;
+import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.DatastoreException;
+import com.wm.app.tn.db.SQLWrappers;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocErrorSet;
 import com.wm.app.tn.err.ActivityLogEntry;
@@ -47,6 +52,22 @@ public final class BizDocEnvelopeHelper {
      * The activity log message class that represents unrecoverable errors.
      */
     private static final String ACTIVITY_LOG_UNRECOVERABLE_MESSAGE_CLASS = "Unrecoverable";
+    /**
+     * The default timeout for database queries.
+     */
+    private static final int DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS = 30;
+    /**
+     * SQL statement for updating a bizdoc's user status with optimistic concurrency.
+     */
+    private static final String UPDATE_BIZDOC_USER_STATUS_SQL = "UPDATE BizDoc SET UserStatus = ?, LastModified = ? WHERE DocID = ? AND UserStatus = ?";
+    /**
+     * SQL statement for updating a bizdoc's system status with optimistic concurrency.
+     */
+    private static final String UPDATE_BIZDOC_SYSTEM_STATUS_SQL = "UPDATE BizDoc SET RoutingStatus = ?, LastModified = ? WHERE DocID = ? AND RoutingStatus = ?";
+    /**
+     * SQL statement for updating a bizdoc's system and user status with optimistic concurrency.
+     */
+    private static final String UPDATE_BIZDOC_STATUS_SQL = "UPDATE BizDoc SET RoutingStatus = ?, UserStatus = ?, LastModified = ? WHERE DocID = ? AND RoutingStatus = ? AND UserStatus = ?";
 
     /**
      * Disallow instantiation of this class.
@@ -147,15 +168,176 @@ public final class BizDocEnvelopeHelper {
      * Updates the status on the given BizDocEnvelope.
      *
      * @param bizdoc            The BizDocEnvelope to update the status on.
-     * @param systemStatus      The system status to be set.
+     * @param systemStatus      The system status to be set. If null, system status will not be set.
      * @param userStatus        The user status to be set.
      * @param silence           If true, the status is not changed.
      * @throws ServiceException If a database error is encountered.
      */
     public static void setStatus(BizDocEnvelope bizdoc, String systemStatus, String userStatus, boolean silence) throws ServiceException {
+        setStatus(bizdoc, systemStatus, null, userStatus, null, silence);
+    }
+
+    /**
+     * Updates the status on the given BizDocEnvelope with optimistic concurrency supported by ensuring the status
+     * is only updated if it equals the given previous value.
+     *
+     * @param bizdoc                The BizDocEnvelope to update the status on.
+     * @param systemStatus          The system status to be set. If null, system status will not be set.
+     * @param previousSystemStatus  The previous value of the system status.
+     * @param userStatus            The user status to be set. If null, user status will not be set.
+     * @param previousUserStatus    The previous value of the user status.
+     * @param silence               If true, the status is not changed.
+     * @throws ServiceException     If a database error is encountered.
+     */
+    public static void setStatus(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus, String userStatus, String previousUserStatus, boolean silence) throws ServiceException {
         if (bizdoc == null || silence) return;
-        BizDocStore.changeStatus(bizdoc.getInternalId(), systemStatus, userStatus);
-        log(bizdoc, "MESSAGE", "General", "Status changed", getStatusMessage(systemStatus, userStatus));
+
+        boolean result;
+
+        if (previousSystemStatus == null && previousUserStatus == null) {
+            result = BizDocStore.changeStatus(bizdoc.getInternalId(), systemStatus, userStatus);
+        } else if (systemStatus != null && userStatus != null) {
+            result = setStatusForPrevious(bizdoc, systemStatus, previousSystemStatus, userStatus, previousUserStatus);
+        } else if (systemStatus != null) {
+            result = setSystemStatusForPrevious(bizdoc, systemStatus, previousSystemStatus);
+        } else {
+            result = setUserStatusForPrevious(bizdoc, userStatus, previousUserStatus);
+        }
+
+        if (result) log(bizdoc, "MESSAGE", "General", "Status changed", getStatusMessage(systemStatus, userStatus));
+    }
+
+    /**
+     * Updates the status on the given BizDocEnvelope with optimistic concurrency supported by ensuring the status
+     * is only updated if it equals the given previous value.
+     *
+     * @param bizdoc                The BizDocEnvelope to update the status on.
+     * @param systemStatus          The system status to be set. If null, system status will not be set.
+     * @param previousSystemStatus  The previous value of the system status.
+     * @param userStatus            The user status to be set. If null, user status will not be set.
+     * @param previousUserStatus    The previous value of the user status.
+     * @return                      True if the status was updated.
+     * @throws ServiceException     If a database error is encountered.
+     */
+    private static boolean setStatusForPrevious(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus, String userStatus, String previousUserStatus) throws ServiceException {
+        Connection connection = null;
+        PreparedStatement statement = null;
+        boolean result = false;
+
+        try {
+            connection = Datastore.getConnection();
+            statement = connection.prepareStatement(UPDATE_BIZDOC_STATUS_SQL);
+            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
+            statement.clearParameters();
+
+            SQLWrappers.setChoppedString(statement, 1, systemStatus, "BizDoc.RoutingStatus");
+            SQLWrappers.setChoppedString(statement, 2, userStatus, "BizDoc.UserStatus");
+            SQLWrappers.setNow(statement, 3);
+            SQLWrappers.setCharString(statement, 4, bizdoc.getInternalId());
+            SQLWrappers.setChoppedString(statement, 5, previousSystemStatus, "BizDoc.RoutingStatus");
+            SQLWrappers.setChoppedString(statement, 6, previousUserStatus, "BizDoc.UserStatus");
+
+            result = statement.executeUpdate() == 1;
+
+            connection.commit();
+        } catch (SQLException ex) {
+            connection = Datastore.handleSQLException(connection, ex);
+            ExceptionHelper.raise(ex);
+        } finally {
+            SQLWrappers.close(statement);
+            Datastore.releaseConnection(connection);
+        }
+
+        if (result) {
+            bizdoc.setSystemStatus(systemStatus);
+            bizdoc.setUserStatus(userStatus);
+        }
+
+        return result;
+    }
+
+    /**
+     * Updates the status on the given BizDocEnvelope with optimistic concurrency supported by ensuring the status
+     * is only updated if it equals the given previous value.
+     *
+     * @param bizdoc                The BizDocEnvelope to update the status on.
+     * @param systemStatus          The system status to be set. If null, system status will not be set.
+     * @param previousSystemStatus  The previous value of the system status.
+     * @return                      True if the status was updated.
+     * @throws ServiceException     If a database error is encountered.
+     */
+    private static boolean setSystemStatusForPrevious(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus) throws ServiceException {
+        Connection connection = null;
+        PreparedStatement statement = null;
+        boolean result = false;
+
+        try {
+            connection = Datastore.getConnection();
+            statement = connection.prepareStatement(UPDATE_BIZDOC_SYSTEM_STATUS_SQL);
+            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
+            statement.clearParameters();
+
+            SQLWrappers.setChoppedString(statement, 1, systemStatus, "BizDoc.RoutingStatus");
+            SQLWrappers.setNow(statement, 2);
+            SQLWrappers.setCharString(statement, 3, bizdoc.getInternalId());
+            SQLWrappers.setChoppedString(statement, 4, previousSystemStatus, "BizDoc.RoutingStatus");
+
+            result = statement.executeUpdate() == 1;
+
+            connection.commit();
+        } catch (SQLException ex) {
+            connection = Datastore.handleSQLException(connection, ex);
+            ExceptionHelper.raise(ex);
+        } finally {
+            SQLWrappers.close(statement);
+            Datastore.releaseConnection(connection);
+        }
+
+        if (result) bizdoc.setSystemStatus(systemStatus);
+
+        return result;
+    }
+
+    /**
+     * Updates the status on the given BizDocEnvelope with optimistic concurrency supported by ensuring the status
+     * is only updated if it equals the given previous value.
+     *
+     * @param bizdoc                The BizDocEnvelope to update the status on.
+     * @param userStatus            The user status to be set. If null, user status will not be set.
+     * @param previousUserStatus    The previous value of the user status.
+     * @return                      True if the status was updated.
+     * @throws ServiceException     If a database error is encountered.
+     */
+    private static boolean setUserStatusForPrevious(BizDocEnvelope bizdoc, String userStatus, String previousUserStatus) throws ServiceException {
+        Connection connection = null;
+        PreparedStatement statement = null;
+        boolean result = false;
+
+        try {
+            connection = Datastore.getConnection();
+            statement = connection.prepareStatement(UPDATE_BIZDOC_USER_STATUS_SQL);
+            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
+            statement.clearParameters();
+
+            SQLWrappers.setChoppedString(statement, 1, userStatus, "BizDoc.UserStatus");
+            SQLWrappers.setNow(statement, 2);
+            SQLWrappers.setCharString(statement, 3, bizdoc.getInternalId());
+            SQLWrappers.setChoppedString(statement, 4, previousUserStatus, "BizDoc.UserStatus");
+
+            result = statement.executeUpdate() == 1;
+
+            connection.commit();
+        } catch (SQLException ex) {
+            connection = Datastore.handleSQLException(connection, ex);
+            ExceptionHelper.raise(ex);
+        } finally {
+            SQLWrappers.close(statement);
+            Datastore.releaseConnection(connection);
+        }
+
+        if (result) bizdoc.setUserStatus(userStatus);
+
+        return result;
     }
 
     /**
