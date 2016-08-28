@@ -186,12 +186,13 @@ public class CallableGuaranteedJob implements Callable<IData> {
 
         Thread owningThread = Thread.currentThread();
         String owningThreadPrefix = owningThread.getName();
+        String startDateTime = DateTimeHelper.now("datetime");
 
         try {
             timeDequeued = System.currentTimeMillis();
             BizDocEnvelope bizdoc = job.getBizDocEnvelope();
 
-            owningThread.setName(MessageFormat.format("{0}: Task={1} Time={2} STARTED", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
+            owningThread.setName(MessageFormat.format("{0}: TaskID={1} TaskStart={2} PROCESSING", owningThreadPrefix, job.getJobId(), startDateTime));
 
             if (bizdoc != null) {
                 BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence);
@@ -213,12 +214,12 @@ public class CallableGuaranteedJob implements Callable<IData> {
 
             output = Service.doInvoke(service, session, pipeline);
 
-            owningThread.setName(MessageFormat.format("{0}: Task={1} Time={2} COMPLETED", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
+            owningThread.setName(MessageFormat.format("{0}: TaskID={1} TaskStart={2} TaskEnd={3} COMPLETED", owningThreadPrefix, job.getJobId(), startDateTime, DateTimeHelper.now("datetime")));
             setJobCompleted(output);
         } catch(Exception ex) {
             ServerAPI.logError(ex);
 
-            owningThread.setName(MessageFormat.format("{0}: Task={1} Time={2} FAILED: {3}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime"), ExceptionHelper.getMessage(ex)));
+            owningThread.setName(MessageFormat.format("{0}: TaskID={1} TaskStart={2} TaskEnd={3} FAILED: {4}", owningThreadPrefix, job.getJobId(), startDateTime, DateTimeHelper.now("datetime"), ExceptionHelper.getMessage(ex)));
             setJobCompleted(output, ex);
 
             throw ex;
