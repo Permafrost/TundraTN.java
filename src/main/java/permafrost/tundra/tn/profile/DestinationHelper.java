@@ -36,7 +36,7 @@ import java.util.List;
 /**
  * Collection of convenience methods for working with TN Profile Destination objects.
  */
-public class DestinationHelper {
+public final class DestinationHelper {
     /**
      * Disallow instantiation of this class.
      */
