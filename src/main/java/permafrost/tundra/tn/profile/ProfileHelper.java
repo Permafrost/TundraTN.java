@@ -239,10 +239,11 @@ public final class ProfileHelper {
             if (partnerID != null) {
                 IDataCursor cursor = output.getCursor();
                 try {
-                    IDataUtil.put(cursor, "ExternalID", getExternalIDsAsIData(profile));
-                    IDataUtil.put(cursor, "ExtendedFields", getExtendedFieldsAsIData(partnerID));
-                    IDataUtil.put(cursor, "Delivery", DestinationHelper.toIDataArray(IterableEnumeration.of(profile.getDestinations())));
-                    IDataUtil.put(cursor, "DeliveryMethods", DestinationHelper.toIData(IterableEnumeration.of(profile.getDestinations()), profile.getPreferredDestination()));
+                    IDataHelper.put(cursor, "DefaultID", getDefaultExternalID(profile), false);
+                    IDataHelper.put(cursor, "ExternalID", getExternalIDsAsIData(profile), false);
+                    IDataHelper.put(cursor, "ExtendedFields", getExtendedFieldsAsIData(partnerID), false);
+                    IDataHelper.put(cursor, "Delivery", DestinationHelper.toIDataArray(IterableEnumeration.of(profile.getDestinations())), false);
+                    IDataHelper.put(cursor, "DeliveryMethods", DestinationHelper.toIData(IterableEnumeration.of(profile.getDestinations()), profile.getPreferredDestination()), false);
                 } finally {
                     cursor.destroy();
                 }
@@ -296,6 +297,27 @@ public final class ProfileHelper {
         }
 
         return output;
+    }
+
+    /**
+     * Returns the value of the default external ID for the given profile.
+     *
+     * @param profile           The profile whose default external ID should be returned.
+     * @return                  The value of the default external ID for the given profile.
+     * @throws ServiceException If a database error occurs.
+     */
+    private static String getDefaultExternalID(Profile profile) throws ServiceException {
+        if (profile == null) return null;
+
+        int defaultType = ProfileStore.getDefaultIDType();
+        String defaultID = null;
+
+        for (ProfileID profileID : getExternalIDs(profile)) {
+            int type = LookupStore.getExternalIDType(profileID.getType());
+            if (type == defaultType) defaultID = profileID.getValue();
+        }
+
+        return defaultID;
     }
 
     /**
