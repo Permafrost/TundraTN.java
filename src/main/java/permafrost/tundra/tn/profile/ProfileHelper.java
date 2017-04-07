@@ -233,7 +233,7 @@ public final class ProfileHelper {
 
         Corporation corporation = profile.getCorporation();
 
-        if (corporation != null) {
+         if (corporation != null) {
             String partnerID = corporation.getPartnerID();
 
             if (partnerID != null) {
@@ -289,7 +289,7 @@ public final class ProfileHelper {
 
         try {
             for (ProfileID profileID : getExternalIDs(profile)) {
-                IDataUtil.put(cursor, profileID.getType(), profileID.getValue());
+                cursor.insertAfter(profileID.getType(), profileID.getValue());
             }
         } finally {
             cursor.destroy();
@@ -331,13 +331,17 @@ public final class ProfileHelper {
                                 ExtendedProfileField field = (ExtendedProfileField)object;
                                 String name = field.getName();
                                 Object value = field.getValue();
-                                if (name != null && value != null) IDataUtil.put(gc, name, value);
+                                if (name != null && value != null) {
+                                    gc.insertAfter(name, value);
+                                }
                             }
                         }
 
                         gc.destroy();
 
-                        if (fields.size() > 0) IDataUtil.put(cursor, groupName, group);
+                        if (fields.size() > 0) {
+                            cursor.insertAfter(groupName, group);
+                        }
                     }
                 }
             }
