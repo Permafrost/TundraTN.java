@@ -427,53 +427,55 @@ public final class GuaranteedJobHelper {
 
         job = refresh(job);
 
-        int retryLimit = job.getRetryLimit();
-        int retries = job.getRetries();
-        int status = job.getStatusVal();
-        String queueName = job.getQueueName();
+        if (job != null) {
+            int retryLimit = job.getRetryLimit();
+            int retries = job.getRetries();
+            int status = job.getStatusVal();
+            String queueName = job.getQueueName();
 
-        DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
+            DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
 
-        boolean statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
-        boolean exhausted = retries >= retryLimit && status == GuaranteedJob.FAILED;
-        boolean failed = (retries > 0 && status == GuaranteedJob.QUEUED) || exhausted;
+            boolean statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
+            boolean exhausted = retries >= retryLimit && status == GuaranteedJob.FAILED;
+            boolean failed = (retries > 0 && status == GuaranteedJob.QUEUED) || exhausted;
 
-        if (failed) {
-            if (exhausted) {
-                if (retryLimit > 0) {
-                    BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, exhaustedStatus, statusSilence);
-                    log(job, "ERROR", "Delivery", MessageFormat.format("Exhausted all retries ({0}/{1})", retries, retryLimit), MessageFormat.format("Exhausted all retries ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName));
-                }
-
-                if (suspend) {
-                    // reset retries back to 1
-                    retries = 1;
-                    job.setRetries(retries);
-                    job.setStatus(GuaranteedJob.QUEUED);
-                    job.setDefaultServerId();
-
-                    long nextRetry = calculateNextRetryDateTime(job);
-                    job.setTimeUpdated(nextRetry);
-                    save(job);
-
-                    boolean isSuspended = queue.isSuspended();
-
-                    if (!isSuspended) {
-                        // suspend the queue if not already suspended
-                        DeliveryQueueHelper.suspend(queue);
-                        log(job, "WARNING", "Delivery", MessageFormat.format("Suspended {0} queue \"{1}\"", queue.getQueueType(), queueName), MessageFormat.format("Delivery of {0} queue \"{1}\" was suspended due to task \"{2}\" exhaustion", queue.getQueueType(), queueName, job.getJobId()));
+            if (failed) {
+                if (exhausted) {
+                    if (retryLimit > 0) {
+                        BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, exhaustedStatus, statusSilence);
+                        log(job, "ERROR", "Delivery", MessageFormat.format("Exhausted all retries ({0}/{1})", retries, retryLimit), MessageFormat.format("Exhausted all retries ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName));
                     }
 
-                    BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), BIZDOC_ENVELOPE_QUEUED_SYSTEM_STATUS, isSuspended ? BIZDOC_ENVELOPE_REQUEUED_USER_STATUS : BIZDOC_ENVELOPE_SUSPENDED_USER_STATUS, statusSilence);
-                    log(job, "MESSAGE", "Delivery", MessageFormat.format("Retries reset ({0}/{1})", retries, retryLimit), MessageFormat.format("Retries reset to ensure task is processed upon queue delivery resumption; if this task is not required to be processed again, it should be manually deleted. Next retry ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\" scheduled no earlier than \"{5}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
-                }
-            } else {
-                long nextRetry = calculateNextRetryDateTime(job);
-                job.setTimeUpdated(nextRetry); // force this job to wait for its next retry
-                save(job);
+                    if (suspend) {
+                        // reset retries back to 1
+                        retries = 1;
+                        job.setRetries(retries);
+                        job.setStatus(GuaranteedJob.QUEUED);
+                        job.setDefaultServerId();
 
-                BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), BIZDOC_ENVELOPE_QUEUED_SYSTEM_STATUS, BIZDOC_ENVELOPE_REQUEUED_USER_STATUS, statusSilence);
-                log(job, "MESSAGE", "Delivery", MessageFormat.format("Next retry scheduled ({0}/{1})", retries, retryLimit), MessageFormat.format("Next retry ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\" scheduled no earlier than \"{5}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
+                        long nextRetry = calculateNextRetryDateTime(job);
+                        job.setTimeUpdated(nextRetry);
+                        save(job);
+
+                        boolean isSuspended = queue.isSuspended();
+
+                        if (!isSuspended) {
+                            // suspend the queue if not already suspended
+                            DeliveryQueueHelper.suspend(queue);
+                            log(job, "WARNING", "Delivery", MessageFormat.format("Suspended {0} queue \"{1}\"", queue.getQueueType(), queueName), MessageFormat.format("Delivery of {0} queue \"{1}\" was suspended due to task \"{2}\" exhaustion", queue.getQueueType(), queueName, job.getJobId()));
+                        }
+
+                        BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), BIZDOC_ENVELOPE_QUEUED_SYSTEM_STATUS, isSuspended ? BIZDOC_ENVELOPE_REQUEUED_USER_STATUS : BIZDOC_ENVELOPE_SUSPENDED_USER_STATUS, statusSilence);
+                        log(job, "MESSAGE", "Delivery", MessageFormat.format("Retries reset ({0}/{1})", retries, retryLimit), MessageFormat.format("Retries reset to ensure task is processed upon queue delivery resumption; if this task is not required to be processed again, it should be manually deleted. Next retry ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\" scheduled no earlier than \"{5}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
+                    }
+                } else {
+                    long nextRetry = calculateNextRetryDateTime(job);
+                    job.setTimeUpdated(nextRetry); // force this job to wait for its next retry
+                    save(job);
+
+                    BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), BIZDOC_ENVELOPE_QUEUED_SYSTEM_STATUS, BIZDOC_ENVELOPE_REQUEUED_USER_STATUS, statusSilence);
+                    log(job, "MESSAGE", "Delivery", MessageFormat.format("Next retry scheduled ({0}/{1})", retries, retryLimit), MessageFormat.format("Next retry ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\" scheduled no earlier than \"{5}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
+                }
             }
         }
     }
