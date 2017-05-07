@@ -41,6 +41,7 @@ import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataUtil;
 import permafrost.tundra.math.BigDecimalHelper;
+import permafrost.tundra.math.RoundingModeHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import java.io.IOException;
@@ -499,7 +500,7 @@ public final class GuaranteedJobHelper {
                 // if retryFactor is a packed decimal convert it to a fixed point decimal number (this is how we provide
                 // support for non-integer retry factors)
                 if (retryFactor >= RETRY_FACTOR_DECIMAL_MULTIPLIER) {
-                    retryFactor = BigDecimalHelper.round(new BigDecimal(retryFactor / RETRY_FACTOR_DECIMAL_MULTIPLIER), RETRY_FACTOR_DECIMAL_PRECISION).floatValue();
+                    retryFactor = BigDecimalHelper.round(new BigDecimal(retryFactor / RETRY_FACTOR_DECIMAL_MULTIPLIER), RETRY_FACTOR_DECIMAL_PRECISION, RoundingModeHelper.DEFAULT_ROUNDING_MODE).floatValue();
                 }
 
                 nextRetry = now + (long)(ttw * Math.pow(retryFactor, retryCount - 1));
