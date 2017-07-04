@@ -188,8 +188,15 @@ public class CallableGuaranteedJob implements Callable<IData> {
         String owningThreadPrefix = owningThread.getName();
         String startDateTime = DateTimeHelper.now("datetime");
 
+        Exception exception = null;
+
         try {
             timeDequeued = System.currentTimeMillis();
+
+            // force the job to be in a delivering state at the time of delivery
+            job.delivering();
+            job.save();
+
             BizDocEnvelope bizdoc = job.getBizDocEnvelope();
 
             owningThread.setName(MessageFormat.format("{0}: TaskID={1} TaskStart={2} PROCESSING", owningThreadPrefix, job.getJobId(), startDateTime));
@@ -215,16 +222,13 @@ public class CallableGuaranteedJob implements Callable<IData> {
             output = Service.doInvoke(service, session, pipeline);
 
             owningThread.setName(MessageFormat.format("{0}: TaskID={1} TaskStart={2} TaskEnd={3} COMPLETED", owningThreadPrefix, job.getJobId(), startDateTime, DateTimeHelper.now("datetime")));
-            setJobCompleted(output);
-        } catch(Exception ex) {
-            ServerAPI.logError(ex);
-
+        } catch (Exception ex) {
             owningThread.setName(MessageFormat.format("{0}: TaskID={1} TaskStart={2} TaskEnd={3} FAILED: {4}", owningThreadPrefix, job.getJobId(), startDateTime, DateTimeHelper.now("datetime"), ExceptionHelper.getMessage(ex)));
-            setJobCompleted(output, ex);
-
-            throw ex;
+            exception = ex;
         } finally {
             owningThread.setName(owningThreadPrefix);
+            setJobCompleted(output, exception);
+            if (exception != null) throw exception;
         }
 
         return output;
@@ -284,12 +288,14 @@ public class CallableGuaranteedJob implements Callable<IData> {
 
                 break;
             } catch(Exception ex) {
-                ServerAPI.logError(ex);
-
-                if (retry++ >= MAX_RETRIES) {
+                if (++retry > MAX_RETRIES) {
                     throw ex;
                 } else {
-                    Thread.sleep(WAIT_BETWEEN_RETRIES_MILLISECONDS);
+                    try {
+                        Thread.sleep(WAIT_BETWEEN_RETRIES_MILLISECONDS);
+                    } catch(InterruptedException interrupt) {
+                        break;
+                    }
                 }
             }
         }
