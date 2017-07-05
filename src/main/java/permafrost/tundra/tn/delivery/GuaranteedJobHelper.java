@@ -340,6 +340,7 @@ public final class GuaranteedJobHelper {
 
         try {
             connection = Datastore.getConnection();
+
             statement = SQLStatements.prepareStatement(connection, UPDATE_DELIVERY_JOB_STATUS_TO_DELIVERING_SQL);
             statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
             statement.clearParameters();
@@ -348,12 +349,12 @@ public final class GuaranteedJobHelper {
             SQLWrappers.setCharString(statement, 2, job.getJobId());
 
             int rowCount = statement.executeUpdate();
+            connection.commit();
 
-            if (rowCount == 0) {
-                throw new ConcurrentModificationException("GuaranteedJob (ID=" + job.getJobId() + ") status could not be changed to DELIVERING due to modification by another thread or process");
-            } else {
+            if (rowCount == 1) {
                 job.delivering();
-                connection.commit();
+            } else {
+                throw new ConcurrentModificationException(MessageFormat.format("GuaranteedJob {0} not changed to DELIVERING status due to modification by another thread or process", job.getJobId()));
             }
         } catch (SQLException ex) {
             connection = Datastore.handleSQLException(connection, ex);
@@ -536,5 +537,4 @@ public final class GuaranteedJobHelper {
     public static void log(GuaranteedJob job, String type, String klass, String summary, String message) throws ServiceException {
         BizDocEnvelopeHelper.log(job.getBizDocEnvelope(), type, klass, summary, message);
     }
-
 }
