@@ -95,13 +95,24 @@ public class ProfileCache {
      * @throws ServiceException If an error occurs.
      */
     public void seed() throws ServiceException {
+        seed(false);
+    }
+
+    /**
+     * Seeds the cache with all partner profiles from the Trading Networks database.
+     *
+     * @param refresh           If true, all profiles will be refreshed from the Trading Networks database, otherwise
+     *                          profiles already cached will remain unrefreshed.
+     * @throws ServiceException If an error occurs.
+     */
+    public void seed(boolean refresh) throws ServiceException {
         List summaries = ProfileStore.getProfileSummaryList(false, false);
 
         if (summaries != null) {
             for (Object object : summaries) {
                 if (object instanceof ProfileSummary) {
                     ProfileSummary profile = (ProfileSummary)object;
-                    get(new ProfileID(profile.getProfileID()), true);
+                    get(new ProfileID(profile.getProfileID()), refresh);
                 }
             }
         }
@@ -127,7 +138,22 @@ public class ProfileCache {
      * @throws ServiceException If a database error occurs.
      */
     public IData[] list(boolean seed) throws ServiceException {
-        if (seed) seed();
+        return list(seed, false);
+    }
+
+    /**
+     * Returns a list of all the cached Trading Networks partner profiles, optionally seeded from the Trading Networks
+     * database.
+     *
+     * @param seed              If true, the local cache will first be seeded with all Trading Networks partner profiles
+     *                          from the Trading Networks database.
+     * @param refresh           If true, all profiles will be refreshed from the Trading Networks database, otherwise
+     *                          profiles already cached will remain unrefreshed.
+     * @return                  The list of all cached Trading Networks partner profiles.
+     * @throws ServiceException If a database error occurs.
+     */
+    public IData[] list(boolean seed, boolean refresh) throws ServiceException {
+        if (seed) seed(refresh);
 
         List<IData> output = new ArrayList<IData>(cache.size());
 
