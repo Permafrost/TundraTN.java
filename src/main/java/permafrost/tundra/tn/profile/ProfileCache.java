@@ -196,7 +196,9 @@ public class ProfileCache {
 
         if (refresh || output == null) {
             Profile profile = ProfileHelper.get(id);
-            if (profile != null) {
+            if (profile == null) {
+                cache.remove(id);
+            } else {
                 // make the cached profile a read only IData document
                 output = ProfileHelper.toIData(profile);
                 // cache the profile against the internal ID
@@ -204,7 +206,7 @@ public class ProfileCache {
             }
         }
 
-        return CopyOnWriteIDataMap.of(output);
+        return IDataHelper.duplicate(output, true);
     }
 
     /**
