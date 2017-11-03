@@ -24,11 +24,11 @@
 
 package permafrost.tundra.tn.delivery;
 
-import com.wm.app.b2b.server.ServerAPI;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.Session;
 import com.wm.app.tn.delivery.DeliveryQueue;
 import com.wm.app.tn.delivery.GuaranteedJob;
+import com.wm.app.tn.delivery.QueuingUtils;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
@@ -49,10 +49,6 @@ import javax.xml.datatype.Duration;
  */
 public class CallableGuaranteedJob implements Callable<IData> {
     /**
-     * The name of the service used to update the completion status of a delivery queue job.
-     */
-    private static final NSName UPDATE_QUEUED_TASK_SERVICE_NAME = NSName.create("wm.tn.queuing:updateQueuedTask");
-    /**
      * The bizdoc user status to use when a job is dequeued.
      */
     private static final String DEQUEUED_USER_STATUS = "DEQUEUED";
@@ -63,7 +59,7 @@ public class CallableGuaranteedJob implements Callable<IData> {
     /**
      * How long to wait between each retry when trying to complete a job.
      */
-    private static long WAIT_BETWEEN_RETRIES_MILLISECONDS = 1000;
+    private static long WAIT_BETWEEN_RETRIES_MILLISECONDS = 1000L;
     /**
      * The job against which the service will be invoked.
      */
@@ -113,11 +109,6 @@ public class CallableGuaranteedJob implements Callable<IData> {
      * Whether the owning bizdoc's status should be changed to reflect job success/failure.
      */
     private boolean statusSilence;
-
-    /**
-     * The time the job was dequeued.
-     */
-    private long timeDequeued;
 
     /**
      * The user status a BizDocEnvelope is set to if all deliveries of the job are exhausted.
@@ -182,17 +173,16 @@ public class CallableGuaranteedJob implements Callable<IData> {
      * @throws Exception    If the service encounters an error.
      */
     public IData call() throws Exception {
+        long startTime = System.nanoTime();
+
         IData output = null;
+        Exception exception = null;
 
         Thread owningThread = Thread.currentThread();
         String owningThreadPrefix = owningThread.getName();
         String startDateTime = DateTimeHelper.now("datetime");
 
-        Exception exception = null;
-
         try {
-            timeDequeued = System.currentTimeMillis();
-
             // force the job to be in a delivering state at the time of delivery
             job.delivering();
             job.save();
@@ -227,21 +217,11 @@ public class CallableGuaranteedJob implements Callable<IData> {
             exception = ex;
         } finally {
             owningThread.setName(owningThreadPrefix);
-            setJobCompleted(output, exception);
+            setJobCompleted(output, exception, (System.nanoTime() - startTime)/1000000L);
             if (exception != null) throw exception;
         }
 
         return output;
-    }
-
-    /**
-     * Sets the job as successfully completed.
-     *
-     * @param serviceOutput The output of the service used to process the job.
-     * @throws Exception    If a database error occurs.
-     */
-    private void setJobCompleted(IData serviceOutput) throws Exception {
-        setJobCompleted(serviceOutput, null);
     }
 
     /**
@@ -250,24 +230,23 @@ public class CallableGuaranteedJob implements Callable<IData> {
      *
      * @param serviceOutput The output of the service used to process the job.
      * @param exception     Optional exception encountered while processing the job.
+     * @param duration      The time taken to process the job in milliseconds.
      * @throws Exception    If a database error occurs.
      */
-    private void setJobCompleted(IData serviceOutput, Throwable exception) throws Exception {
+    private void setJobCompleted(IData serviceOutput, Throwable exception, long duration) throws Exception {
+        boolean success = exception == null;
         int retry = 1;
 
         while(true) {
             try {
-                IData input = IDataFactory.create();
+                job.setTransportTime(duration);
+                job.setOutputData(serviceOutput);
 
-                IDataCursor cursor = input.getCursor();
-                IDataUtil.put(cursor, "taskid", job.getJobId());
-                IDataUtil.put(cursor, "queue", queue.getQueueName());
-
-                if (exception == null) {
-                    IDataUtil.put(cursor, "status", "success");
+                if (success) {
+                    job.setTransportStatus("success");
                 } else {
-                    IDataUtil.put(cursor, "status", "fail");
-                    IDataUtil.put(cursor, "statusMsg", ExceptionHelper.getMessage(exception));
+                    job.setTransportStatus("fail");
+                    job.setTransportStatusMessage(ExceptionHelper.getMessage(exception));
 
                     if (retryLimit > 0 && GuaranteedJobHelper.hasUnrecoverableErrors(job)) {
                         // abort the delivery job so it won't be retried
@@ -278,12 +257,7 @@ public class CallableGuaranteedJob implements Callable<IData> {
                     }
                 }
 
-                IDataUtil.put(cursor, "timeDequeued", timeDequeued);
-                if (serviceOutput != null) IDataUtil.put(cursor, "serviceOutput", serviceOutput);
-                cursor.destroy();
-
-                Service.doInvoke(UPDATE_QUEUED_TASK_SERVICE_NAME, session, input);
-
+                QueuingUtils.updateStatus(job, success);
                 GuaranteedJobHelper.retry(job, suspend, exhaustedStatus);
 
                 break;
@@ -293,7 +267,7 @@ public class CallableGuaranteedJob implements Callable<IData> {
                 } else {
                     try {
                         Thread.sleep(WAIT_BETWEEN_RETRIES_MILLISECONDS);
-                    } catch(InterruptedException interrupt) {
+                    } catch(InterruptedException interruption) {
                         break;
                     }
                 }
