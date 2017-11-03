@@ -351,11 +351,7 @@ public final class GuaranteedJobHelper {
             int rowCount = statement.executeUpdate();
             connection.commit();
 
-            if (rowCount == 1) {
-                job.delivering();
-            } else {
-                throw new ConcurrentModificationException(MessageFormat.format("GuaranteedJob {0} not changed to DELIVERING status due to modification by another thread or process", job.getJobId()));
-            }
+            if (rowCount == 1) job.delivering();
         } catch (SQLException ex) {
             connection = Datastore.handleSQLException(connection, ex);
             throw ex;
