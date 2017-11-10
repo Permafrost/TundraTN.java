@@ -37,6 +37,7 @@ import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSName;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ExceptionHelper;
+import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.profile.ProfileCache;
@@ -52,6 +53,10 @@ public class CallableGuaranteedJob implements Callable<IData> {
      * The bizdoc user status to use when a job is dequeued.
      */
     private static final String DEQUEUED_USER_STATUS = "DEQUEUED";
+    /**
+     * The transport status message character length supported by Trading Networks.
+     */
+    private static final int TRANSPORT_STATUS_MESSAGE_LENGTH = 512;
     /**
      * The number of retries when trying to complete a job.
      */
@@ -246,7 +251,7 @@ public class CallableGuaranteedJob implements Callable<IData> {
                     job.setTransportStatus("success");
                 } else {
                     job.setTransportStatus("fail");
-                    job.setTransportStatusMessage(ExceptionHelper.getMessage(exception));
+                    job.setTransportStatusMessage(StringHelper.truncate(ExceptionHelper.getMessage(exception), TRANSPORT_STATUS_MESSAGE_LENGTH, true));
 
                     if (retryLimit > 0 && GuaranteedJobHelper.hasUnrecoverableErrors(job)) {
                         // abort the delivery job so it won't be retried
