@@ -29,7 +29,6 @@ import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.DeliveryStore;
 import com.wm.app.tn.db.SQLStatements;
 import com.wm.app.tn.db.SQLWrappers;
-import com.wm.app.tn.delivery.DeliveryQueue;
 import com.wm.app.tn.delivery.GuaranteedJob;
 import com.wm.app.tn.delivery.JobMgr;
 import com.wm.app.tn.doc.BizDocEnvelope;
@@ -40,19 +39,14 @@ import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataUtil;
-import permafrost.tundra.math.BigDecimalHelper;
-import permafrost.tundra.math.RoundingModeHelper;
-import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import java.io.IOException;
-import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.text.MessageFormat;
+import java.sql.Timestamp;
 import java.util.ArrayList;
-import java.util.ConcurrentModificationException;
 import java.util.Date;
 import java.util.List;
 import javax.xml.datatype.Duration;
@@ -77,27 +71,6 @@ public final class GuaranteedJobHelper {
      * SQL statement for selecting all Trading Networks delivery jobs for a specific bizdoc.
      */
     private static final String SELECT_DELIVERY_JOBS_FOR_BIZDOC_SQL = "delivery.jobid.select.docid";
-
-    /**
-     * The system status to use when queuing a BizDocEnvelope.
-     */
-    private static final String BIZDOC_ENVELOPE_QUEUED_SYSTEM_STATUS = "QUEUED";
-
-    /**
-     * The user status to use when retrying a BizDocEnvelope delivery queue job.
-     */
-    private static final String BIZDOC_ENVELOPE_REQUEUED_USER_STATUS = "REQUEUED";
-
-    /**
-     * The user status to use when suspending a delivery queue due to BizDocEnvelope delivery queue job exhaustion.
-     */
-    private static final String BIZDOC_ENVELOPE_SUSPENDED_USER_STATUS = "SUSPENDED";
-
-    /**
-     * The user status to use when a BizDocEnvelope's queued job is exhausted.
-     */
-    private static final String BIZDOC_ENVELOPE_EXHAUSTED_USER_STATUS = "EXHAUSTED";
-
     /**
      * The default timeout for database queries.
      */
@@ -105,12 +78,11 @@ public final class GuaranteedJobHelper {
     /**
      * The number of decimal places expected in fixed decimal point retry factor.
      */
-    private static final int RETRY_FACTOR_DECIMAL_PRECISION = 3;
-
+    public static final int RETRY_FACTOR_DECIMAL_PRECISION = 3;
     /**
      * The multiplier to use to pack a decimal retry factor into an int.
      */
-    private static final float RETRY_FACTOR_DECIMAL_MULTIPLIER = (float)Math.pow(10, RETRY_FACTOR_DECIMAL_PRECISION);
+    public static final float RETRY_FACTOR_DECIMAL_MULTIPLIER = (float)Math.pow(10, RETRY_FACTOR_DECIMAL_PRECISION);
 
     /**
      * Disallow instantiation of this class.
@@ -401,108 +373,6 @@ public final class GuaranteedJobHelper {
             SQLStatements.releaseStatement(statement);
             Datastore.releaseConnection(connection);
         }
-    }
-
-    /**
-     * Re-enqueues the given job for delivery, unless it has reached its retry limit or there are unrecoverable
-     * errors on the owning BizDocEnvelope.
-     *
-     * @param job               The job to be retried.
-     * @param suspend           Whether the owning delivery queue should be suspended if the job has
-     *                          reached its retry limit.
-     * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
-     * @throws IOException      If an I/O error is encountered.
-     * @throws SQLException     If a database error is encountered.
-     * @throws ServiceException If a service error is encountered.
-     */
-    public static void retry(GuaranteedJob job, boolean suspend, String exhaustedStatus) throws IOException, SQLException, ServiceException {
-        if (job == null) return;
-        if (exhaustedStatus == null) exhaustedStatus = BIZDOC_ENVELOPE_EXHAUSTED_USER_STATUS;
-
-        job = refresh(job);
-
-        if (job != null) {
-            int retryLimit = job.getRetryLimit();
-            int retries = job.getRetries();
-            int status = job.getStatusVal();
-            String queueName = job.getQueueName();
-
-            DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
-
-            boolean statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
-            boolean exhausted = retries >= retryLimit && status == GuaranteedJob.FAILED;
-            boolean failed = (retries > 0 && status == GuaranteedJob.QUEUED) || exhausted;
-
-            if (failed) {
-                if (exhausted) {
-                    if (retryLimit > 0) {
-                        BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, exhaustedStatus, statusSilence);
-                        log(job, "ERROR", "Delivery", MessageFormat.format("Exhausted all retries ({0}/{1})", retries, retryLimit), MessageFormat.format("Exhausted all retries ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName));
-                    }
-
-                    if (suspend) {
-                        // reset retries back to 1
-                        retries = 1;
-                        job.setRetries(retries);
-                        job.setStatus(GuaranteedJob.QUEUED);
-                        job.setDefaultServerId();
-
-                        long nextRetry = calculateNextRetryDateTime(job);
-                        job.setTimeUpdated(nextRetry);
-                        save(job);
-
-                        boolean isSuspended = queue.isSuspended();
-
-                        if (!isSuspended) {
-                            // suspend the queue if not already suspended
-                            DeliveryQueueHelper.suspend(queue);
-                            log(job, "WARNING", "Delivery", MessageFormat.format("Suspended {0} queue \"{1}\"", queue.getQueueType(), queueName), MessageFormat.format("Delivery of {0} queue \"{1}\" was suspended due to task \"{2}\" exhaustion", queue.getQueueType(), queueName, job.getJobId()));
-                        }
-
-                        BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), BIZDOC_ENVELOPE_QUEUED_SYSTEM_STATUS, isSuspended ? BIZDOC_ENVELOPE_REQUEUED_USER_STATUS : BIZDOC_ENVELOPE_SUSPENDED_USER_STATUS, statusSilence);
-                        log(job, "MESSAGE", "Delivery", MessageFormat.format("Retries reset ({0}/{1})", retries, retryLimit), MessageFormat.format("Retries reset to ensure task is processed upon queue delivery resumption; if this task is not required to be processed again, it should be manually deleted. Next retry ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\" scheduled no earlier than \"{5}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
-                    }
-                } else {
-                    long nextRetry = calculateNextRetryDateTime(job);
-                    job.setTimeUpdated(nextRetry); // force this job to wait for its next retry
-                    save(job);
-
-                    BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), BIZDOC_ENVELOPE_QUEUED_SYSTEM_STATUS, BIZDOC_ENVELOPE_REQUEUED_USER_STATUS, statusSilence);
-                    log(job, "MESSAGE", "Delivery", MessageFormat.format("Next retry scheduled ({0}/{1})", retries, retryLimit), MessageFormat.format("Next retry ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\" scheduled no earlier than \"{5}\"", retries, retryLimit, job.getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
-                }
-            }
-        }
-    }
-
-    /**
-     * Calculates the next time the given job should be retried according to its retry settings.
-     *
-     * @param job The job to be retried.
-     * @return    The datetime, as the number of milliseconds since the epoch, at which the job should next be retried.
-     */
-    private static long calculateNextRetryDateTime(GuaranteedJob job) {
-        long now = System.currentTimeMillis();
-        long nextRetry = now;
-
-        int retryCount = job.getRetries();
-        float retryFactor = job.getRetryFactor();
-        int ttw = (int)job.getTTW();
-
-        if (ttw > 0) {
-            if (retryFactor > 1.0f && retryCount > 1) {
-                // if retryFactor is a packed decimal convert it to a fixed point decimal number (this is how we provide
-                // support for non-integer retry factors)
-                if (retryFactor >= RETRY_FACTOR_DECIMAL_MULTIPLIER) {
-                    retryFactor = BigDecimalHelper.round(new BigDecimal(retryFactor / RETRY_FACTOR_DECIMAL_MULTIPLIER), RETRY_FACTOR_DECIMAL_PRECISION, RoundingModeHelper.DEFAULT_ROUNDING_MODE).floatValue();
-                }
-
-                nextRetry = now + (long)(ttw * Math.pow(retryFactor, retryCount - 1));
-            } else {
-                nextRetry = now + ttw;
-            }
-        }
-
-        return nextRetry;
     }
 
     /**

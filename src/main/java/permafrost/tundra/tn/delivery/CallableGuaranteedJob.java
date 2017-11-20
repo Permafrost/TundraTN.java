@@ -26,6 +26,7 @@ package permafrost.tundra.tn.delivery;
 
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.Session;
+import com.wm.app.tn.delivery.DeliveryJob;
 import com.wm.app.tn.delivery.DeliveryQueue;
 import com.wm.app.tn.delivery.GuaranteedJob;
 import com.wm.app.tn.delivery.QueuingUtils;
@@ -69,52 +70,42 @@ public class CallableGuaranteedJob implements Callable<IData> {
      * The job against which the service will be invoked.
      */
     private GuaranteedJob job;
-
     /**
      * The delivery queue from which the job was dequeued.
      */
     private DeliveryQueue queue;
-
     /**
      * The service to be invoked.
      */
     private NSName service;
-
     /**
      * The pipeline the service is invoked with.
      */
     private IData pipeline;
-
     /**
      * The session the service is invoked under.
      */
     private Session session;
-
     /**
      * The maximum number of retries.
      */
     private int retryLimit;
-
     /**
      * The time to wait between retries.
      */
     private Duration timeToWait;
-
     /**
      * The retry factor to be used when retrying the job.
      */
     private float retryFactor;
-
     /**
      * Whether the deliver queue should be suspended on retry exhaustion.
      */
     private boolean suspend;
-
     /**
      * Whether the owning bizdoc's status should be changed to reflect job success/failure.
      */
     private boolean statusSilence;
-
     /**
      * The user status a BizDocEnvelope is set to if all deliveries of the job are exhausted.
      */
@@ -132,7 +123,7 @@ public class CallableGuaranteedJob implements Callable<IData> {
      * @param retryFactor       The factor used to extend the time to wait on each retry.
      * @param timeToWait        The time to wait between each retry.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
-     * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhaused.
+     * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhausted.
      */
     public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, String service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus) {
         this(queue, job, service == null ? null : NSName.create(service), session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus);
@@ -188,10 +179,6 @@ public class CallableGuaranteedJob implements Callable<IData> {
         String startDateTime = DateTimeHelper.now("datetime");
 
         try {
-            // force the job to be in a delivering state at the time of delivery
-            job.delivering();
-            job.save();
-
             BizDocEnvelope bizdoc = job.getBizDocEnvelope();
 
             owningThread.setName(MessageFormat.format("{0}: TaskID={1} TaskStart={2} PROCESSING", owningThreadPrefix, job.getJobId(), startDateTime));
@@ -262,8 +249,15 @@ public class CallableGuaranteedJob implements Callable<IData> {
                     }
                 }
 
+                if (job instanceof DeliveryJob) {
+                    job = new RetryableDeliveryJob((DeliveryJob)job, suspend, exhaustedStatus);
+                }
+
                 QueuingUtils.updateStatus(job, success);
-                GuaranteedJobHelper.retry(job, suspend, exhaustedStatus);
+
+                if (job instanceof RetryableDeliveryJob) {
+                    job = ((RetryableDeliveryJob)job).getDelegate();
+                }
 
                 break;
             } catch(Exception ex) {
