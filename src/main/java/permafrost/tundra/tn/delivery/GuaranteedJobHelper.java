@@ -64,18 +64,15 @@ public final class GuaranteedJobHelper {
     /**
      * SQL statement for updating a Trading Networks delivery job.
      */
-    private static final String UPDATE_DELIVERY_JOB_SQL = "deliver.job.update";
-
+    private static final String UPDATE_DELIVERY_JOB_SQL = "UPDATE DeliveryJob SET TimeCreated = ?, TimeUpdated = ?, JobStatus = ?, Retries = ?, TransportStatus = ?, TransportStatusMessage = ?, TransportTime = ?, OutputData = ?, ServerID = ?, TypeData = ?, QueueName = ?, UserName = ? WHERE JobID = ?";
     /**
      * SQL statement for updating the retry strategy of a Trading Networks delivery job.
      */
     private static final String UPDATE_DELIVERY_JOB_RETRY_STRATEGY_SQL = "UPDATE DeliveryJob SET RetryLimit = ?, RetryFactor = ?, TimeToWait = ? WHERE JobID = ?";
-
     /**
      * SQL statement for updating a Trading Networks delivery job status to "DELIVERING".
      */
     private static final String UPDATE_DELIVERY_JOB_STATUS_TO_DELIVERING_SQL = "deliver.job.update.delivering";
-
     /**
      * SQL statement for selecting all Trading Networks delivery jobs for a specific bizdoc.
      */
@@ -105,7 +102,6 @@ public final class GuaranteedJobHelper {
      * The default timeout for database queries.
      */
     private static final int DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS = 30;
-
     /**
      * The number of decimal places expected in fixed decimal point retry factor.
      */
@@ -363,13 +359,14 @@ public final class GuaranteedJobHelper {
 
     /**
      * Saves the given job to the Trading Networks database. This method differs from job.save() as this method
-     * preserves the job's updated time rather than setting it to current time as job.save() does.
+     * preserves the job's updated time rather than setting it to current time as job.save() does, and supports
+     * updating the job's created time if it has changed.
      *
      * @param job           The job to be saved.
      * @throws IOException  If an I/O error is encountered.
      * @throws SQLException If a database error is encountered.
      */
-    protected static void save(GuaranteedJob job) throws IOException, SQLException {
+    public static void save(GuaranteedJob job) throws IOException, SQLException {
         if (job == null) return;
 
         Connection connection = null;
@@ -377,24 +374,23 @@ public final class GuaranteedJobHelper {
 
         try {
             connection = Datastore.getConnection();
-            statement = SQLStatements.prepareStatement(connection, UPDATE_DELIVERY_JOB_SQL);
+            statement = connection.prepareStatement(UPDATE_DELIVERY_JOB_SQL);
             statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
             statement.clearParameters();
 
-            // instead of setting TimeUpdated to now, set it to the time in the job object
-            SQLWrappers.setTimestamp(statement, 1, new java.sql.Timestamp(job.getTimeUpdated()));
-
-            SQLWrappers.setChoppedString(statement, 2, job.getStatus(), "DeliveryJob.JobStatus");
-            statement.setInt(3, job.getRetries());
-            SQLWrappers.setChoppedString(statement, 4, job.getTransportStatus(), "DeliveryJob.TransportStatus");
-            SQLWrappers.setChoppedString(statement, 5, job.getTransportStatusMessage(), "DeliveryJob.TransportStatusMessage");
-            statement.setInt(6, (int)job.getTransportTime());
-            SQLWrappers.setBinaryStream(statement, 7, job.getOutputData());
-            SQLWrappers.setChoppedString(statement, 8, job.getServerId(), "DeliveryJob.ServerID");
-            SQLWrappers.setBinaryStream(statement, 9, job.getDBIData());
-            SQLWrappers.setChoppedString(statement, 10, job.getQueueName(), "DeliveryQueue.QueueName");
-            SQLWrappers.setChoppedString(statement, 11, job.getInvokeAsUser(), "DeliveryJob.UserName");
-            SQLWrappers.setCharString(statement, 12, job.getJobId());
+            SQLWrappers.setTimestamp(statement, 1, new Timestamp(job.getTimeCreated()));
+            SQLWrappers.setTimestamp(statement, 2, new Timestamp(job.getTimeUpdated()));
+            SQLWrappers.setChoppedString(statement, 3, job.getStatus(), "DeliveryJob.JobStatus");
+            statement.setInt(4, job.getRetries());
+            SQLWrappers.setChoppedString(statement, 5, job.getTransportStatus(), "DeliveryJob.TransportStatus");
+            SQLWrappers.setChoppedString(statement, 6, job.getTransportStatusMessage(), "DeliveryJob.TransportStatusMessage");
+            statement.setInt(7, (int)job.getTransportTime());
+            SQLWrappers.setBinaryStream(statement, 8, job.getOutputData());
+            SQLWrappers.setChoppedString(statement, 9, job.getServerId(), "DeliveryJob.ServerID");
+            SQLWrappers.setBinaryStream(statement, 10, job.getDBIData());
+            SQLWrappers.setChoppedString(statement, 11, job.getQueueName(), "DeliveryQueue.QueueName");
+            SQLWrappers.setChoppedString(statement, 12, job.getInvokeAsUser(), "DeliveryJob.UserName");
+            SQLWrappers.setCharString(statement, 13, job.getJobId());
 
             statement.executeUpdate();
             connection.commit();
