@@ -325,13 +325,14 @@ public final class DeliveryQueueHelper {
      * @throws SQLException If a database error occurs.
      */
     public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
-        GuaranteedJob job = peek(queue, ordered, age);
-        if (job != null) {
+        GuaranteedJob job;
+        while((job = peek(queue, ordered, age)) != null) {
             GuaranteedJobHelper.setDelivering(job);
-            // multiple threads or processes may be competing for queued tasks, so we will only return the job at the head
-            // of the queue if this thread was able to set the job status to delivering
-            if (!job.isDelivering()) job = null;
+            // multiple threads or processes may be competing for queued tasks, so we will only return the job at the
+            // head of the queue if this thread was able to set the job status to delivering
+            if (job.isDelivering()) break;
         }
+
         return job;
     }
 
