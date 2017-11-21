@@ -42,9 +42,13 @@ public class DeliveryQueueProcessor {
      */
     private static final long MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 1L;
     /**
+     * The wait after a poll of an empty delivery queue until we poll again for more jobs.
+     */
+    private static final long WAIT_AFTER_EMPTY_DELIVERY_QUEUE_POLL_MILLISECONDS = 500L;
+    /**
      * The wait between each refresh of a delivery queue settings from the database.
      */
-    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS = 5L * 1000L;
+    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS = 5000L;
     /**
      * The suffix used on worker thread names.
      */
@@ -215,6 +219,8 @@ public class DeliveryQueueProcessor {
                 long nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS, sleepDuration = 0L;
 
                 try {
+                    boolean didPreviousPollProcessJob = false;
+
                     // while not interrupted and (not invoked by TN or queue is enabled): process queued jobs
                     while (!Thread.interrupted() && (!invokedByTradingNetworks || queueEnabled)) {
                         try {
@@ -233,10 +239,13 @@ public class DeliveryQueueProcessor {
                                 if (job != null) {
                                     // submit the job to the executor to be processed
                                     executor.submit(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus));
+                                    didPreviousPollProcessJob = true;
                                     sleepDuration = 0L; // poll for another job immediately, because the assumption is if there was one pending job then there is probably more
                                 } else if (activeCount == 0) {
                                     // no pending jobs, and thread pool is idle
-                                    if (daemonize) {
+                                    if (didPreviousPollProcessJob) {
+                                        sleepDuration = WAIT_AFTER_EMPTY_DELIVERY_QUEUE_POLL_MILLISECONDS;
+                                    } else if (daemonize) {
                                         // calculate the next run time based on TN queue schedule so that we can sleep until that time
                                         sleepDuration = untilNextRun(queue);
                                         if (sleepDuration == 0L) {
@@ -247,6 +256,7 @@ public class DeliveryQueueProcessor {
                                         // if not daemon and all threads have finished and there are no more jobs, then exit
                                         break;
                                     }
+                                    didPreviousPollProcessJob = false;
                                 }
                             }
 
