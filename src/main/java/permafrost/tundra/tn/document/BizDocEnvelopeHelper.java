@@ -33,6 +33,7 @@ import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BizDocStore;
 import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.DatastoreException;
+import com.wm.app.tn.db.SQLStatements;
 import com.wm.app.tn.db.SQLWrappers;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocErrorSet;
@@ -150,6 +151,48 @@ public final class BizDocEnvelopeHelper {
     public static BizDocEnvelope refresh(BizDocEnvelope document) throws DatastoreException {
         if (document == null) return null;
         return get(document.getInternalId());
+    }
+
+    /**
+     * Returns true if the given document is a duplicate of another existing document, where duplicates are defined
+     * as having the same document type, sender, receiver, and document ID.
+     *
+     * @param document          The document to check whether it is a duplicate.
+     * @return                  True if this document is a duplicate.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static boolean isDuplicate(BizDocEnvelope document) throws ServiceException {
+        Connection connection = null;
+        PreparedStatement statement = null;
+        boolean isDuplicate = false;
+
+        try {
+            StringBuilder key = new StringBuilder();
+            key.append(document.getDocType().getId());
+            key.append(document.getSenderId());
+            key.append(document.getReceiverId());
+            key.append(document.getDocumentId());
+
+            connection = Datastore.getConnection();
+
+            statement = SQLStatements.prepareStatement(connection, "bdunique.insert");
+            SQLWrappers.setCharString(statement, 1, document.getInternalId());
+            SQLWrappers.setChoppedString(statement, 2, key.toString(), "BizDocUniqueKeys.UniqueKey");
+
+            try {
+                statement.executeUpdate();
+            } catch (SQLException ex) {
+                isDuplicate = true;
+            }
+        } catch (SQLException ex) {
+            connection = Datastore.handleSQLException(connection, ex);
+            ExceptionHelper.raise(ex);
+        } finally {
+            SQLStatements.releaseStatement(statement);
+            Datastore.releaseConnection(connection);
+        }
+
+        return isDuplicate;
     }
 
     /**
