@@ -335,7 +335,7 @@ public final class DeliveryQueueHelper {
     /**
      * Parser for the datetimes to be parsed in a DeliverySchedule object.
      */
-    private static final SimpleDateFormat DELIVERY_SCHEDULE_DATETIME_PARSER = new SimpleDateFormat("yyyy/MM/ddHH:mm:ss");
+    private static final String DELIVERY_SCHEDULE_DATETIME_PATTERN = "yyyy/MM/ddHH:mm:ss";
 
     /**
      * Returns the time in milliseconds of the next scheduled run of the given delivery queue.
@@ -353,7 +353,7 @@ public final class DeliveryQueueHelper {
         try {
             String endDate = schedule.getEndDate(), endTime = schedule.getEndTime();
             if (endDate != null && endTime != null) {
-                end = DELIVERY_SCHEDULE_DATETIME_PARSER.parse(endDate + endTime).getTime();
+                end = new SimpleDateFormat(DELIVERY_SCHEDULE_DATETIME_PATTERN).parse(endDate + endTime).getTime();
             }
 
             boolean noOverlap = BooleanHelper.parse(schedule.getNoOverlap());
