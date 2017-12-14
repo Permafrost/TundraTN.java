@@ -40,11 +40,11 @@ public class DeliveryQueueProcessor {
     /**
      * The minimum wait between each poll of a delivery queue for more jobs.
      */
-    private static final long MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 1L;
+    private static final long MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 10L;
     /**
      * The wait after a poll of an empty delivery queue until we poll again for more jobs.
      */
-    private static final long WAIT_AFTER_EMPTY_DELIVERY_QUEUE_POLL_MILLISECONDS = 500L;
+    private static final long WAIT_AFTER_EMPTY_DELIVERY_QUEUE_POLL_MILLISECONDS = 1000L;
     /**
      * The wait between each refresh of a delivery queue settings from the database.
      */
@@ -240,7 +240,6 @@ public class DeliveryQueueProcessor {
                                     // submit the job to the executor to be processed
                                     executor.submit(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus));
                                     didPreviousPollProcessJob = true;
-                                    sleepDuration = 0L; // poll for another job immediately, because the assumption is if there was one pending job then there is probably more
                                 } else if (activeCount == 0) {
                                     // no pending jobs, and thread pool is idle
                                     if (didPreviousPollProcessJob) {
