@@ -9,7 +9,7 @@ import com.wm.app.tn.delivery.GuaranteedJob;
 import com.wm.data.IData;
 import com.wm.lang.ns.NSName;
 import permafrost.tundra.data.IDataMap;
-import permafrost.tundra.id.ULID;
+import permafrost.tundra.id.UUIDHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.lang.ThreadHelper;
@@ -195,7 +195,7 @@ public class DeliveryQueueProcessor {
             // there is an existing supervisor, the new supervisor exits immediately
             Thread existingThread = queueProcessingThreads.putIfAbsent(queue.getQueueName(), Thread.currentThread());
             if (existingThread == null) {
-                String parentContext = ULID.generate();
+                String parentContext = UUIDHelper.generate();
 
                 // set owning thread priority and name
                 String previousThreadName = Thread.currentThread().getName();
