@@ -184,8 +184,8 @@ public class DeliveryQueueProcessor {
      * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws ServiceException {
-        if (isStarted) {
+    public static void each(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws ServiceException, SQLException {
+        if (isStarted && DeliveryQueueHelper.hasQueuedTasks(queue)) {
             // normalize concurrency
             if (concurrency <= 0) concurrency = 1;
             // normalize retryFactor
@@ -211,7 +211,7 @@ public class DeliveryQueueProcessor {
                 Thread.currentThread().setName(threadName);
 
                 boolean invokedByTradingNetworks = invokedByTradingNetworks();
-                boolean queueEnabled = queue.isEnabled() || queue.isDraining();
+                boolean isProcessing = DeliveryQueueHelper.isProcessing(queue);
 
                 Session session = Service.getSession();
                 ExecutorService executor = getExecutor(queue, concurrency, threadPriority, daemonize, InvokeState.getCurrentState(), parentContext);
@@ -222,7 +222,7 @@ public class DeliveryQueueProcessor {
                     boolean didPreviousPollProcessJob = false;
 
                     // while not interrupted and (not invoked by TN or queue is enabled): process queued jobs
-                    while (!Thread.interrupted() && (!invokedByTradingNetworks || queueEnabled)) {
+                    while (!Thread.interrupted() && (!invokedByTradingNetworks || isProcessing)) {
                         try {
                             if (sleepDuration > 0L) Thread.sleep(sleepDuration);
 
@@ -262,7 +262,7 @@ public class DeliveryQueueProcessor {
                             // refresh the delivery queue settings from the database, in case they have changed
                             if (invokedByTradingNetworks && System.currentTimeMillis() >= nextDeliveryQueueRefreshTime) {
                                 queue = DeliveryQueueHelper.refresh(queue);
-                                queueEnabled = queue.isEnabled() || queue.isDraining();
+                                isProcessing = DeliveryQueueHelper.isProcessing(queue);
                                 nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS;
                             }
                         } catch (InterruptedException ex) {

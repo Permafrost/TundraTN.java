@@ -50,12 +50,19 @@ import java.sql.Timestamp;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.xml.datatype.Duration;
 
 /**
  * A collection of convenience methods for working with Trading Networks delivery queues.
  */
 public final class DeliveryQueueHelper {
+    /**
+     * SQL statement to shortcut checking for queued tasks.
+     */
+    private static final String SELECT_QUEUES_WITH_QUEUED_TASKS_SQL = "SELECT DISTINCT QueueName FROM DeliveryJob WHERE JobStatus = 'QUEUED'";
     /**
      * SQL statement to select head of a delivery queue in job creation datetime order.
      */
@@ -187,6 +194,17 @@ public final class DeliveryQueueHelper {
         }
 
         return length;
+    }
+
+    /**
+     * Returns true if the given Trading Networks delivery queue is enabled or draining, and therefore should process
+     * queued tasks.
+     *
+     * @param queue The queue to check whether it should process queued tasks.
+     * @return      True if the given queue should process queued tasks.
+     */
+    public static boolean isProcessing(DeliveryQueue queue) {
+        return queue != null && (queue.isEnabled() || queue.isDraining());
     }
 
     /**
@@ -330,6 +348,87 @@ public final class DeliveryQueueHelper {
         }
 
         return job;
+    }
+
+    /**
+     * Cache of queues with currently queued tasks awaiting execution.
+     */
+    private static volatile Set<String> hasQueuedTasksSet = new TreeSet<String>();
+    /**
+     * When the cache was last updated.
+     */
+    private static volatile long hasQueuedTasksModifiedTime = 0L;
+    /**
+     * Lock used to synchronize read and write access to cache.
+     */
+    private static final ReentrantReadWriteLock HAS_QUEUED_TASKS_LOCK = new ReentrantReadWriteLock();
+    /**
+     * Cache whether each queue has queued tasks for 0.5 seconds, which is half the minimum possible polling interval.
+     */
+    private static final long MAX_QUEUED_TASKS_CACHE_AGE = 500000000L;
+
+    /**
+     * Returns true if the given delivery queue currently has queued tasks awaiting execution.
+     *
+     * @param queue         The delivery queue whose head job is to be returned.
+     * @return              True if the given queue currently has queued tasks awaiting execution.
+     * @throws SQLException If a database error occurs.
+     */
+    public static boolean hasQueuedTasks(DeliveryQueue queue) throws SQLException {
+        if (queue == null) return false;
+
+        long currentTime = System.nanoTime();
+
+        HAS_QUEUED_TASKS_LOCK.readLock().lock();
+        if (currentTime - hasQueuedTasksModifiedTime > MAX_QUEUED_TASKS_CACHE_AGE) {
+            // must release read lock before acquiring write lock
+            HAS_QUEUED_TASKS_LOCK.readLock().unlock();
+            HAS_QUEUED_TASKS_LOCK.writeLock().lock();
+
+            try {
+                // recheck state because another thread might have acquired write lock and changed state before we did
+                if (currentTime - hasQueuedTasksModifiedTime > MAX_QUEUED_TASKS_CACHE_AGE) {
+                    Connection connection = null;
+                    PreparedStatement statement = null;
+                    ResultSet results = null;
+
+                    try {
+                        connection = Datastore.getConnection();
+                        statement = connection.prepareStatement(SELECT_QUEUES_WITH_QUEUED_TASKS_SQL);
+                        statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
+                        statement.clearParameters();
+
+                        results = statement.executeQuery();
+
+                        hasQueuedTasksSet.clear();
+                        while(results.next()) {
+                            hasQueuedTasksSet.add(results.getString(1));
+                        }
+
+                        connection.commit();
+
+                        hasQueuedTasksModifiedTime = System.nanoTime();
+                    } catch (SQLException ex) {
+                        connection = Datastore.handleSQLException(connection, ex);
+                        throw ex;
+                    } finally {
+                        SQLWrappers.close(results);
+                        SQLWrappers.close(statement);
+                        Datastore.releaseConnection(connection);
+                    }
+                }
+                // downgrade by acquiring read lock before releasing write lock
+                HAS_QUEUED_TASKS_LOCK.readLock().lock();
+            } finally {
+                HAS_QUEUED_TASKS_LOCK.writeLock().unlock(); // unlock write, still hold read
+            }
+        }
+
+        try {
+            return hasQueuedTasksSet.contains(queue.getQueueName());
+        } finally {
+            HAS_QUEUED_TASKS_LOCK.readLock().unlock();
+        }
     }
 
     /**
