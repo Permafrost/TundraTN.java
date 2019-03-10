@@ -55,7 +55,7 @@ be cherry-picked around.
 Copyright &copy; 2015 Lachlan Dowding. See the [LICENSE] file for
 further details.
 
-[API Documentation]: <http://permafrost.github.io/TundraTN.java/docs/javadoc/>
+[API Documentation]: <http://permafrost.github.io/TundraTN.java/>
 [JAR]: <http://en.wikipedia.org/wiki/JAR_(file_format)>
 [JUnit]: <http://junit.org/>
 [LICENSE]: <https://github.com/Permafrost/Tundra.java/blob/master/LICENSE>

@@ -74,8 +74,10 @@ public final class DestinationHelper {
     /**
      * Returns an IData document containing a child IData document for each given destination.
      *
-     * @param destinations  The destinations to convert to an IData representation.
-     * @return              The IData representation of the given destinations.
+     * @param destinations         The destinations to convert to an IData representation.
+     * @param preferredDestination The preferred destination if specified will be associated with the Preferred Protocol
+     *                             key in the resulting IData representation.
+     * @return                     The IData representation of the given destinations.
      */
     public static IData toIData(Iterable<Destination> destinations, Destination preferredDestination) {
         IData output = IDataFactory.create();

@@ -183,6 +183,7 @@ public class DeliveryQueueProcessor {
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
      * @throws ServiceException If an error is encountered while processing jobs.
+     * @throws SQLException     If an error is encountered with the database.
      */
     public static void each(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws ServiceException, SQLException {
         if (isStarted && DeliveryQueueHelper.hasQueuedTasks(queue)) {
