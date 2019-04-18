@@ -14,6 +14,8 @@ import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.lang.ThreadHelper;
 import permafrost.tundra.server.BlockingServerThreadPoolExecutor;
+import permafrost.tundra.server.SchedulerHelper;
+import permafrost.tundra.server.SchedulerStatus;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.util.concurrent.DirectExecutorService;
 import java.io.IOException;
@@ -263,7 +265,7 @@ public class DeliveryQueueProcessor {
                             // refresh the delivery queue settings from the database, in case they have changed
                             if (invokedByTradingNetworks && System.currentTimeMillis() >= nextDeliveryQueueRefreshTime) {
                                 queue = DeliveryQueueHelper.refresh(queue);
-                                isProcessing = DeliveryQueueHelper.isProcessing(queue);
+                                isProcessing = DeliveryQueueHelper.isProcessing(queue) && SchedulerHelper.status() == SchedulerStatus.STARTED;
                                 nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS;
                             }
                         } catch (InterruptedException ex) {
