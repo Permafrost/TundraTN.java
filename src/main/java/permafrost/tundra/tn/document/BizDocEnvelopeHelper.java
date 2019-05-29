@@ -230,10 +230,11 @@ public final class BizDocEnvelopeHelper {
      * @param userStatus            The user status to be set. If null, user status will not be set.
      * @param previousUserStatus    The previous value of the user status.
      * @param silence               If true, the status is not changed.
+     * @return                      True if the status was updated.
      * @throws ServiceException     If a database error is encountered.
      */
-    public static void setStatus(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus, String userStatus, String previousUserStatus, boolean silence) throws ServiceException {
-        if (bizdoc == null || silence) return;
+    public static boolean setStatus(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus, String userStatus, String previousUserStatus, boolean silence) throws ServiceException {
+        if (bizdoc == null || silence) return false;
 
         boolean result;
 
@@ -248,6 +249,8 @@ public final class BizDocEnvelopeHelper {
         }
 
         if (result) log(bizdoc, "MESSAGE", "General", "Status changed", getStatusMessage(systemStatus, userStatus));
+
+        return result;
     }
 
     /**
