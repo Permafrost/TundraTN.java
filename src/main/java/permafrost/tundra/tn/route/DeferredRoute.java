@@ -36,14 +36,20 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.util.coder.IDataCodable;
 import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.lang.ThreadHelper;
 import permafrost.tundra.server.SessionHelper;
 import permafrost.tundra.server.UserHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
+import java.math.BigDecimal;
 
 /**
  * Used to defer processing a bizdoc to another thread.
  */
 public class DeferredRoute implements Runnable, IDataCodable {
+    /**
+     * The document attribute name for thread priority.
+     */
+    public static final String THREAD_PRIORITY_ATTRIBUTE_NAME = "Thread Priority";
     /**
      * The bizdoc to be routed.
      */
@@ -56,6 +62,10 @@ public class DeferredRoute implements Runnable, IDataCodable {
      * The TN_parms to use when routing.
      */
     protected IData parameters;
+    /**
+     * The thread priority to use when executing this route.
+     */
+    protected int priority = Thread.NORM_PRIORITY;
 
     /**
      * Constructs a new DeferredRoute.
@@ -99,6 +109,28 @@ public class DeferredRoute implements Runnable, IDataCodable {
         this.bizdoc = bizdoc;
         this.rule = rule;
         this.parameters = IDataHelper.duplicate(parameters);
+
+        IData attributes = bizdoc.getAttributes();
+        if (attributes != null) {
+            IDataCursor cursor = attributes.getCursor();
+            try {
+                BigDecimal priority = IDataHelper.get(cursor, THREAD_PRIORITY_ATTRIBUTE_NAME, BigDecimal.class);
+                if (priority != null) {
+                    this.priority = ThreadHelper.normalizePriority(priority.intValue());
+                }
+            } finally {
+                cursor.destroy();
+            }
+        }
+    }
+
+    /**
+     * Returns the thread priority this route should be executed with.
+     *
+     * @return the thread priority this route should be executed with.
+     */
+    public int getPriority() {
+        return priority;
     }
 
     /**

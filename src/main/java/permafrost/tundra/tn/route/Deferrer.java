@@ -30,13 +30,14 @@ import com.wm.app.tn.db.DatastoreException;
 import com.wm.app.tn.db.SQLStatements;
 import com.wm.app.tn.db.SQLWrappers;
 import permafrost.tundra.lang.Startable;
+import permafrost.tundra.lang.ThreadHelper;
 import permafrost.tundra.server.ServerThreadFactory;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -62,9 +63,9 @@ public class Deferrer implements Startable {
      */
     protected volatile boolean started;
     /**
-     * The executor used to run deferred jobs.
+     * The executors used to run deferred jobs by thread priority.
      */
-    protected ThreadPoolExecutor executor;
+    protected ConcurrentMap<Integer, ThreadPoolExecutor> executors = new ConcurrentHashMap<Integer, ThreadPoolExecutor>();
     /**
      * The level of concurrency to use, equal to the number of threads in the pool used for processing.
      */
@@ -114,8 +115,9 @@ public class Deferrer implements Startable {
      *
      * @return  The newly created executor.
      */
-    protected ThreadPoolExecutor createExecutor() {
-        ThreadPoolExecutor executor = new ThreadPoolExecutor(concurrency, concurrency, DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(), new ServerThreadFactory("TundraTN/Defer Worker", InvokeState.getCurrentState()), new ThreadPoolExecutor.AbortPolicy());
+    protected ThreadPoolExecutor createExecutor(int priority) {
+        priority = ThreadHelper.normalizePriority(priority);
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(concurrency, concurrency, DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(), new ServerThreadFactory(String.format("TundraTN/Defer Worker Priority=%02d", priority), priority, InvokeState.getCurrentState()), new ThreadPoolExecutor.AbortPolicy());
         executor.allowCoreThreadTimeOut(true);
 
         return executor;
@@ -127,7 +129,17 @@ public class Deferrer implements Startable {
      * @param route  The route to be deferred.
      */
     public void defer(DeferredRoute route) {
-        executor.submit(route);
+        if (!isStarted()) throw new IllegalStateException("Deferrer must be started before it can accept deferred routes");
+
+        if (route != null) {
+            int priority = route.getPriority();
+
+            if (!executors.containsKey(priority)) {
+                executors.putIfAbsent(priority, createExecutor(priority));
+            }
+
+            executors.get(priority).submit(route);
+        }
     }
 
     /**
@@ -149,8 +161,10 @@ public class Deferrer implements Startable {
 
         this.concurrency = concurrency;
         if (isStarted()) {
-            executor.setCorePoolSize(concurrency);
-            executor.setMaximumPoolSize(concurrency);
+            for (ThreadPoolExecutor executor : executors.values()) {
+                executor.setCorePoolSize(concurrency);
+                executor.setMaximumPoolSize(concurrency);
+            }
         }
     }
 
@@ -163,7 +177,9 @@ public class Deferrer implements Startable {
         int size = 0;
 
         if (isStarted()) {
-            size = executor.getQueue().size();
+            for (ThreadPoolExecutor executor : executors.values()) {
+                size += executor.getQueue().size();
+            }
         }
 
         return size;
@@ -211,7 +227,6 @@ public class Deferrer implements Startable {
     @Override
     public synchronized void start() {
         if (!started) {
-            executor = createExecutor();
             started = true;
         }
         seed();
@@ -225,13 +240,20 @@ public class Deferrer implements Startable {
         if (started) {
             started = false;
             try {
-                executor.shutdown();
-                executor.awaitTermination(shutdownTimeout, TimeUnit.MILLISECONDS);
+                for (ThreadPoolExecutor executor : executors.values()) {
+                    executor.shutdown();
+                }
+
+                for (ThreadPoolExecutor executor : executors.values()) {
+                    executor.awaitTermination(shutdownTimeout, TimeUnit.MILLISECONDS);
+                }
             } catch(InterruptedException ex) {
                 // ignore interruption to this thread
             } finally {
-                executor.shutdownNow();
-                executor = null;
+                for (ThreadPoolExecutor executor : executors.values()) {
+                    executor.shutdownNow();
+                }
+                executors.clear();
             }
         }
     }
