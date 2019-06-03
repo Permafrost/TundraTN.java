@@ -141,7 +141,7 @@ public class DeferredRoute implements Runnable, IDataCodable {
         Thread currentThread = Thread.currentThread();
         String originalThreadName = currentThread.getName();
 
-        currentThread.setName(originalThreadName + " Processing BizDoc/InternalID = " + bizdoc.getInternalId());
+        currentThread.setName(originalThreadName + " Processing BizDoc/InternalID=" + bizdoc.getInternalId());
 
         InvokeState previousState = InvokeState.getCurrentState();
         InvokeState currentState = new InvokeState();
@@ -157,6 +157,13 @@ public class DeferredRoute implements Runnable, IDataCodable {
 
         try {
             if (BizDocEnvelopeHelper.setStatus(bizdoc, null, null, "ROUTING", "DEFERRED", false)) {
+                // if rule is not synchronous, change it to be synchronous since it's already being executed
+                // asynchronously as a deferred route
+                if (!rule.getServiceInvokeType().equals("sync")) {
+                    rule = (RoutingRule)rule.clone();
+                    rule.setService(rule.getServiceName(), rule.getServiceInput(), "sync");
+                }
+
                 // status was able to be changed, so we have a "lock" on the bizdoc and can now route it
                 RoutingRuleHelper.route(rule, bizdoc, parameters);
             }
