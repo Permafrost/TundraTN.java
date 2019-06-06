@@ -25,7 +25,6 @@
 package permafrost.tundra.tn.route;
 
 import com.wm.app.b2b.server.InvokeState;
-import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.b2b.server.StateManager;
 import com.wm.app.b2b.server.User;
 import com.wm.app.tn.db.DatastoreException;
@@ -40,12 +39,17 @@ import permafrost.tundra.lang.ThreadHelper;
 import permafrost.tundra.server.SessionHelper;
 import permafrost.tundra.server.UserHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
+import permafrost.tundra.util.concurrent.AbstractPrioritizedCallable;
 import java.math.BigDecimal;
 
 /**
  * Used to defer processing a bizdoc to another thread.
  */
-public class DeferredRoute implements Runnable, IDataCodable {
+public class CallableRoute extends AbstractPrioritizedCallable<IData> implements IDataCodable {
+    /**
+     * The document attribute name for route priority.
+     */
+    public static final String MESSAGE_PRIORITY_ATTRIBUTE_NAME = "Message Priority";
     /**
      * The document attribute name for thread priority.
      */
@@ -65,44 +69,44 @@ public class DeferredRoute implements Runnable, IDataCodable {
     /**
      * The thread priority to use when executing this route.
      */
-    protected int priority = Thread.NORM_PRIORITY;
+    protected int threadPriority = Thread.NORM_PRIORITY;
 
     /**
-     * Constructs a new DeferredRoute.
+     * Constructs a new CallableRoute.
      *
      * @param id    The internal ID of the bizdoc to be routed.
      */
-    public DeferredRoute(String id) throws DatastoreException {
+    public CallableRoute(String id) throws DatastoreException {
         this(BizDocEnvelopeHelper.get(id, true));
     }
 
     /**
-     * Constructs a new DeferredRoute.
+     * Constructs a new CallableRoute.
      *
      * @param bizdoc    The bizdoc to be routed.
      */
-    public DeferredRoute(BizDocEnvelope bizdoc) {
+    public CallableRoute(BizDocEnvelope bizdoc) {
         this(bizdoc, RoutingRuleHelper.select(bizdoc, null));
     }
 
     /**
-     * Constructs a new DeferredRoute.
+     * Constructs a new CallableRoute.
      *
      * @param bizdoc    The bizdoc to be routed.
      * @param rule      The rule to use when routing.
      */
-    public DeferredRoute(BizDocEnvelope bizdoc, RoutingRule rule) {
+    public CallableRoute(BizDocEnvelope bizdoc, RoutingRule rule) {
         this(bizdoc, rule, null);
     }
 
     /**
-     * Constructs a new DeferredRoute.
+     * Constructs a new CallableRoute.
      *
      * @param bizdoc     The bizdoc to be routed.
      * @param rule       The rule to use when routing.
      * @param parameters The optional TN_parms to use when routing.
      */
-    public DeferredRoute(BizDocEnvelope bizdoc, RoutingRule rule, IData parameters) {
+    public CallableRoute(BizDocEnvelope bizdoc, RoutingRule rule, IData parameters) {
         if (bizdoc == null) throw new NullPointerException("bizdoc must not be null");
         if (rule == null) throw new NullPointerException("rule must not be null");
 
@@ -114,9 +118,14 @@ public class DeferredRoute implements Runnable, IDataCodable {
         if (attributes != null) {
             IDataCursor cursor = attributes.getCursor();
             try {
-                BigDecimal priority = IDataHelper.get(cursor, THREAD_PRIORITY_ATTRIBUTE_NAME, BigDecimal.class);
-                if (priority != null) {
-                    this.priority = ThreadHelper.normalizePriority(priority.intValue());
+                BigDecimal messagePriority = IDataHelper.get(cursor, MESSAGE_PRIORITY_ATTRIBUTE_NAME, BigDecimal.class);
+                if (messagePriority != null) {
+                    this.priority = messagePriority.doubleValue();
+                }
+
+                BigDecimal threadPriority = IDataHelper.get(cursor, THREAD_PRIORITY_ATTRIBUTE_NAME, BigDecimal.class);
+                if (threadPriority != null) {
+                    this.threadPriority = ThreadHelper.normalizePriority(threadPriority.intValue());
                 }
             } finally {
                 cursor.destroy();
@@ -129,33 +138,38 @@ public class DeferredRoute implements Runnable, IDataCodable {
      *
      * @return the thread priority this route should be executed with.
      */
-    public int getPriority() {
-        return priority;
+    public int getThreadPriority() {
+        return threadPriority;
     }
 
     /**
      * Routes the bizdoc.
      */
     @Override
-    public void run() {
-        Thread currentThread = Thread.currentThread();
-        String originalThreadName = currentThread.getName();
+    public IData call() throws Exception {
+        IData output;
 
-        currentThread.setName(originalThreadName + " Processing BizDoc/InternalID=" + bizdoc.getInternalId());
+        Thread currentThread = Thread.currentThread();
+        String currentThreadName = currentThread.getName();
 
         InvokeState previousState = InvokeState.getCurrentState();
-        InvokeState currentState = new InvokeState();
-
-        User user = UserHelper.administrator();
-        currentState.setSession(SessionHelper.create(currentThread.getName(), user));
-        currentState.setUser(user);
-        currentState.setCheckAccess(false);
-
-        InvokeState.setCurrentState(currentState);
-        InvokeState.setCurrentSession(currentState.getSession());
-        InvokeState.setCurrentUser(currentState.getUser());
+        String sessionID = null;
 
         try {
+            currentThread.setName(currentThreadName + " Processing BizDoc/InternalID=" + bizdoc.getInternalId());
+
+            InvokeState currentState = new InvokeState();
+
+            User user = UserHelper.administrator();
+            currentState.setSession(SessionHelper.create(currentThread.getName(), user));
+            currentState.setUser(user);
+            currentState.setCheckAccess(false);
+            sessionID = currentState.getSession().getSessionID();
+
+            InvokeState.setCurrentState(currentState);
+            InvokeState.setCurrentSession(currentState.getSession());
+            InvokeState.setCurrentUser(currentState.getUser());
+
             if (BizDocEnvelopeHelper.setStatus(bizdoc, null, null, "ROUTING", "DEFERRED", false)) {
                 // if rule is not synchronous, change it to be synchronous since it's already being executed
                 // asynchronously as a deferred route
@@ -165,15 +179,17 @@ public class DeferredRoute implements Runnable, IDataCodable {
                 }
 
                 // status was able to be changed, so we have a "lock" on the bizdoc and can now route it
-                RoutingRuleHelper.route(rule, bizdoc, parameters);
+                output = RoutingRuleHelper.route(rule, bizdoc, parameters);
+            } else {
+                output = IDataFactory.create();
             }
-        } catch(ServiceException ex) {
-            throw new RuntimeException(ex);
         } finally {
-            StateManager.deleteContext(currentState.getSession().getSessionID());
+            currentThread.setName(currentThreadName);
             InvokeState.setCurrentState(previousState);
-            currentThread.setName(originalThreadName);
+            StateManager.deleteContext(sessionID);
         }
+
+        return output;
     }
 
     /**
