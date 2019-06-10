@@ -33,6 +33,7 @@ import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
+import permafrost.tundra.lang.ExceptionHelper;
 
 /**
  * Collection of convenience methods for working with routing rules.
@@ -89,7 +90,7 @@ public class RoutingRuleHelper {
      * @param parameters The optional TN_parms routing hints to use.
      * @throws Exception If an error occurs invoking wm.tn.route:route.
      */
-    public static IData route(RoutingRule rule, BizDocEnvelope bizdoc, IData parameters) throws Exception {
+    public static IData route(RoutingRule rule, BizDocEnvelope bizdoc, IData parameters) throws ServiceException {
         IData pipeline = IDataFactory.create();
 
         if (isRoutable(parameters)) {
@@ -100,6 +101,8 @@ public class RoutingRuleHelper {
                 if (parameters != null) cursor.insertAfter("TN_parms", parameters);
 
                 pipeline = Service.doInvoke("wm.tn.route", "route", pipeline);
+            } catch(Exception ex) {
+                ExceptionHelper.raise(ex);
             } finally {
                 cursor.destroy();
             }

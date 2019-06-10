@@ -25,6 +25,7 @@
 package permafrost.tundra.tn.route;
 
 import com.wm.app.b2b.server.InvokeState;
+import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.SQLStatements;
 import com.wm.app.tn.db.SQLWrappers;
@@ -58,7 +59,7 @@ public class Deferrer implements Startable {
     /**
      * How long to keep threads alive in the pool when idle.
      */
-    private static final int DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS = 60 * 1000;
+    private static final long DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS = 5 * 60 * 1000;
     /**
      * Is this object started or stopped?
      */
@@ -100,9 +101,6 @@ public class Deferrer implements Startable {
      */
     public Deferrer(int concurrency) {
         this.concurrency = concurrency;
-        for(int i = Thread.MIN_PRIORITY; i <= Thread.MAX_PRIORITY; i++) {
-            executors.put(i, createExecutor(i));
-        }
     }
 
     /**
@@ -131,30 +129,29 @@ public class Deferrer implements Startable {
     /**
      * Defers the given route to be run by a dedicated thread pool.
      *
-     * @param route  The route to be deferred.
+     * @param route             The route to be deferred.
+     * @throws ServiceException If route throws an exception.
      */
-    public void defer(CallableRoute route) throws Exception {
+    public void defer(CallableRoute route) throws ServiceException {
         if (!isStarted()) throw new IllegalStateException("Deferrer must be started before it can accept deferred routes");
 
         if (route != null) {
             int threadPriority = route.getThreadPriority();
 
-            ThreadPoolExecutor executor;
+            ThreadPoolExecutor executor = null;
 
             if (executors.containsKey(threadPriority)) {
                 executor = executors.get(threadPriority);
-            } else {
-                ThreadPoolExecutor newExecutor = createExecutor(threadPriority);
-                executor = executors.putIfAbsent(threadPriority, newExecutor);
-                if (executor == null) executor = newExecutor;
             }
 
             try {
-                executor.submit(route);
+                if (executor == null) {
+                    // route on calling thread, as deferrer must be shutting down
+                    route.call();
+                } else {
+                    executor.submit(route);
+                }
             } catch(RejectedExecutionException ex) {
-                // route on calling thread, as we must currently be shutting down the executors
-                route.call();
-            } catch(NullPointerException ex) {
                 // route on calling thread, as deferrer must be shutting down
                 route.call();
             }
@@ -175,7 +172,7 @@ public class Deferrer implements Startable {
      *
      * @param concurrency   The level of concurrency to use.
      */
-    public void setConcurrency(int concurrency) {
+    public synchronized void setConcurrency(int concurrency) {
         if (concurrency < 1) throw new IllegalArgumentException("concurrency must be >= 1");
 
         this.concurrency = concurrency;
@@ -246,6 +243,9 @@ public class Deferrer implements Startable {
     @Override
     public synchronized void start() {
         if (!started) {
+            for(int i = Thread.MIN_PRIORITY; i <= Thread.MAX_PRIORITY; i++) {
+                executors.put(i, createExecutor(i));
+            }
             started = true;
         }
         seed();

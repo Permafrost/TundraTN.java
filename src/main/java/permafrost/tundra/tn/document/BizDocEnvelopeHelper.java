@@ -257,6 +257,39 @@ public final class BizDocEnvelopeHelper {
      * Updates the status on the given BizDocEnvelope with optimistic concurrency supported by ensuring the status
      * is only updated if it equals the given previous value.
      *
+     * @param internalID            The internal ID of the bizdoc to update the status on.
+     * @param systemStatus          The system status to be set. If null, system status will not be set.
+     * @param previousSystemStatus  The previous value of the system status.
+     * @param userStatus            The user status to be set. If null, user status will not be set.
+     * @param previousUserStatus    The previous value of the user status.
+     * @param silence               If true, the status is not changed.
+     * @return                      True if the status was updated.
+     * @throws ServiceException     If a database error is encountered.
+     */
+    public static boolean setStatus(String internalID, String systemStatus, String previousSystemStatus, String userStatus, String previousUserStatus, boolean silence) throws ServiceException {
+        if (internalID == null || silence) return false;
+
+        boolean result;
+
+        if (previousSystemStatus == null && previousUserStatus == null) {
+            result = BizDocStore.changeStatus(internalID, systemStatus, userStatus);
+        } else if (systemStatus != null && userStatus != null) {
+            result = setStatusForPrevious(internalID, systemStatus, previousSystemStatus, userStatus, previousUserStatus);
+        } else if (systemStatus != null) {
+            result = setSystemStatusForPrevious(internalID, systemStatus, previousSystemStatus);
+        } else {
+            result = setUserStatusForPrevious(internalID, userStatus, previousUserStatus);
+        }
+
+        if (result) log(internalID, "MESSAGE", "General", "Status changed", getStatusMessage(systemStatus, userStatus));
+
+        return result;
+    }
+
+    /**
+     * Updates the status on the given BizDocEnvelope with optimistic concurrency supported by ensuring the status
+     * is only updated if it equals the given previous value.
+     *
      * @param bizdoc                The BizDocEnvelope to update the status on.
      * @param systemStatus          The system status to be set. If null, system status will not be set.
      * @param previousSystemStatus  The previous value of the system status.
@@ -266,6 +299,29 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException     If a database error is encountered.
      */
     private static boolean setStatusForPrevious(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus, String userStatus, String previousUserStatus) throws ServiceException {
+        boolean result = setStatusForPrevious(bizdoc.getInternalId(), systemStatus, previousSystemStatus, userStatus, previousUserStatus);
+
+        if (result) {
+            bizdoc.setSystemStatus(systemStatus);
+            bizdoc.setUserStatus(userStatus);
+        }
+
+        return result;
+    }
+
+    /**
+     * Updates the status on the given BizDocEnvelope with optimistic concurrency supported by ensuring the status
+     * is only updated if it equals the given previous value.
+     *
+     * @param internalID            The internal ID of the bizdoc to update the status on.
+     * @param systemStatus          The system status to be set. If null, system status will not be set.
+     * @param previousSystemStatus  The previous value of the system status.
+     * @param userStatus            The user status to be set. If null, user status will not be set.
+     * @param previousUserStatus    The previous value of the user status.
+     * @return                      True if the status was updated.
+     * @throws ServiceException     If a database error is encountered.
+     */
+    private static boolean setStatusForPrevious(String internalID, String systemStatus, String previousSystemStatus, String userStatus, String previousUserStatus) throws ServiceException {
         Connection connection = null;
         PreparedStatement statement = null;
         boolean result = false;
@@ -279,7 +335,7 @@ public final class BizDocEnvelopeHelper {
             SQLWrappers.setChoppedString(statement, 1, systemStatus, "BizDoc.RoutingStatus");
             SQLWrappers.setChoppedString(statement, 2, userStatus, "BizDoc.UserStatus");
             SQLWrappers.setNow(statement, 3);
-            SQLWrappers.setCharString(statement, 4, bizdoc.getInternalId());
+            SQLWrappers.setCharString(statement, 4, internalID);
             SQLWrappers.setChoppedString(statement, 5, previousSystemStatus, "BizDoc.RoutingStatus");
             SQLWrappers.setChoppedString(statement, 6, previousUserStatus, "BizDoc.UserStatus");
 
@@ -292,11 +348,6 @@ public final class BizDocEnvelopeHelper {
         } finally {
             SQLWrappers.close(statement);
             Datastore.releaseConnection(connection);
-        }
-
-        if (result) {
-            bizdoc.setSystemStatus(systemStatus);
-            bizdoc.setUserStatus(userStatus);
         }
 
         return result;
@@ -313,6 +364,24 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException     If a database error is encountered.
      */
     private static boolean setSystemStatusForPrevious(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus) throws ServiceException {
+        boolean result = setSystemStatusForPrevious(bizdoc.getInternalId(), systemStatus, previousSystemStatus);
+
+        if (result) bizdoc.setSystemStatus(systemStatus);
+
+        return result;
+    }
+
+    /**
+     * Updates the status on the given BizDocEnvelope with optimistic concurrency supported by ensuring the status
+     * is only updated if it equals the given previous value.
+     *
+     * @param internalID            The internal ID of the bizdoc to update the status on.
+     * @param systemStatus          The system status to be set. If null, system status will not be set.
+     * @param previousSystemStatus  The previous value of the system status.
+     * @return                      True if the status was updated.
+     * @throws ServiceException     If a database error is encountered.
+     */
+    private static boolean setSystemStatusForPrevious(String internalID, String systemStatus, String previousSystemStatus) throws ServiceException {
         Connection connection = null;
         PreparedStatement statement = null;
         boolean result = false;
@@ -325,7 +394,7 @@ public final class BizDocEnvelopeHelper {
 
             SQLWrappers.setChoppedString(statement, 1, systemStatus, "BizDoc.RoutingStatus");
             SQLWrappers.setNow(statement, 2);
-            SQLWrappers.setCharString(statement, 3, bizdoc.getInternalId());
+            SQLWrappers.setCharString(statement, 3, internalID);
             SQLWrappers.setChoppedString(statement, 4, previousSystemStatus, "BizDoc.RoutingStatus");
 
             result = statement.executeUpdate() == 1;
@@ -338,8 +407,6 @@ public final class BizDocEnvelopeHelper {
             SQLWrappers.close(statement);
             Datastore.releaseConnection(connection);
         }
-
-        if (result) bizdoc.setSystemStatus(systemStatus);
 
         return result;
     }
@@ -355,6 +422,24 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException     If a database error is encountered.
      */
     private static boolean setUserStatusForPrevious(BizDocEnvelope bizdoc, String userStatus, String previousUserStatus) throws ServiceException {
+        boolean result = setUserStatusForPrevious(bizdoc.getInternalId(), userStatus, previousUserStatus);
+
+        if (result) bizdoc.setUserStatus(userStatus);
+
+        return result;
+    }
+
+    /**
+     * Updates the status on the given BizDocEnvelope with optimistic concurrency supported by ensuring the status
+     * is only updated if it equals the given previous value.
+     *
+     * @param internalID            The internal ID of the bizdoc to update the status on.
+     * @param userStatus            The user status to be set. If null, user status will not be set.
+     * @param previousUserStatus    The previous value of the user status.
+     * @return                      True if the status was updated.
+     * @throws ServiceException     If a database error is encountered.
+     */
+    private static boolean setUserStatusForPrevious(String internalID, String userStatus, String previousUserStatus) throws ServiceException {
         Connection connection = null;
         PreparedStatement statement = null;
         boolean result = false;
@@ -367,7 +452,7 @@ public final class BizDocEnvelopeHelper {
 
             SQLWrappers.setChoppedString(statement, 1, userStatus, "BizDoc.UserStatus");
             SQLWrappers.setNow(statement, 2);
-            SQLWrappers.setCharString(statement, 3, bizdoc.getInternalId());
+            SQLWrappers.setCharString(statement, 3, internalID);
             SQLWrappers.setChoppedString(statement, 4, previousUserStatus, "BizDoc.UserStatus");
 
             result = statement.executeUpdate() == 1;
@@ -380,8 +465,6 @@ public final class BizDocEnvelopeHelper {
             SQLWrappers.close(statement);
             Datastore.releaseConnection(connection);
         }
-
-        if (result) bizdoc.setUserStatus(userStatus);
 
         return result;
     }
@@ -424,6 +507,40 @@ public final class BizDocEnvelopeHelper {
     public static void log(BizDocEnvelope bizdoc, String messageType, String messageClass, String messageSummary, String messageDetails) throws ServiceException {
         IData input = IDataFactory.create();
         IDataCursor cursor = input.getCursor();
+        IDataUtil.put(cursor, "$bizdoc", bizdoc);
+        IDataUtil.put(cursor, "$type", messageType);
+        IDataUtil.put(cursor, "$class", messageClass);
+        IDataUtil.put(cursor, "$summary", messageSummary);
+        IDataUtil.put(cursor, "$message", messageDetails);
+        cursor.destroy();
+
+        try {
+            Service.doInvoke(LOG_SERVICE, input);
+        } catch (Exception ex) {
+            ExceptionHelper.raise(ex);
+        }
+    }
+
+    /**
+     * Adds an activity log statement to the given BizDocEnvelope.
+     * TODO: convert this to a pure java service, rather than an invoke of a flow service.
+     *
+     * @param internalID        The BizDocEnvelope internal ID for the bizdoc to add the activity log statement to.
+     * @param messageType       The type of message to be logged.
+     * @param messageClass      The class of the message to be logged.
+     * @param messageSummary    The summary of the message to be logged.
+     * @param messageDetails    The detail of the message to be logged.
+     * @throws ServiceException If an error occurs while logging.
+     */
+    public static void log(String internalID, String messageType, String messageClass, String messageSummary, String messageDetails) throws ServiceException {
+        IData input = IDataFactory.create();
+        IDataCursor cursor = input.getCursor();
+
+        IData bizdoc = IDataFactory.create();
+        IDataCursor bizdocCursor = bizdoc.getCursor();
+        bizdocCursor.insertAfter("InternalID", internalID);
+        bizdocCursor.destroy();
+
         IDataUtil.put(cursor, "$bizdoc", bizdoc);
         IDataUtil.put(cursor, "$type", messageType);
         IDataUtil.put(cursor, "$class", messageClass);
