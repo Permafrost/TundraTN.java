@@ -56,6 +56,13 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
      */
     public static final String THREAD_PRIORITY_ATTRIBUTE_NAME = "Thread Priority";
     /**
+     * Document user statuses set or used by this class.
+     */
+    public static final String BIZDOC_USER_STATUS_DEFERRED = "DEFERRED";
+    public static final String BIZDOC_USER_STATUS_ROUTING = "ROUTING";
+    public static final String BIZDOC_USER_STATUS_DONE = "DONE";
+    public static final String BIZDOC_USER_STATUS_ERROR = "ERROR";
+    /**
      * The internal ID of the bizdoc to be routed.
      */
     protected String id;
@@ -91,7 +98,7 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
      *
      * @param bizdoc    The bizdoc to be routed.
      */
-    public CallableRoute(BizDocEnvelope bizdoc) {
+    public CallableRoute(BizDocEnvelope bizdoc) throws ServiceException {
         this(bizdoc, null);
     }
 
@@ -101,7 +108,7 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
      * @param bizdoc    The bizdoc to be routed.
      * @param rule      The rule to use when routing.
      */
-    public CallableRoute(BizDocEnvelope bizdoc, RoutingRule rule) {
+    public CallableRoute(BizDocEnvelope bizdoc, RoutingRule rule) throws ServiceException {
         this(bizdoc, rule, null);
     }
 
@@ -112,7 +119,7 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
      * @param rule       The rule to use when routing.
      * @param parameters The optional TN_parms to use when routing.
      */
-    public CallableRoute(BizDocEnvelope bizdoc, RoutingRule rule, IData parameters) {
+    public CallableRoute(BizDocEnvelope bizdoc, RoutingRule rule, IData parameters) throws ServiceException {
         if (bizdoc == null) throw new NullPointerException("bizdoc must not be null");
 
         this.id = bizdoc.getInternalId();
@@ -137,6 +144,8 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
                 cursor.destroy();
             }
         }
+
+        BizDocEnvelopeHelper.setStatus(bizdoc, null, BIZDOC_USER_STATUS_DEFERRED);
     }
 
     /**
@@ -196,7 +205,7 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
         String currentThreadName = currentThread.getName();
 
         InvokeState previousState = InvokeState.getCurrentState();
-        String doneStatus = "DONE", errorStatus = "ERROR";
+        String doneStatus = BIZDOC_USER_STATUS_DONE;
         String sessionID = null;
         boolean wasRouted = false;
 
@@ -204,15 +213,15 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
             currentThread.setName(currentThreadName + " Processing BizDoc/InternalID=" + id);
             sessionID = initialize();
 
-            if (BizDocEnvelopeHelper.setStatus(id, null, null, "ROUTING", "DEFERRED", false)) {
+            if (BizDocEnvelopeHelper.setStatus(id, null, null, BIZDOC_USER_STATUS_ROUTING, BIZDOC_USER_STATUS_DEFERRED, false)) {
                 wasRouted = true;
                 // load bizdoc from database, and select processing rule, if required
                 preroute();
 
                 // if rule is not synchronous, change it to be synchronous since it's already being executed
                 // asynchronously as a deferred route
-                if (!rule.getServiceInvokeType().equals("sync")) {
-                    rule = (RoutingRule) rule.clone();
+                if (!RoutingRuleHelper.isSynchronous(rule)) {
+                    rule = RoutingRuleHelper.duplicate(rule);
                     rule.setService(rule.getServiceName(), rule.getServiceInput(), "sync");
                 }
 
@@ -223,12 +232,12 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
                     doneStatus = doneStatus + " W/ ERRORS";
                 }
 
-                BizDocEnvelopeHelper.setStatus(bizdoc, null, null, doneStatus, "ROUTING", false);
+                BizDocEnvelopeHelper.setStatus(bizdoc, null, null, doneStatus, BIZDOC_USER_STATUS_ROUTING, false);
             } else {
                 output = IDataFactory.create();
             }
         } catch(ServiceException ex) {
-            if (wasRouted) BizDocEnvelopeHelper.setStatus(bizdoc, null, null, errorStatus, "ROUTING", false);
+            if (wasRouted) BizDocEnvelopeHelper.setStatus(bizdoc, null, null, BIZDOC_USER_STATUS_ERROR, BIZDOC_USER_STATUS_ROUTING, false);
             throw ex;
         } finally {
             currentThread.setName(currentThreadName);
