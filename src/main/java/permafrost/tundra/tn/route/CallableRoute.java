@@ -196,28 +196,40 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
         String currentThreadName = currentThread.getName();
 
         InvokeState previousState = InvokeState.getCurrentState();
+        String doneStatus = "DONE", errorStatus = "ERROR";
         String sessionID = null;
+        boolean wasRouted = false;
 
         try {
             currentThread.setName(currentThreadName + " Processing BizDoc/InternalID=" + id);
             sessionID = initialize();
 
             if (BizDocEnvelopeHelper.setStatus(id, null, null, "ROUTING", "DEFERRED", false)) {
+                wasRouted = true;
                 // load bizdoc from database, and select processing rule, if required
                 preroute();
 
                 // if rule is not synchronous, change it to be synchronous since it's already being executed
                 // asynchronously as a deferred route
                 if (!rule.getServiceInvokeType().equals("sync")) {
-                    rule = (RoutingRule)rule.clone();
+                    rule = (RoutingRule) rule.clone();
                     rule.setService(rule.getServiceName(), rule.getServiceInput(), "sync");
                 }
 
                 // status was able to be changed, so we have a "lock" on the bizdoc and can now route it
                 output = RoutingRuleHelper.route(rule, bizdoc, parameters);
+
+                if (BizDocEnvelopeHelper.hasErrors(bizdoc)) {
+                    doneStatus = doneStatus + " W/ ERRORS";
+                }
+
+                BizDocEnvelopeHelper.setStatus(bizdoc, null, null, doneStatus, "ROUTING", false);
             } else {
                 output = IDataFactory.create();
             }
+        } catch(ServiceException ex) {
+            if (wasRouted) BizDocEnvelopeHelper.setStatus(bizdoc, null, null, errorStatus, "ROUTING", false);
+            throw ex;
         } finally {
             currentThread.setName(currentThreadName);
             InvokeState.setCurrentState(previousState);
