@@ -85,10 +85,11 @@ public class RoutingRuleHelper {
     /**
      * Processes the given bizdoc using the given rule.
      *
-     * @param rule       The rule to use to process the bizdoc.
-     * @param bizdoc     The bizdoc to be processed.
-     * @param parameters The optional TN_parms routing hints to use.
-     * @throws Exception If an error occurs invoking wm.tn.route:route.
+     * @param rule              The rule to use to process the bizdoc.
+     * @param bizdoc            The bizdoc to be processed.
+     * @param parameters        The optional TN_parms routing hints to use.
+     * @return                  The output pipeline returned from routing the bizdoc.
+     * @throws ServiceException If an error occurs invoking wm.tn.route:route.
      */
     public static IData route(RoutingRule rule, BizDocEnvelope bizdoc, IData parameters) throws ServiceException {
         IData pipeline = IDataFactory.create();

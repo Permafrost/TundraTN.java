@@ -33,14 +33,20 @@ import permafrost.tundra.lang.Startable;
 import permafrost.tundra.lang.ThreadHelper;
 import permafrost.tundra.server.ServerThreadFactory;
 import permafrost.tundra.util.concurrent.PrioritizedThreadPoolExecutor;
+import javax.xml.datatype.Duration;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.util.Calendar;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -51,15 +57,24 @@ public class Deferrer implements Startable {
     /**
      * SQL statement for seeding deferred queue on startup.
      */
-    protected final static String SELECT_DEFERRED_BIZDOCS_FOR_SEEDING = "SELECT DocID FROM BizDoc WHERE RoutingStatus = 'NOT ROUTED' AND UserStatus = 'DEFERRED' ORDER BY DocTimestamp ASC";
+    protected final static String SELECT_DEFERRED_BIZDOCS_FOR_SEEDING = "SELECT DocID FROM BizDoc WHERE RoutingStatus = 'NOT ROUTED' AND UserStatus = 'DEFERRED' AND LastModified <= ? ORDER BY DocTimestamp ASC";
     /**
      * The default timeout for database queries.
      */
-    private static final int DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS = 30;
+    protected static final int DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS = 30;
     /**
      * How long to keep threads alive in the pool when idle.
      */
-    private static final long DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS = 5 * 60 * 1000;
+    protected static final long DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS = 5L * 60 * 1000;
+    /**
+     * How often to reseed from the database to self-heal after outages and load balance.
+     */
+    protected static final long DEFAULT_RESEED_SCHEDULE_MILLISECONDS = 60L * 1000;
+    /**
+     * How old deferred documents need to be before they get reseeded.
+     */
+    protected static final long DEFAULT_RESEED_BIZDOC_AGE = 60L * 1000;
+
     /**
      * Is this object started or stopped?
      */
@@ -67,7 +82,11 @@ public class Deferrer implements Startable {
     /**
      * The executors used to run deferred jobs by thread priority.
      */
-    protected ConcurrentMap<Integer, ThreadPoolExecutor> executors = new ConcurrentHashMap<Integer, ThreadPoolExecutor>();
+    protected final ConcurrentMap<Integer, ThreadPoolExecutor> executors = new ConcurrentHashMap<Integer, ThreadPoolExecutor>();
+    /**
+     * The scheduler used to self-heal and load balance by seeding deferred documents from database regularly.
+     */
+    protected ScheduledExecutorService scheduler;
     /**
      * The level of concurrency to use, equal to the number of threads in the pool used for processing.
      */
@@ -120,9 +139,9 @@ public class Deferrer implements Startable {
      */
     protected ThreadPoolExecutor createExecutor(int threadPriority) {
         threadPriority = ThreadHelper.normalizePriority(threadPriority);
-        ThreadPoolExecutor executor = new PrioritizedThreadPoolExecutor(concurrency, concurrency, DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS, TimeUnit.MILLISECONDS, new PriorityBlockingQueue<Runnable>(), new ServerThreadFactory(String.format("TundraTN/Defer Worker Priority=%02d", threadPriority), threadPriority, InvokeState.getCurrentState()), new ThreadPoolExecutor.AbortPolicy());
+        ThreadFactory threadFactory = new ServerThreadFactory(String.format("TundraTN/Defer Worker Priority=%02d", threadPriority), null, InvokeState.getCurrentState(), threadPriority, false);
+        ThreadPoolExecutor executor = new PrioritizedThreadPoolExecutor(concurrency, concurrency, DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS, TimeUnit.MILLISECONDS, new PriorityBlockingQueue<Runnable>(), threadFactory, new ThreadPoolExecutor.AbortPolicy());
         executor.allowCoreThreadTimeOut(true);
-
         return executor;
     }
 
@@ -202,9 +221,27 @@ public class Deferrer implements Startable {
     }
 
     /**
-     * Seeds the work queue with any bizdocs in the database with user status "DEFERRED".
+     * Seeds the work queue with any bizdocs in the database with user status "DEFERRED", regardless of age.
      */
     public void seed() {
+        seed(0);
+    }
+
+    /**
+     * Seeds the work queue with any bizdocs in the database with user status "DEFERRED".
+     *
+     * @param age   The age that candidate bizdocs must be before being seeded.
+     */
+    public void seed(Duration age) {
+        seed(age.getTimeInMillis(Calendar.getInstance()));
+    }
+
+    /**
+     * Seeds the work queue with any bizdocs in the database with user status "DEFERRED".
+     *
+     * @param age   The age in milliseconds that candidate bizdocs must be before being seeded.
+     */
+    public void seed(long age) {
         if (isStarted()) {
             Connection connection = null;
             PreparedStatement statement = null;
@@ -215,6 +252,9 @@ public class Deferrer implements Startable {
                 statement = connection.prepareStatement(SELECT_DEFERRED_BIZDOCS_FOR_SEEDING);
                 statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
                 statement.clearParameters();
+
+                Timestamp timestamp = new Timestamp(System.currentTimeMillis() - age);
+                SQLWrappers.setTimestamp(statement, 1, timestamp);
 
                 resultSet = statement.executeQuery();
                 while (resultSet.next()) {
@@ -246,8 +286,15 @@ public class Deferrer implements Startable {
             for(int i = Thread.MIN_PRIORITY; i <= Thread.MAX_PRIORITY; i++) {
                 executors.put(i, createExecutor(i));
             }
+
+            scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Defer Reseeder", InvokeState.getCurrentState()));
+            scheduler.scheduleWithFixedDelay(new Runnable() {
+                public void run() { seed(DEFAULT_RESEED_BIZDOC_AGE); }
+            }, DEFAULT_RESEED_SCHEDULE_MILLISECONDS, DEFAULT_RESEED_SCHEDULE_MILLISECONDS, TimeUnit.MILLISECONDS);
+
             started = true;
         }
+
         seed();
     }
 
@@ -259,6 +306,8 @@ public class Deferrer implements Startable {
         if (started) {
             started = false;
             try {
+                scheduler.shutdown();
+
                 for (ThreadPoolExecutor executor : executors.values()) {
                     executor.shutdown();
                 }
@@ -273,6 +322,9 @@ public class Deferrer implements Startable {
             } catch(InterruptedException ex) {
                 // ignore interruption to this thread
             } finally {
+                scheduler.shutdownNow();
+                scheduler = null;
+
                 for (ThreadPoolExecutor executor : executors.values()) {
                     executor.shutdownNow();
                 }
