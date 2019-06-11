@@ -121,21 +121,22 @@ public class ImminentPrioritizer extends Transformer<Double> {
 
                 if (rangeMilliseconds > 0) {
                     BigDecimal ulp = priorityRange.divide(new BigDecimal(rangeMilliseconds), DEFAULT_RANGE_PRECISION, RoundingMode.HALF_UP);
+                    if (values != null) {
+                        for (String value : values) {
+                            Calendar datetime = DateTimeHelper.parse(value, pattern);
+                            if (datetime != null) {
+                                if (datetime.compareTo(startTime) >= 0 && datetime.compareTo(endTime) <= 0) {
+                                    BigDecimal imminence = new BigDecimal(DateTimeHelper.duration(startTime, datetime).getTimeInMillis(now));
 
-                    for (String value : values) {
-                        Calendar datetime = DateTimeHelper.parse(value, pattern);
-                        if (datetime != null) {
-                            if (datetime.compareTo(startTime) >= 0 && datetime.compareTo(endTime) <= 0) {
-                                BigDecimal imminence = new BigDecimal(DateTimeHelper.duration(startTime, datetime).getTimeInMillis(now));
+                                    BigDecimal newPriority;
+                                    if (ascending) {
+                                        newPriority = priorityCeiling.subtract(imminence.multiply(ulp));
+                                    } else {
+                                        newPriority = priorityFloor.add(imminence.multiply(ulp));
+                                    }
 
-                                BigDecimal newPriority;
-                                if (ascending) {
-                                    newPriority = priorityCeiling.subtract(imminence.multiply(ulp));
-                                } else {
-                                    newPriority = priorityFloor.add(imminence.multiply(ulp));
+                                    if (newPriority.compareTo(priority) > 0) priority = newPriority;
                                 }
-
-                                if (newPriority.compareTo(priority) > 0) priority = newPriority;
                             }
                         }
                     }
