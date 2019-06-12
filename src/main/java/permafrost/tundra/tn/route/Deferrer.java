@@ -31,6 +31,8 @@ import com.wm.app.tn.db.SQLStatements;
 import com.wm.app.tn.db.SQLWrappers;
 import permafrost.tundra.lang.Startable;
 import permafrost.tundra.lang.ThreadHelper;
+import permafrost.tundra.server.SchedulerHelper;
+import permafrost.tundra.server.SchedulerStatus;
 import permafrost.tundra.server.ServerThreadFactory;
 import permafrost.tundra.util.concurrent.PrioritizedThreadPoolExecutor;
 import javax.xml.datatype.Duration;
@@ -289,13 +291,17 @@ public class Deferrer implements Startable {
 
             scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Defer Reseeder", InvokeState.getCurrentState()));
             scheduler.scheduleWithFixedDelay(new Runnable() {
-                public void run() { seed(DEFAULT_RESEED_BIZDOC_AGE); }
+                public void run() {
+                    if (SchedulerHelper.status() == SchedulerStatus.STARTED) {
+                        seed(DEFAULT_RESEED_BIZDOC_AGE);
+                    }
+                }
             }, DEFAULT_RESEED_SCHEDULE_MILLISECONDS, DEFAULT_RESEED_SCHEDULE_MILLISECONDS, TimeUnit.MILLISECONDS);
 
             started = true;
-        }
 
-        seed();
+            seed();
+        }
     }
 
     /**
