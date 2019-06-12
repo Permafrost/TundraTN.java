@@ -34,7 +34,7 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import permafrost.tundra.lang.ExceptionHelper;
-import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
+import java.util.concurrent.Future;
 
 /**
  * Collection of convenience methods for working with routing rules.
@@ -53,7 +53,7 @@ public class RoutingRuleHelper {
      * @return                  The selected processing rule.
      */
     public static RoutingRule select(BizDocEnvelope bizdoc, IData parameters) {
-        RoutingRule rule = null;
+        RoutingRule rule;
 
         String ruleID = null, ruleName = null;
 
@@ -113,19 +113,30 @@ public class RoutingRuleHelper {
      * @param rule              The rule to use.
      * @param bizdoc            The bizdoc to process.
      * @param parameters        The TN_parms routing hints to use.
-     * @param canDefer          If true, processing can be deferred to another thread.
      * @throws ServiceException If an error occurs while processing.
      */
-    public static void execute(RoutingRule rule, BizDocEnvelope bizdoc, IData parameters, boolean canDefer) throws ServiceException {
+    public static void execute(RoutingRule rule, BizDocEnvelope bizdoc, IData parameters) throws ServiceException {
+        if (bizdoc == null) throw new NullPointerException("bizdoc must not be null");
         if (rule == null) rule = select(bizdoc, parameters);
 
-        if (canDefer && !isSynchronous(rule) && Deferrer.getInstance().isStarted()) {
-            // route via another thread
-            Deferrer.getInstance().defer(new CallableRoute(bizdoc, rule, parameters));
-        } else {
-            // route immediately on current thread
+        if (isSynchronous(rule)) {
             route(rule, bizdoc, parameters);
+        } else {
+            defer(rule, bizdoc, parameters);
         }
+    }
+
+    /**
+     * Asynchronously processes the given bizdoc using the given rule.
+     *
+     * @param rule              The rule to use.
+     * @param bizdoc            The bizdoc to process.
+     * @param parameters        The TN_parms routing hints to use.
+     * @return                  A future containing the result of the route.
+     * @throws ServiceException If an error occurs while processing.
+     */
+    public static Future<IData> defer(RoutingRule rule, BizDocEnvelope bizdoc, IData parameters) throws ServiceException {
+        return Deferrer.getInstance().defer(new CallableRoute(bizdoc, rule, parameters));
     }
 
     /**
@@ -176,7 +187,6 @@ public class RoutingRuleHelper {
                 }
             } finally {
                 cursor.destroy();
-
             }
         }
         return isRoutable;

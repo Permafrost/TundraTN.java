@@ -29,11 +29,13 @@ import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.SQLStatements;
 import com.wm.app.tn.db.SQLWrappers;
+import com.wm.data.IData;
 import permafrost.tundra.lang.Startable;
 import permafrost.tundra.lang.ThreadHelper;
 import permafrost.tundra.server.SchedulerHelper;
 import permafrost.tundra.server.SchedulerStatus;
 import permafrost.tundra.server.ServerThreadFactory;
+import permafrost.tundra.util.concurrent.ImmediateFuture;
 import permafrost.tundra.util.concurrent.PrioritizedThreadPoolExecutor;
 import javax.xml.datatype.Duration;
 import java.sql.Connection;
@@ -45,6 +47,7 @@ import java.util.Calendar;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -148,15 +151,19 @@ public class Deferrer implements Startable {
     }
 
     /**
-     * Defers the given route to be run by a dedicated thread pool.
+     * Defers the given route to be run by a dedicated thread pool. Runs route immediately if deferrer has been
+     * shutdown.
      *
      * @param route             The route to be deferred.
+     * @return                  A future containing the result of the route.
      * @throws ServiceException If route throws an exception.
      */
-    public void defer(CallableRoute route) throws ServiceException {
-        if (!isStarted()) throw new IllegalStateException("Deferrer must be started before it can accept deferred routes");
+    public Future<IData> defer(CallableRoute route) throws ServiceException {
+        if (route == null) throw new NullPointerException("route must not be null");
 
-        if (route != null) {
+        Future<IData> result = null;
+
+        if (isStarted()) {
             int threadPriority = route.getThreadPriority();
 
             ThreadPoolExecutor executor = null;
@@ -166,17 +173,20 @@ public class Deferrer implements Startable {
             }
 
             try {
-                if (executor == null) {
-                    // route on calling thread, as deferrer must be shutting down
-                    route.call();
-                } else {
-                    executor.submit(route);
+                if (executor != null) {
+                    result = executor.submit(route);
                 }
-            } catch(RejectedExecutionException ex) {
-                // route on calling thread, as deferrer must be shutting down
-                route.call();
+            } catch (RejectedExecutionException ex) {
+                // do nothing
             }
         }
+
+        if (result == null) {
+            // fallback to routing on the current thread, if deferrer is shutdown or otherwise busy
+            result = new ImmediateFuture<IData>(route.call());
+        }
+
+        return result;
     }
 
     /**
