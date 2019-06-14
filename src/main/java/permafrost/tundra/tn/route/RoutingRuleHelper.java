@@ -34,7 +34,7 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import permafrost.tundra.lang.ExceptionHelper;
-import java.util.concurrent.Future;
+import permafrost.tundra.tn.util.TNFixedDataHelper;
 
 /**
  * Collection of convenience methods for working with routing rules.
@@ -51,15 +51,27 @@ public class RoutingRuleHelper {
      * @param bizdoc            The bizdoc to be processed.
      * @param parameters        The TN_parms routing hints to use.
      * @return                  The selected processing rule.
+     * @throws ServiceException If an error occurs.
      */
-    public static RoutingRule select(BizDocEnvelope bizdoc, IData parameters) {
-        RoutingRule rule;
+    public static RoutingRule select(BizDocEnvelope bizdoc, IData parameters) throws ServiceException {
+        return select(bizdoc, parameters, false);
+    }
+
+    /**
+     * Returns the processing rule to be used to process the given bizdoc.
+     *
+     * @param bizdoc            The bizdoc to be processed.
+     * @param parameters        The TN_parms routing hints to use.
+     * @return                  The selected processing rule.
+     * @throws ServiceException If an error occurs.
+     */
+    public static RoutingRule select(BizDocEnvelope bizdoc, IData parameters, boolean useActivityLog) throws ServiceException {
+        RoutingRule rule = null;
 
         String ruleID = null, ruleName = null;
 
         if (parameters != null) {
             IDataCursor cursor = parameters.getCursor();
-
             try {
                 ruleID = IDataUtil.getString(cursor, "processingRuleID");
                 ruleName = IDataUtil.getString(cursor, "processingRuleName");
@@ -68,18 +80,36 @@ public class RoutingRuleHelper {
             }
         }
 
-        try {
-            if (ruleID == null && ruleName == null) {
-                rule = RoutingRuleStore.getFirstMatch(bizdoc);
-            } else if (ruleID != null) {
-                rule = RoutingRuleStore.getRule(ruleID);
+        if (ruleID == null && ruleName == null) {
+            if (useActivityLog) {
+                IData pipeline = IDataFactory.create();
+                IDataCursor cursor = pipeline.getCursor();
+
+                try {
+                    cursor.insertAfter("bizdoc", bizdoc);
+                    if (parameters != null) cursor.insertAfter("TN_parms", parameters);
+                    cursor.destroy();
+
+                    pipeline = Service.doInvoke("wm.tn.route", "getFirstMatch", pipeline);
+
+                    cursor = pipeline.getCursor();
+                    rule = (RoutingRule)IDataUtil.get(cursor, "rule");
+                    cursor.destroy();
+                } catch(Exception ex) {
+                    ExceptionHelper.raise(ex);
+                } finally {
+                    cursor.destroy();
+                }
             } else {
-                rule = RoutingRuleStore.getRuleByName(ruleName);
+                rule = RoutingRuleStore.getFirstMatch(bizdoc);
             }
-        } catch(ServiceException ex) {
-            throw new RuntimeException(ex);
+        } else if (ruleID != null) {
+            rule = RoutingRuleStore.getRule(ruleID);
+        } else {
+            rule = RoutingRuleStore.getRuleByName(ruleName);
         }
 
+        // duplicate the rule to avoid race conditions with multiple threads accessing the same rule object
         return rule;
     }
 
@@ -90,11 +120,7 @@ public class RoutingRuleHelper {
      * @return      A duplicate of the given routing rule.
      */
     public static RoutingRule duplicate(RoutingRule rule) {
-        RoutingRule dup = new RoutingRule();
-        for (int i = 0; i < rule.dataSize(); i++) {
-            dup.set(i, rule.get(i));
-        }
-        return dup;
+        return TNFixedDataHelper.duplicate(rule);
     }
 
     /**
@@ -119,24 +145,13 @@ public class RoutingRuleHelper {
         if (bizdoc == null) throw new NullPointerException("bizdoc must not be null");
         if (rule == null) rule = select(bizdoc, parameters);
 
-        if (isSynchronous(rule)) {
+        Deferrer deferrer = Deferrer.getInstance();
+
+        if (isSynchronous(rule) || !deferrer.isStarted()) {
             route(rule, bizdoc, parameters);
         } else {
-            defer(rule, bizdoc, parameters);
+            deferrer.defer(new CallableRoute(bizdoc, rule, parameters));
         }
-    }
-
-    /**
-     * Asynchronously processes the given bizdoc using the given rule.
-     *
-     * @param rule              The rule to use.
-     * @param bizdoc            The bizdoc to process.
-     * @param parameters        The TN_parms routing hints to use.
-     * @return                  A future containing the result of the route.
-     * @throws ServiceException If an error occurs while processing.
-     */
-    public static Future<IData> defer(RoutingRule rule, BizDocEnvelope bizdoc, IData parameters) throws ServiceException {
-        return Deferrer.getInstance().defer(new CallableRoute(bizdoc, rule, parameters));
     }
 
     /**
