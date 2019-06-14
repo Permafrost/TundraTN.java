@@ -31,10 +31,10 @@ import com.wm.app.tn.db.SQLStatements;
 import com.wm.app.tn.db.SQLWrappers;
 import com.wm.data.IData;
 import permafrost.tundra.lang.Startable;
-import permafrost.tundra.lang.ThreadHelper;
 import permafrost.tundra.server.SchedulerHelper;
 import permafrost.tundra.server.SchedulerStatus;
 import permafrost.tundra.server.ServerThreadFactory;
+import permafrost.tundra.util.concurrent.BoundedPriorityBlockingQueue;
 import permafrost.tundra.util.concurrent.ImmediateFuture;
 import permafrost.tundra.util.concurrent.PrioritizedThreadPoolExecutor;
 import javax.xml.datatype.Duration;
@@ -43,13 +43,11 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.PriorityBlockingQueue;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -62,7 +60,7 @@ public class Deferrer implements Startable {
     /**
      * SQL statement for seeding deferred queue on startup.
      */
-    protected final static String SELECT_DEFERRED_BIZDOCS_FOR_SEEDING = "SELECT DocID FROM BizDoc WHERE RoutingStatus = 'NOT ROUTED' AND UserStatus = 'DEFERRED' AND LastModified <= ? ORDER BY DocTimestamp ASC";
+    protected final static String SELECT_DEFERRED_BIZDOCS_FOR_SEEDING = "SELECT DocID FROM BizDoc WHERE UserStatus = 'DEFERRED' AND LastModified <= ? ORDER BY DocTimestamp ASC";
     /**
      * The default timeout for database queries.
      */
@@ -70,16 +68,27 @@ public class Deferrer implements Startable {
     /**
      * How long to keep threads alive in the pool when idle.
      */
-    protected static final long DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS = 5L * 60 * 1000;
+    protected static final long DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS = 5 * 60 * 1000L;
     /**
      * How often to reseed from the database to self-heal after outages and load balance.
      */
-    protected static final long DEFAULT_RESEED_SCHEDULE_MILLISECONDS = 60L * 1000;
+    protected static final long DEFAULT_RESEED_SCHEDULE_MILLISECONDS = 60 * 5 * 1000L;
     /**
      * How old deferred documents need to be before they get reseeded.
      */
-    protected static final long DEFAULT_RESEED_BIZDOC_AGE = 60L * 1000;
-
+    protected static final long DEFAULT_RESEED_BIZDOC_AGE = 60 * 5 * 1000L;
+    /**
+     * The default maximum capacity for the work queue.
+     */
+    protected static final int DEFAULT_THREAD_POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
+    /**
+     * The default maximum capacity for the work queue.
+     */
+    protected static final int DEFAULT_WORK_QUEUE_CAPACITY = DEFAULT_THREAD_POOL_SIZE * 256;
+    /**
+     * Maximum time to wait to shutdown the executor in nanoseconds.
+     */
+    protected static final long DEFAULT_SHUTDOWN_TIMEOUT = 5L * 60 * 1000 * 1000 * 1000;
     /**
      * Is this object started or stopped?
      */
@@ -87,19 +96,19 @@ public class Deferrer implements Startable {
     /**
      * The executors used to run deferred jobs by thread priority.
      */
-    protected final ConcurrentMap<Integer, ThreadPoolExecutor> executors = new ConcurrentHashMap<Integer, ThreadPoolExecutor>();
+    protected volatile ThreadPoolExecutor executor;
     /**
      * The scheduler used to self-heal and load balance by seeding deferred documents from database regularly.
      */
-    protected ScheduledExecutorService scheduler;
+    protected volatile ScheduledExecutorService scheduler;
     /**
      * The level of concurrency to use, equal to the number of threads in the pool used for processing.
      */
-    protected int concurrency;
+    protected volatile int concurrency;
     /**
-     * Maximum time to wait to shutdown the executor in nanoseconds.
+     * The maximum capacity of the work queue.
      */
-    protected long shutdownTimeout = 5L * 60 * 1000 * 1000 * 1000;
+    protected volatile int capacity;
 
     /**
      * Initialization on demand holder idiom.
@@ -115,7 +124,7 @@ public class Deferrer implements Startable {
      * Creates a new Deferrer.
      */
     public Deferrer() {
-        this(Runtime.getRuntime().availableProcessors() * 2);
+        this(DEFAULT_THREAD_POOL_SIZE);
     }
 
     /**
@@ -124,7 +133,18 @@ public class Deferrer implements Startable {
      * @param concurrency   The level of concurrency to use.
      */
     public Deferrer(int concurrency) {
+        this(concurrency, DEFAULT_WORK_QUEUE_CAPACITY);
+    }
+
+    /**
+     * Creates a new Deferrer.
+     *
+     * @param concurrency   The level of concurrency to use.
+     * @param capacity      The maximum capacity of the work queue.
+     */
+    public Deferrer(int concurrency, int capacity) {
         this.concurrency = concurrency;
+        this.capacity = capacity;
     }
 
     /**
@@ -134,20 +154,6 @@ public class Deferrer implements Startable {
      */
     public static Deferrer getInstance() {
         return Holder.DEFERRER;
-    }
-
-    /**
-     * Creates a new executor service.
-     *
-     * @param threadPriority    The thread priority the new executor will use.
-     * @return                  The newly created executor.
-     */
-    protected ThreadPoolExecutor createExecutor(int threadPriority) {
-        threadPriority = ThreadHelper.normalizePriority(threadPriority);
-        ThreadFactory threadFactory = new ServerThreadFactory(String.format("TundraTN/Defer Worker Priority=%02d", threadPriority), null, InvokeState.getCurrentState(), threadPriority, false);
-        ThreadPoolExecutor executor = new PrioritizedThreadPoolExecutor(concurrency, concurrency, DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS, TimeUnit.MILLISECONDS, new PriorityBlockingQueue<Runnable>(), threadFactory, new ThreadPoolExecutor.AbortPolicy());
-        executor.allowCoreThreadTimeOut(true);
-        return executor;
     }
 
     /**
@@ -164,21 +170,7 @@ public class Deferrer implements Startable {
         Future<IData> result = null;
 
         if (isStarted()) {
-            int threadPriority = route.getThreadPriority();
-
-            ThreadPoolExecutor executor = null;
-
-            if (executors.containsKey(threadPriority)) {
-                executor = executors.get(threadPriority);
-            }
-
-            try {
-                if (executor != null) {
-                    result = executor.submit(route);
-                }
-            } catch (RejectedExecutionException ex) {
-                // do nothing
-            }
+            result = executor.submit(route);
         }
 
         if (result == null) {
@@ -199,20 +191,23 @@ public class Deferrer implements Startable {
     }
 
     /**
-     * Allows the concurrency to be changed while running.
+     * Sets the size of the thread pool.
      *
      * @param concurrency   The level of concurrency to use.
      */
     public synchronized void setConcurrency(int concurrency) {
         if (concurrency < 1) throw new IllegalArgumentException("concurrency must be >= 1");
-
         this.concurrency = concurrency;
-        if (isStarted()) {
-            for (ThreadPoolExecutor executor : executors.values()) {
-                executor.setCorePoolSize(concurrency);
-                executor.setMaximumPoolSize(concurrency);
-            }
-        }
+    }
+
+    /**
+     * Sets the maximum capacity of the work queue.
+     *
+     * @param capacity  The maximum capacity of the work queue.
+     */
+    public synchronized void setCapacity(int capacity) {
+        if (capacity < 1) throw new IllegalArgumentException("capacity must be >= 1");
+        this.capacity = capacity;
     }
 
     /**
@@ -222,13 +217,9 @@ public class Deferrer implements Startable {
      */
     public int size() {
         int size = 0;
-
         if (isStarted()) {
-            for (ThreadPoolExecutor executor : executors.values()) {
-                size += executor.getQueue().size();
-            }
+            size = executor.getQueue().size();
         }
-
         return size;
     }
 
@@ -240,7 +231,7 @@ public class Deferrer implements Startable {
     }
 
     /**
-     * Seeds the work queue with any bizdocs in the database with user status "DEFERRED".
+     * Seeds the work queue with any bizdocs in the database with user status "DEFERRED" with the given age.
      *
      * @param age   The age that candidate bizdocs must be before being seeded.
      */
@@ -249,7 +240,7 @@ public class Deferrer implements Startable {
     }
 
     /**
-     * Seeds the work queue with any bizdocs in the database with user status "DEFERRED".
+     * Seeds the work queue with any bizdocs in the database with user status "DEFERRED" with the given age.
      *
      * @param age   The age in milliseconds that candidate bizdocs must be before being seeded.
      */
@@ -258,6 +249,8 @@ public class Deferrer implements Startable {
             Connection connection = null;
             PreparedStatement statement = null;
             ResultSet resultSet = null;
+
+            List<String> identities = new ArrayList<String>();
 
             try {
                 connection = Datastore.getConnection();
@@ -269,14 +262,10 @@ public class Deferrer implements Startable {
                 SQLWrappers.setTimestamp(statement, 1, timestamp);
 
                 resultSet = statement.executeQuery();
-                while (resultSet.next()) {
-                    try {
-                        defer(new CallableRoute(resultSet.getString(1)));
-                    } catch(Exception ex) {
-                        // do nothing
-                    }
-                }
 
+                while (resultSet.next()) {
+                    identities.add(resultSet.getString(1));
+                }
                 connection.commit();
             } catch (SQLException ex) {
                 connection = Datastore.handleSQLException(connection, ex);
@@ -285,6 +274,21 @@ public class Deferrer implements Startable {
                 SQLWrappers.close(resultSet);
                 SQLStatements.releaseStatement(statement);
                 Datastore.releaseConnection(connection);
+            }
+
+            for (String identity : identities) {
+                if (isStarted()) {
+                    try {
+                        Future<IData> result = defer(new CallableRoute(identity));
+                        // wait for task to finish before seeding another, so as not to overwhelm the server and to
+                        // apply back pressure to seeding
+                        result.get();
+                    } catch (Exception ex) {
+                        // do nothing
+                    }
+                } else {
+                    break;
+                }
             }
         }
     }
@@ -295,11 +299,11 @@ public class Deferrer implements Startable {
     @Override
     public synchronized void start() {
         if (!started) {
-            for(int i = Thread.MIN_PRIORITY; i <= Thread.MAX_PRIORITY; i++) {
-                executors.put(i, createExecutor(i));
-            }
+            ThreadFactory threadFactory = new ServerThreadFactory("TundraTN/Defer Worker", null, InvokeState.getCurrentState(), Thread.NORM_PRIORITY, false);
+            executor = new PrioritizedThreadPoolExecutor(concurrency, concurrency, DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS, TimeUnit.MILLISECONDS, new BoundedPriorityBlockingQueue<Runnable>(capacity), threadFactory, new ThreadPoolExecutor.CallerRunsPolicy());
+            executor.allowCoreThreadTimeOut(true);
 
-            scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Defer Reseeder", InvokeState.getCurrentState()));
+            scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Defer Seeder", InvokeState.getCurrentState()));
             scheduler.scheduleWithFixedDelay(new Runnable() {
                 public void run() {
                     if (SchedulerHelper.status() == SchedulerStatus.STARTED) {
@@ -321,30 +325,16 @@ public class Deferrer implements Startable {
     public synchronized void stop() {
         if (started) {
             started = false;
+
             try {
                 scheduler.shutdown();
-
-                for (ThreadPoolExecutor executor : executors.values()) {
-                    executor.shutdown();
-                }
-
-                long endTime = System.nanoTime() + shutdownTimeout;
-                for (ThreadPoolExecutor executor : executors.values()) {
-                    long startTime = System.nanoTime();
-                    if (startTime < endTime) {
-                        executor.awaitTermination(endTime - startTime, TimeUnit.NANOSECONDS);
-                    }
-                }
+                executor.shutdown();
+                executor.awaitTermination(DEFAULT_SHUTDOWN_TIMEOUT, TimeUnit.NANOSECONDS);
             } catch(InterruptedException ex) {
                 // ignore interruption to this thread
             } finally {
                 scheduler.shutdownNow();
-                scheduler = null;
-
-                for (ThreadPoolExecutor executor : executors.values()) {
-                    executor.shutdownNow();
-                }
-                executors.clear();
+                executor.shutdownNow();
             }
         }
     }

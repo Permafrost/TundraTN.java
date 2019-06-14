@@ -24,10 +24,7 @@
 
 package permafrost.tundra.tn.route;
 
-import com.wm.app.b2b.server.InvokeState;
 import com.wm.app.b2b.server.ServiceException;
-import com.wm.app.b2b.server.StateManager;
-import com.wm.app.b2b.server.User;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.route.RoutingRule;
 import com.wm.data.IData;
@@ -35,8 +32,6 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ThreadHelper;
-import permafrost.tundra.server.SessionHelper;
-import permafrost.tundra.server.UserHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.util.concurrent.AbstractPrioritizedCallable;
 import java.math.BigDecimal;
@@ -80,10 +75,6 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
      * The thread priority to use when executing this route.
      */
     protected int threadPriority = Thread.NORM_PRIORITY;
-    /**
-     * The thread which created this object.
-     */
-    protected Thread creatingThread;
 
     /**
      * Constructs a new CallableRoute.
@@ -130,7 +121,6 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
         // asynchronously as a deferred route so we don't want it to spawn yet another thread
         this.rule = new SynchronousRoutingRule(rule);
         this.parameters = IDataHelper.duplicate(parameters);
-        this.creatingThread = Thread.currentThread();
 
         IData attributes = bizdoc.getAttributes();
         if (attributes != null) {
@@ -163,29 +153,6 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
     }
 
     /**
-     * Initialize the invoke state required to route the bizdoc.
-     *
-     * @return The newly created session's ID.
-     */
-    protected String initialize() {
-        InvokeState currentState = new InvokeState();
-
-        User user = UserHelper.administrator();
-        if (user == null) {
-            user = currentState.getUser();
-        }
-        currentState.setSession(SessionHelper.create(Thread.currentThread().getName(), user));
-        currentState.setUser(user);
-        currentState.setCheckAccess(false);
-
-        InvokeState.setCurrentState(currentState);
-        InvokeState.setCurrentSession(currentState.getSession());
-        InvokeState.setCurrentUser(currentState.getUser());
-
-        return currentState.getSession().getSessionID();
-    }
-
-    /**
      * Routes the bizdoc.
      */
     @Override
@@ -196,15 +163,12 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
         String currentThreadName = currentThread.getName();
         int currentThreadPriority = currentThread.getPriority();
 
-        InvokeState previousState = InvokeState.getCurrentState();
         String doneStatus = BIZDOC_USER_STATUS_DONE;
-        String sessionID = null;
         boolean wasRouted = false;
 
         try {
             currentThread.setName(currentThreadName + " Processing BizDoc/InternalID=" + id);
             currentThread.setPriority(getThreadPriority());
-            if (!currentThread.equals(creatingThread)) sessionID = initialize();
 
             if (BizDocEnvelopeHelper.setStatus(id, null, null, BIZDOC_USER_STATUS_ROUTING, BIZDOC_USER_STATUS_DEFERRED, false)) {
                 // status was able to be changed, so we have a "lock" on the bizdoc and can now route it
@@ -226,8 +190,6 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
         } finally {
             currentThread.setName(currentThreadName);
             currentThread.setPriority(currentThreadPriority);
-            InvokeState.setCurrentState(previousState);
-            StateManager.deleteContext(sessionID);
         }
 
         return output;

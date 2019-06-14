@@ -52,6 +52,11 @@ public class ImmutableRoutingRule extends RoutingRule {
     public ImmutableRoutingRule(RoutingRule rule) {
         if (rule == null) throw new NullPointerException("rule must not be null");
         this.rule = rule;
+        // set some of the attributes in case this object gets inspected
+        super.setID(rule.getID());
+        super.setIndex(rule.getIndex());
+        super.setName(rule.getName());
+        super.setDescription(rule.getDescription());
     }
 
     @Override
