@@ -28,13 +28,11 @@ import com.wm.app.b2b.server.InvokeState;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.b2b.server.StateManager;
 import com.wm.app.b2b.server.User;
-import com.wm.app.tn.db.DatastoreException;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.route.RoutingRule;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
-import com.wm.util.coder.IDataCodable;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ThreadHelper;
 import permafrost.tundra.server.SessionHelper;
@@ -46,7 +44,7 @@ import java.math.BigDecimal;
 /**
  * Used to defer processing a bizdoc to another thread.
  */
-public class CallableRoute extends AbstractPrioritizedCallable<IData> implements IDataCodable {
+public class CallableRoute extends AbstractPrioritizedCallable<IData> {
     /**
      * The document attribute name for route priority.
      */
@@ -82,15 +80,18 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
      * The thread priority to use when executing this route.
      */
     protected int threadPriority = Thread.NORM_PRIORITY;
+    /**
+     * The thread which created this object.
+     */
+    protected Thread creatingThread;
 
     /**
      * Constructs a new CallableRoute.
      *
      * @param id    The internal ID of the bizdoc to be routed.
      */
-    public CallableRoute(String id) {
-        if (id == null) throw new NullPointerException("id must not be null");
-        this.id = id;
+    public CallableRoute(String id) throws ServiceException {
+        this(BizDocEnvelopeHelper.get(id, true));
     }
 
     /**
@@ -121,11 +122,15 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
      */
     public CallableRoute(BizDocEnvelope bizdoc, RoutingRule rule, IData parameters) throws ServiceException {
         if (bizdoc == null) throw new NullPointerException("bizdoc must not be null");
+        if (rule == null) rule = RoutingRuleHelper.select(bizdoc, parameters);
 
         this.id = bizdoc.getInternalId();
         this.bizdoc = bizdoc;
-        this.rule = rule;
+        // if rule is not synchronous, change it to be synchronous since it's already being executed
+        // asynchronously as a deferred route so we don't want it to spawn yet another thread
+        this.rule = new SynchronousRoutingRule(rule);
         this.parameters = IDataHelper.duplicate(parameters);
+        this.creatingThread = Thread.currentThread();
 
         IData attributes = bizdoc.getAttributes();
         if (attributes != null) {
@@ -181,20 +186,6 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
     }
 
     /**
-     * Loads the bizdoc from the database, and selects the processing rule to run, if required.
-     *
-     * @throws DatastoreException   If an error loading the bizdoc occurs.
-     */
-    protected void preroute() throws DatastoreException {
-        if (bizdoc == null) {
-            bizdoc = BizDocEnvelopeHelper.get(id, true);
-        }
-        if (rule == null) {
-            rule = RoutingRuleHelper.select(bizdoc, parameters);
-        }
-    }
-
-    /**
      * Routes the bizdoc.
      */
     @Override
@@ -203,6 +194,7 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
 
         Thread currentThread = Thread.currentThread();
         String currentThreadName = currentThread.getName();
+        int currentThreadPriority = currentThread.getPriority();
 
         InvokeState previousState = InvokeState.getCurrentState();
         String doneStatus = BIZDOC_USER_STATUS_DONE;
@@ -211,21 +203,13 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
 
         try {
             currentThread.setName(currentThreadName + " Processing BizDoc/InternalID=" + id);
-            sessionID = initialize();
+            currentThread.setPriority(getThreadPriority());
+            if (!currentThread.equals(creatingThread)) sessionID = initialize();
 
             if (BizDocEnvelopeHelper.setStatus(id, null, null, BIZDOC_USER_STATUS_ROUTING, BIZDOC_USER_STATUS_DEFERRED, false)) {
-                wasRouted = true;
-                // load bizdoc from database, and select processing rule, if required
-                preroute();
-
-                // if rule is not synchronous, change it to be synchronous since it's already being executed
-                // asynchronously as a deferred route
-                if (!RoutingRuleHelper.isSynchronous(rule)) {
-                    rule = RoutingRuleHelper.duplicate(rule);
-                    rule.setService(rule.getServiceName(), rule.getServiceInput(), "sync");
-                }
-
                 // status was able to be changed, so we have a "lock" on the bizdoc and can now route it
+                wasRouted = true;
+
                 output = RoutingRuleHelper.route(rule, bizdoc, parameters);
 
                 if (BizDocEnvelopeHelper.hasErrors(bizdoc)) {
@@ -241,33 +225,12 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
             throw ex;
         } finally {
             currentThread.setName(currentThreadName);
+            currentThread.setPriority(currentThreadPriority);
             InvokeState.setCurrentState(previousState);
             StateManager.deleteContext(sessionID);
         }
 
         return output;
-    }
-
-    /**
-     * Returns an IData representation of this object.
-     *
-     * @return an IData representation of this object.
-     */
-    @Override
-    public IData getIData() {
-        IData document = IDataFactory.create();
-        IDataCursor cursor = document.getCursor();
-
-        try {
-            cursor.insertAfter("id", id);
-            cursor.insertAfter("bizdoc", bizdoc);
-            cursor.insertAfter("rule", rule);
-            if (parameters != null) cursor.insertAfter("TN_parms", parameters);
-        } finally {
-            cursor.destroy();
-        }
-
-        return document;
     }
 
     /**
@@ -278,15 +241,5 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> implements
     @Override
     public String toString() {
         return super.toString() + " BizDoc/InternalID=" + id;
-    }
-
-    /**
-     * This method is not implemented.
-     *
-     * @param document  An IData document.
-     */
-    @Override
-    public void setIData(IData document) {
-        throw new UnsupportedOperationException("setIData(IData) is not implemented");
     }
 }
