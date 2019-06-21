@@ -169,7 +169,7 @@ public class RoutingRuleHelper {
         if (isRoutable(parameters)) {
             IDataCursor cursor = pipeline.getCursor();
             try {
-                cursor.insertAfter("rule", rule);
+                cursor.insertAfter("rule", new ImmutableRoutingRule(rule));
                 cursor.insertAfter("bizdoc", bizdoc);
                 if (parameters != null) cursor.insertAfter("TN_parms", parameters);
 
