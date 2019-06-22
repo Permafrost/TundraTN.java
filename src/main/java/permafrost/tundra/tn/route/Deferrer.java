@@ -43,9 +43,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
@@ -60,7 +58,7 @@ public class Deferrer implements Startable {
     /**
      * SQL statement for seeding deferred queue on startup.
      */
-    protected final static String SELECT_DEFERRED_BIZDOCS_FOR_SEEDING = "SELECT DocID FROM BizDoc WHERE UserStatus = 'DEFERRED' AND LastModified <= ? ORDER BY DocTimestamp ASC";
+    protected final static String SELECT_DEFERRED_BIZDOCS_FOR_SEEDING = "SELECT DocID FROM BizDoc WHERE UserStatus = 'DEFERRED' AND LastModified <= ? AND DocTimestamp = (SELECT MIN(DocTimestamp) FROM BizDoc WHERE UserStatus = 'DEFERRED' AND LastModified <= ?)";
     /**
      * The default timeout for database queries.
      */
@@ -250,8 +248,6 @@ public class Deferrer implements Startable {
             PreparedStatement statement = null;
             ResultSet resultSet = null;
 
-            List<String> identities = new ArrayList<String>();
-
             try {
                 connection = Datastore.getConnection();
                 statement = connection.prepareStatement(SELECT_DEFERRED_BIZDOCS_FOR_SEEDING);
@@ -260,35 +256,39 @@ public class Deferrer implements Startable {
 
                 Timestamp timestamp = new Timestamp(System.currentTimeMillis() - age);
                 SQLWrappers.setTimestamp(statement, 1, timestamp);
+                SQLWrappers.setTimestamp(statement, 2, timestamp);
 
-                resultSet = statement.executeQuery();
-
-                while (resultSet.next()) {
-                    identities.add(resultSet.getString(1));
+                while (isStarted()) {
+                    try {
+                        resultSet = statement.executeQuery();
+                        if (resultSet.next()) {
+                            String id = resultSet.getString(1);
+                            if (id == null) {
+                                break;
+                            } else {
+                                try {
+                                    Future<IData> result = defer(new CallableRoute(id));
+                                    // wait for task to finish before seeding another, so as not to overwhelm the server by
+                                    // applying back pressure to seeding
+                                    result.get();
+                                } catch (Exception ex) {
+                                    // do nothing
+                                }
+                            }
+                        } else {
+                            break;
+                        }
+                    } finally {
+                        SQLWrappers.close(resultSet);
+                        connection.commit();
+                    }
                 }
-                connection.commit();
             } catch (SQLException ex) {
                 connection = Datastore.handleSQLException(connection, ex);
                 throw new RuntimeException(ex);
             } finally {
-                SQLWrappers.close(resultSet);
                 SQLStatements.releaseStatement(statement);
                 Datastore.releaseConnection(connection);
-            }
-
-            for (String identity : identities) {
-                if (isStarted()) {
-                    try {
-                        Future<IData> result = defer(new CallableRoute(identity));
-                        // wait for task to finish before seeding another, so as not to overwhelm the server and to
-                        // apply back pressure to seeding
-                        result.get();
-                    } catch (Exception ex) {
-                        // do nothing
-                    }
-                } else {
-                    break;
-                }
             }
         }
     }
@@ -301,8 +301,6 @@ public class Deferrer implements Startable {
         if (!started) {
             ThreadFactory threadFactory = new ServerThreadFactory("TundraTN/Defer Worker", null, InvokeState.getCurrentState(), Thread.NORM_PRIORITY, false);
             executor = new PrioritizedThreadPoolExecutor(concurrency, concurrency, DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS, TimeUnit.MILLISECONDS, new BoundedPriorityBlockingQueue<Runnable>(capacity), threadFactory, new ThreadPoolExecutor.CallerRunsPolicy());
-            executor.allowCoreThreadTimeOut(true);
-
             scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Defer Seeder", InvokeState.getCurrentState()));
             scheduler.scheduleWithFixedDelay(new Runnable() {
                 public void run() {
