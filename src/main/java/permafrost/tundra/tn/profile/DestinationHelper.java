@@ -58,7 +58,7 @@ public final class DestinationHelper {
             }
         }
 
-        return output.toArray(new IData[output.size()]);
+        return output.toArray(new IData[0]);
     }
 
     /**

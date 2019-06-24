@@ -45,7 +45,6 @@ import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
-import com.wm.data.IDataUtil;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.IterableEnumeration;
@@ -179,7 +178,7 @@ public final class ProfileHelper {
             }
         }
 
-        return output.toArray(new Profile[output.size()]);
+        return output.toArray(new Profile[0]);
     }
 
     /**
@@ -191,7 +190,7 @@ public final class ProfileHelper {
      */
     public static ProfileID[] getExternalIDsAsArray(Profile profile) throws ServiceException {
         Collection<ProfileID> collection = getExternalIDs(profile);
-        return collection.toArray(new ProfileID[collection.size()]);
+        return collection.toArray(new ProfileID[0]);
     }
 
     /**

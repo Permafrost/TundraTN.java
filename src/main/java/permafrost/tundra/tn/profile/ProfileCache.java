@@ -161,7 +161,7 @@ public class ProfileCache {
             output.add(IDataHelper.duplicate(profile));
         }
 
-        return output.toArray(new IData[output.size()]);
+        return output.toArray(new IData[0]);
     }
 
     /**

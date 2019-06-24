@@ -156,7 +156,7 @@ public final class GuaranteedJobHelper {
             output.add(get(taskID));
         }
 
-        return output.toArray(new GuaranteedJob[output.size()]);
+        return output.toArray(new GuaranteedJob[0]);
     }
 
     /**
@@ -198,7 +198,7 @@ public final class GuaranteedJobHelper {
             Datastore.releaseConnection(connection);
         }
 
-        return output.toArray(new String[output.size()]);
+        return output.toArray(new String[0]);
     }
 
     /**

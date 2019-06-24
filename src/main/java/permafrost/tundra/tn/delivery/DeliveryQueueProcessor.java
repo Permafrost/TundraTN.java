@@ -129,7 +129,7 @@ public class DeliveryQueueProcessor {
             output.add(map);
         }
 
-        return output.toArray(new IData[output.size()]);
+        return output.toArray(new IData[0]);
     }
 
     /**
