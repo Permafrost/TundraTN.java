@@ -27,6 +27,7 @@ package permafrost.tundra.tn.route;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.doc.BizDocEnvelope;
+import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.app.tn.route.RoutingRule;
 import com.wm.app.tn.route.RoutingRuleStore;
 import com.wm.data.IData;
@@ -34,6 +35,10 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import permafrost.tundra.lang.ExceptionHelper;
+import permafrost.tundra.server.ServerLogger;
+import permafrost.tundra.time.DurationHelper;
+import permafrost.tundra.time.DurationPattern;
+import permafrost.tundra.tn.profile.ProfileHelper;
 import permafrost.tundra.tn.util.TNFixedDataHelper;
 
 /**
@@ -169,11 +174,17 @@ public class RoutingRuleHelper {
         if (isRoutable(parameters)) {
             IDataCursor cursor = pipeline.getCursor();
             try {
-                cursor.insertAfter("rule", new ImmutableRoutingRule(rule));
+                cursor.insertAfter("rule", rule instanceof ImmutableRoutingRule ? rule : new ImmutableRoutingRule(rule));
                 cursor.insertAfter("bizdoc", bizdoc);
                 if (parameters != null) cursor.insertAfter("TN_parms", parameters);
 
+                long startTime = System.nanoTime();
+
                 pipeline = Service.doInvoke("wm.tn.route", "route", pipeline);
+
+                long endTime = System.nanoTime();
+
+                log(rule, bizdoc, endTime - startTime);
             } catch(Exception ex) {
                 ExceptionHelper.raise(ex);
             } finally {
@@ -205,5 +216,22 @@ public class RoutingRuleHelper {
             }
         }
         return isRoutable;
+    }
+
+    /**
+     * Logs that the given bizdoc was routed by the given rule.
+     *
+     * @param rule      The routing rule.
+     * @param bizdoc    The bizdoc.
+     * @param duration  The duration in nanoseconds for routing the given bizdoc.
+     */
+    private static void log(RoutingRule rule, BizDocEnvelope bizdoc, long duration) {
+        try {
+            ProfileSummary sender = ProfileHelper.getProfileSummary(bizdoc.getSenderId());
+            ProfileSummary receiver = ProfileHelper.getProfileSummary(bizdoc.getReceiverId());
+            ServerLogger.info("wm.tn.route:route" ,"routed document [InternalID={0}, Type={1}, Sender={2}, Receiver={3}, DocumentID={4}] with rule [ID={5}, Name={6}] in duration {7}", bizdoc.getInternalId(), bizdoc.getDocType().getName(), sender.getDisplayName(), receiver.getDisplayName(), bizdoc.getDocumentId(), rule.getID(), rule.getName(), DurationHelper.format(duration, DurationPattern.NANOSECONDS, DurationPattern.XML));
+        } catch(ServiceException ex) {
+            // ignore exception
+        }
     }
 }
