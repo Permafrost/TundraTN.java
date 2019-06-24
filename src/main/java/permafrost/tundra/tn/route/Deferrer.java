@@ -70,11 +70,11 @@ public class Deferrer implements Startable {
     /**
      * How often to reseed from the database to self-heal after outages and load balance.
      */
-    protected static final long DEFAULT_RESEED_SCHEDULE_MILLISECONDS = 60 * 5 * 1000L;
+    protected static final long DEFAULT_RESEED_SCHEDULE_MILLISECONDS = 60 * 1000L;
     /**
      * How old deferred documents need to be before they get reseeded.
      */
-    protected static final long DEFAULT_RESEED_BIZDOC_AGE = 60 * 5 * 1000L;
+    protected static final long DEFAULT_RESEED_BIZDOC_AGE = 5 * 60 * 1000L;
     /**
      * The default maximum capacity for the work queue.
      */
@@ -238,7 +238,7 @@ public class Deferrer implements Startable {
     }
 
     /**
-     * Seeds the work queue with any bizdocs in the database with user status "DEFERRED" with the given age.
+     * Attempt to directly route bizdocs in the database with user status "DEFERRED" with the given age.
      *
      * @param age   The age in milliseconds that candidate bizdocs must be before being seeded.
      */
@@ -267,10 +267,8 @@ public class Deferrer implements Startable {
                                 break;
                             } else {
                                 try {
-                                    Future<IData> result = defer(new CallableRoute(id));
-                                    // wait for task to finish before seeding another, so as not to overwhelm the server by
-                                    // applying back pressure to seeding
-                                    result.get();
+                                    CallableRoute route = new CallableRoute(id);
+                                    route.call();
                                 } catch (Exception ex) {
                                     // do nothing
                                 }
@@ -301,6 +299,7 @@ public class Deferrer implements Startable {
         if (!started) {
             ThreadFactory threadFactory = new ServerThreadFactory("TundraTN/Defer Worker", null, InvokeState.getCurrentState(), Thread.NORM_PRIORITY, false);
             executor = new PrioritizedThreadPoolExecutor(concurrency, concurrency, DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS, TimeUnit.MILLISECONDS, new BoundedPriorityBlockingQueue<Runnable>(capacity), threadFactory, new ThreadPoolExecutor.CallerRunsPolicy());
+
             scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Defer Seeder", InvokeState.getCurrentState()));
             scheduler.scheduleWithFixedDelay(new Runnable() {
                 public void run() {
@@ -311,8 +310,6 @@ public class Deferrer implements Startable {
             }, DEFAULT_RESEED_SCHEDULE_MILLISECONDS, DEFAULT_RESEED_SCHEDULE_MILLISECONDS, TimeUnit.MILLISECONDS);
 
             started = true;
-
-            seed();
         }
     }
 
