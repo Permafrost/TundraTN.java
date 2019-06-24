@@ -24,8 +24,11 @@
 
 package permafrost.tundra.tn.delivery;
 
+import com.wm.app.b2b.server.InvokeState;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.Session;
+import com.wm.app.b2b.server.User;
+import com.wm.app.b2b.server.ns.Namespace;
 import com.wm.app.tn.delivery.DeliveryJob;
 import com.wm.app.tn.delivery.DeliveryQueue;
 import com.wm.app.tn.delivery.GuaranteedJob;
@@ -36,13 +39,20 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSName;
+import com.wm.lang.ns.NSService;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ExceptionHelper;
+import permafrost.tundra.lang.IterableHelper;
 import permafrost.tundra.lang.StringHelper;
+import permafrost.tundra.server.ServerLogger;
+import permafrost.tundra.server.ServiceHelper;
 import permafrost.tundra.time.DateTimeHelper;
+import permafrost.tundra.time.DurationHelper;
+import permafrost.tundra.time.DurationPattern;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.profile.ProfileCache;
 import java.text.MessageFormat;
+import java.util.List;
 import java.util.concurrent.Callable;
 import javax.xml.datatype.Duration;
 
@@ -176,12 +186,11 @@ public class CallableGuaranteedJob implements Callable<IData> {
 
         Thread owningThread = Thread.currentThread();
         String owningThreadPrefix = owningThread.getName();
-        String startDateTime = DateTimeHelper.now("datetime");
 
         try {
             BizDocEnvelope bizdoc = job.getBizDocEnvelope();
 
-            owningThread.setName(MessageFormat.format("{0}: TaskID={1} TaskStart={2} PROCESSING", owningThreadPrefix, job.getJobId(), startDateTime));
+            owningThread.setName(MessageFormat.format("{0}: Task [ID={1}] PROCESSING: {2}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
 
             if (bizdoc != null) {
                 BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence);
@@ -203,13 +212,13 @@ public class CallableGuaranteedJob implements Callable<IData> {
 
             output = Service.doInvoke(service, session, pipeline);
 
-            owningThread.setName(MessageFormat.format("{0}: TaskID={1} TaskStart={2} TaskEnd={3} COMPLETED", owningThreadPrefix, job.getJobId(), startDateTime, DateTimeHelper.now("datetime")));
+            owningThread.setName(MessageFormat.format("{0}: Task [ID={1}] COMPLETED: {2}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime")));
         } catch (Exception ex) {
-            owningThread.setName(MessageFormat.format("{0}: TaskID={1} TaskStart={2} TaskEnd={3} FAILED: {4}", owningThreadPrefix, job.getJobId(), startDateTime, DateTimeHelper.now("datetime"), ExceptionHelper.getMessage(ex)));
+            owningThread.setName(MessageFormat.format("{0}: Task [ID={1}] FAILED: {2} {3}", owningThreadPrefix, job.getJobId(), DateTimeHelper.now("datetime"), ExceptionHelper.getMessage(ex)));
             exception = ex;
         } finally {
             owningThread.setName(owningThreadPrefix);
-            setJobCompleted(output, exception, (System.nanoTime() - startTime)/1000000L);
+            setJobCompleted(output, exception, System.nanoTime() - startTime);
             if (exception != null) throw exception;
         }
 
@@ -231,7 +240,7 @@ public class CallableGuaranteedJob implements Callable<IData> {
 
         while(true) {
             try {
-                job.setTransportTime(duration);
+                job.setTransportTime(duration/1000000L);
                 job.setOutputData(serviceOutput);
 
                 if (success) {
@@ -272,5 +281,18 @@ public class CallableGuaranteedJob implements Callable<IData> {
                 }
             }
         }
+
+        List<NSService> stack = ServiceHelper.getCallStack();
+        stack.add((NSService)Namespace.current().getNode(service));
+
+        User currentUser = InvokeState.getCurrentState().getUser();
+        String functionPrefix;
+        if (currentUser == null) {
+            functionPrefix = "";
+        } else {
+            functionPrefix = currentUser.getName() + " -- ";
+        }
+
+        ServerLogger.info(functionPrefix + IterableHelper.join(stack, " → "),"{0} queue processed task {1} -- {2} -- {3}", queue.getQueueName(), GuaranteedJobHelper.toLogString(job), success ? "COMPLETED" : "FAILED: " + ExceptionHelper.getMessage(exception), DurationHelper.format(duration, DurationPattern.NANOSECONDS, DurationPattern.XML));
     }
 }

@@ -32,9 +32,11 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ThreadHelper;
+import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.util.concurrent.AbstractPrioritizedCallable;
 import java.math.BigDecimal;
+import java.text.MessageFormat;
 
 /**
  * Used to defer processing a bizdoc to another thread.
@@ -119,7 +121,7 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
         this.bizdoc = bizdoc;
         // if rule is not synchronous, change it to be synchronous since it's already being executed
         // asynchronously as a deferred route so we don't want it to spawn yet another thread
-        this.rule = new SynchronousRoutingRule(rule);
+        this.rule = rule.getServiceInvokeType().equals("sync") ? rule : new SynchronousRoutingRule(rule);
         this.parameters = IDataHelper.duplicate(parameters);
 
         IData attributes = bizdoc.getAttributes();
@@ -167,7 +169,7 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
         boolean wasRouted = false;
 
         try {
-            currentThread.setName(currentThreadName + " Processing BizDoc/InternalID=" + id);
+            currentThread.setName(MessageFormat.format("{0}: BizDoc '{'ID={1}'}' PROCESSING {2}", currentThreadName, id, DateTimeHelper.now("datetime")));
             currentThread.setPriority(getThreadPriority());
 
             if (BizDocEnvelopeHelper.setStatus(id, null, null, BIZDOC_USER_STATUS_ROUTING, BIZDOC_USER_STATUS_DEFERRED, false)) {
@@ -202,6 +204,6 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
      */
     @Override
     public String toString() {
-        return super.toString() + " BizDoc/InternalID=" + id;
+        return super.toString() + " BizDoc [ID=" + id + "]";
     }
 }

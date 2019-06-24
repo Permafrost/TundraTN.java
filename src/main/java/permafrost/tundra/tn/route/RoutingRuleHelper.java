@@ -24,22 +24,30 @@
 
 package permafrost.tundra.tn.route;
 
+import com.wm.app.b2b.server.InvokeState;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
+import com.wm.app.b2b.server.User;
+import com.wm.app.b2b.server.ns.Namespace;
 import com.wm.app.tn.doc.BizDocEnvelope;
-import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.app.tn.route.RoutingRule;
 import com.wm.app.tn.route.RoutingRuleStore;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
+import com.wm.lang.ns.NSService;
+import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
+import permafrost.tundra.lang.IterableHelper;
 import permafrost.tundra.server.ServerLogger;
+import permafrost.tundra.server.ServiceHelper;
 import permafrost.tundra.time.DurationHelper;
 import permafrost.tundra.time.DurationPattern;
-import permafrost.tundra.tn.profile.ProfileHelper;
+import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.util.TNFixedDataHelper;
+import java.text.MessageFormat;
+import java.util.List;
 
 /**
  * Collection of convenience methods for working with routing rules.
@@ -152,10 +160,10 @@ public class RoutingRuleHelper {
 
         Deferrer deferrer = Deferrer.getInstance();
 
-        if (isSynchronous(rule) || !deferrer.isStarted()) {
-            route(rule, bizdoc, parameters);
-        } else {
+        if (deferrer.isStarted() && (!isSynchronous(rule) || shouldDefer(parameters))) {
             deferrer.defer(new CallableRoute(bizdoc, rule, parameters));
+        } else {
+            route(rule, bizdoc, parameters);
         }
     }
 
@@ -169,6 +177,9 @@ public class RoutingRuleHelper {
      * @throws ServiceException If an error occurs invoking wm.tn.route:route.
      */
     public static IData route(RoutingRule rule, BizDocEnvelope bizdoc, IData parameters) throws ServiceException {
+        long startTime = System.nanoTime();
+
+        Throwable exception = null;
         IData pipeline = IDataFactory.create();
 
         if (isRoutable(parameters)) {
@@ -178,17 +189,13 @@ public class RoutingRuleHelper {
                 cursor.insertAfter("bizdoc", bizdoc);
                 if (parameters != null) cursor.insertAfter("TN_parms", parameters);
 
-                long startTime = System.nanoTime();
-
                 pipeline = Service.doInvoke("wm.tn.route", "route", pipeline);
-
-                long endTime = System.nanoTime();
-
-                log(rule, bizdoc, endTime - startTime);
             } catch(Exception ex) {
+                exception = ex;
                 ExceptionHelper.raise(ex);
             } finally {
                 cursor.destroy();
+                log(rule, bizdoc, System.nanoTime() - startTime, exception);
             }
         }
 
@@ -209,7 +216,7 @@ public class RoutingRuleHelper {
             try {
                 String bypassRouting = IDataUtil.getString(cursor, "$bypassRouting");
                 if (bypassRouting != null) {
-                    isRoutable = Boolean.parseBoolean(bypassRouting);
+                    isRoutable = BooleanHelper.parse(bypassRouting);
                 }
             } finally {
                 cursor.destroy();
@@ -219,19 +226,59 @@ public class RoutingRuleHelper {
     }
 
     /**
+     * Whether the given parameters include a hint to use deferred routing via a key named $deferredRouting with a value
+     * of true.
+     *
+     * @param parameters    The optional TN_parms routing hints to use.
+     * @return              True if routing should be deferred, false if not.
+     */
+    public static boolean shouldDefer(IData parameters) {
+        boolean shouldDefer = false;
+        if (parameters != null) {
+            IDataCursor cursor = parameters.getCursor();
+            try {
+                String deferredRouting = IDataUtil.getString(cursor, "$deferredRouting");
+                if (deferredRouting != null) {
+                    shouldDefer = BooleanHelper.parse(deferredRouting);
+                }
+            } finally {
+                cursor.destroy();
+            }
+        }
+        return shouldDefer;
+    }
+
+    private static final NSService WM_TN_ROUTE_ROUTE = (NSService)Namespace.current().getNode("wm.tn.route:route");
+
+    /**
      * Logs that the given bizdoc was routed by the given rule.
      *
      * @param rule      The routing rule.
      * @param bizdoc    The bizdoc.
      * @param duration  The duration in nanoseconds for routing the given bizdoc.
      */
-    private static void log(RoutingRule rule, BizDocEnvelope bizdoc, long duration) {
-        try {
-            ProfileSummary sender = ProfileHelper.getProfileSummary(bizdoc.getSenderId());
-            ProfileSummary receiver = ProfileHelper.getProfileSummary(bizdoc.getReceiverId());
-            ServerLogger.info("wm.tn.route:route" ,"routed document [InternalID={0}, Type={1}, Sender={2}, Receiver={3}, DocumentID={4}] with rule [ID={5}, Name={6}] in duration {7}", bizdoc.getInternalId(), bizdoc.getDocType().getName(), sender.getDisplayName(), receiver.getDisplayName(), bizdoc.getDocumentId(), rule.getID(), rule.getName(), DurationHelper.format(duration, DurationPattern.NANOSECONDS, DurationPattern.XML));
-        } catch(ServiceException ex) {
-            // ignore exception
+    private static void log(RoutingRule rule, BizDocEnvelope bizdoc, long duration, Throwable exception) {
+        List<NSService> stack = ServiceHelper.getCallStack();
+        stack.add(WM_TN_ROUTE_ROUTE);
+
+        User currentUser = InvokeState.getCurrentState().getUser();
+        String functionPrefix;
+        if (currentUser == null) {
+            functionPrefix = "";
+        } else {
+            functionPrefix = currentUser.getName() + " -- ";
         }
+
+        ServerLogger.info(functionPrefix + IterableHelper.join(stack, " → "),"routed document {0} with rule {1} -- {2} -- {3}", BizDocEnvelopeHelper.toLogString(bizdoc), toLogString(rule), exception == null ? "COMPLETED" : "FAILED: " + ExceptionHelper.getMessage(exception), DurationHelper.format(duration, DurationPattern.NANOSECONDS, DurationPattern.XML));
+    }
+
+    /**
+     * Returns a string for logging for the given routing rule.
+     *
+     * @param rule  The routing rule to log.
+     * @return      A string representing the routing rule.
+     */
+    private static String toLogString(RoutingRule rule) {
+        return MessageFormat.format("'{'ID={0}, Name={1}'}'", rule.getID(), rule.getName());
     }
 }

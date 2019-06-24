@@ -28,6 +28,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.text.MessageFormat;
+import java.util.Calendar;
+import java.util.Date;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BizDocStore;
@@ -38,12 +40,15 @@ import com.wm.app.tn.db.SQLWrappers;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocErrorSet;
 import com.wm.app.tn.err.ActivityLogEntry;
+import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSName;
 import permafrost.tundra.lang.ExceptionHelper;
+import permafrost.tundra.time.DateTimeHelper;
+import permafrost.tundra.tn.profile.ProfileHelper;
 
 /**
  * A collection of convenience methods for working with Trading Networks BizDocEnvelope objects.
@@ -602,5 +607,25 @@ public final class BizDocEnvelopeHelper {
         }
 
         return hasErrors;
+    }
+
+    /**
+     * Returns a string that can be used for logging the given bizdoc.
+     *
+     * @param bizdoc    The bizdoc to be logged.
+     * @return          A string representing the given bizdoc.
+     */
+    public static String toLogString(BizDocEnvelope bizdoc) {
+        String output = "";
+        if (bizdoc != null) {
+            try {
+                ProfileSummary sender = ProfileHelper.getProfileSummary(bizdoc.getSenderId());
+                ProfileSummary receiver = ProfileHelper.getProfileSummary(bizdoc.getReceiverId());
+                output = MessageFormat.format("'{'ID={0}, Time={1}, Type={2}, Sender={3}, Receiver={4}, DocumentID={5}'}'", bizdoc.getInternalId(), DateTimeHelper.emit(bizdoc.getTimestamp(), "datetime"), bizdoc.getDocType().getName(), sender.getDisplayName(), receiver.getDisplayName(), bizdoc.getDocumentId());
+            } catch (ServiceException ex) {
+                // do nothing
+            }
+        }
+        return output;
     }
 }

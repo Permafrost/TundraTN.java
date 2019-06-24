@@ -34,6 +34,7 @@ import permafrost.tundra.lang.Startable;
 import permafrost.tundra.server.SchedulerHelper;
 import permafrost.tundra.server.SchedulerStatus;
 import permafrost.tundra.server.ServerThreadFactory;
+import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.util.concurrent.BoundedPriorityBlockingQueue;
 import permafrost.tundra.util.concurrent.ImmediateFuture;
 import permafrost.tundra.util.concurrent.PrioritizedThreadPoolExecutor;
@@ -43,6 +44,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.text.MessageFormat;
 import java.util.Calendar;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -244,6 +246,9 @@ public class Deferrer implements Startable {
      */
     public void seed(long age) {
         if (isStarted()) {
+            Thread currentThread = Thread.currentThread();
+            String currentThreadName = currentThread.getName();
+
             Connection connection = null;
             PreparedStatement statement = null;
             ResultSet resultSet = null;
@@ -267,10 +272,13 @@ public class Deferrer implements Startable {
                                 break;
                             } else {
                                 try {
+                                    currentThread.setName(MessageFormat.format("{0}: BizDoc '{'ID={1}'}' PROCESSING {2}", currentThreadName, id, DateTimeHelper.now("datetime")));
                                     CallableRoute route = new CallableRoute(id);
                                     route.call();
                                 } catch (Exception ex) {
                                     // do nothing
+                                } finally {
+                                    currentThread.setName(currentThreadName);
                                 }
                             }
                         } else {

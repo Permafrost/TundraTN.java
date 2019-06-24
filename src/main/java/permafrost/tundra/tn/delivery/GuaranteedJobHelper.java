@@ -46,6 +46,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -398,5 +399,24 @@ public final class GuaranteedJobHelper {
      */
     public static void log(GuaranteedJob job, String type, String klass, String summary, String message) throws ServiceException {
         BizDocEnvelopeHelper.log(job.getBizDocEnvelope(), type, klass, summary, message);
+    }
+
+    /**
+     * Returns a string that can be used to log the given job.
+     *
+     * @param job   The job to be logged.
+     * @return      A string representing the given job.
+     */
+    public static String toLogString(GuaranteedJob job) {
+        String output;
+
+        BizDocEnvelope bizdoc = job.getBizDocEnvelope();
+        if (bizdoc == null) {
+            output = MessageFormat.format("'{'ID={0}'}'", job.getJobId());
+        } else {
+            output = MessageFormat.format("'{'ID={0}, BizDoc={1}'}'", job.getJobId(), BizDocEnvelopeHelper.toLogString(bizdoc));
+        }
+
+        return output;
     }
 }
