@@ -142,7 +142,9 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
             }
         }
 
-        BizDocEnvelopeHelper.setStatus(bizdoc, null, BIZDOC_USER_STATUS_DEFERRED);
+        if (!BIZDOC_USER_STATUS_DEFERRED.equals(bizdoc.getUserStatus())) {
+            BizDocEnvelopeHelper.setStatus(bizdoc, null, BIZDOC_USER_STATUS_DEFERRED);
+        }
     }
 
     /**
