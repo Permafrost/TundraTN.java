@@ -171,7 +171,7 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
         boolean wasRouted = false;
 
         try {
-            currentThread.setName(MessageFormat.format("{0}: BizDoc '{'ID={1}'}' PROCESSING {2}", currentThreadName, id, DateTimeHelper.now("datetime")));
+            currentThread.setName(MessageFormat.format("{0}: BizDoc {1} PROCESSING {2}", currentThreadName, BizDocEnvelopeHelper.toLogString(bizdoc), DateTimeHelper.now("datetime")));
             currentThread.setPriority(getThreadPriority());
 
             if (BizDocEnvelopeHelper.setStatus(id, null, null, BIZDOC_USER_STATUS_ROUTING, BIZDOC_USER_STATUS_DEFERRED, false)) {

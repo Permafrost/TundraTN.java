@@ -246,9 +246,6 @@ public class Deferrer implements Startable {
      */
     public void seed(long age) {
         if (isStarted()) {
-            Thread currentThread = Thread.currentThread();
-            String currentThreadName = currentThread.getName();
-
             Connection connection = null;
             PreparedStatement statement = null;
             ResultSet resultSet = null;
@@ -272,16 +269,14 @@ public class Deferrer implements Startable {
                                 break;
                             } else {
                                 try {
-                                    currentThread.setName(MessageFormat.format("{0}: BizDoc '{'ID={1}'}' PROCESSING {2}", currentThreadName, id, DateTimeHelper.now("datetime")));
                                     CallableRoute route = new CallableRoute(id);
                                     route.call();
                                 } catch (Exception ex) {
                                     // do nothing
-                                } finally {
-                                    currentThread.setName(currentThreadName);
                                 }
                             }
                         } else {
+                            // query did not return any bizdocs for seeing, so exit loop
                             break;
                         }
                     } finally {
