@@ -34,7 +34,6 @@ import permafrost.tundra.lang.Startable;
 import permafrost.tundra.server.SchedulerHelper;
 import permafrost.tundra.server.SchedulerStatus;
 import permafrost.tundra.server.ServerThreadFactory;
-import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.util.concurrent.BoundedPriorityBlockingQueue;
 import permafrost.tundra.util.concurrent.ImmediateFuture;
 import permafrost.tundra.util.concurrent.PrioritizedThreadPoolExecutor;
@@ -44,7 +43,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.text.MessageFormat;
 import java.util.Calendar;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -68,7 +66,7 @@ public class Deferrer implements Startable {
     /**
      * How long to keep threads alive in the pool when idle.
      */
-    protected static final long DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS = 5 * 60 * 1000L;
+    protected static final long DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS = 60 * 60 * 1000L;
     /**
      * How often to reseed from the database to self-heal after outages and load balance.
      */
@@ -302,6 +300,7 @@ public class Deferrer implements Startable {
         if (!started) {
             ThreadFactory threadFactory = new ServerThreadFactory("TundraTN/Defer Worker", null, InvokeState.getCurrentState(), Thread.NORM_PRIORITY, false);
             executor = new PrioritizedThreadPoolExecutor(concurrency, concurrency, DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS, TimeUnit.MILLISECONDS, new BoundedPriorityBlockingQueue<Runnable>(capacity), threadFactory, new ThreadPoolExecutor.CallerRunsPolicy());
+            executor.allowCoreThreadTimeOut(true);
 
             scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Defer Seeder", InvokeState.getCurrentState()));
             scheduler.scheduleWithFixedDelay(new Runnable() {
