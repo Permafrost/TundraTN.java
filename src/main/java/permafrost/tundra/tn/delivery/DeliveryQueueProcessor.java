@@ -330,9 +330,9 @@ public class DeliveryQueueProcessor {
         String datetime = DateTimeHelper.now("datetime");
 
         if (parentContext == null) {
-            output = MessageFormat.format("TundraTN/Queue \"{0}\" ParentStart={1}", queueName, datetime);
+            output = MessageFormat.format("TundraTN/Queue {0} {1}", queueName, datetime);
         } else {
-            output = MessageFormat.format("TundraTN/Queue \"{0}\" ParentStart={1} ParentContext={2}", queueName, datetime, parentContext);
+            output = MessageFormat.format("TundraTN/Queue {0} {1} {2}", queueName, parentContext, datetime);
         }
 
         return output;
