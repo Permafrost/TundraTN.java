@@ -28,8 +28,11 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.text.MessageFormat;
-import java.util.Calendar;
-import java.util.Date;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BizDocStore;
@@ -46,6 +49,7 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSName;
+import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.profile.ProfileHelper;
@@ -591,22 +595,127 @@ public final class BizDocEnvelopeHelper {
      * @throws DatastoreException   If a database error occurs.
      */
     public static boolean hasErrors(BizDocEnvelope document, String messageClass) throws DatastoreException {
+        return hasErrors(document, messageClass, true);
+    }
+
+    /**
+     * Returns true if the given BizDocEnvelope has any errors of the given message class.
+     *
+     * @param document              The BizDocEnvelope to check for errors.
+     * @param messageClass          The class of error to check for.
+     * @param refresh               Whether to reload the BizDocEnvelope before checking it.
+     * @return                      True if the given BizDocEnvelope has errors of the given class.
+     * @throws DatastoreException   If a database error occurs.
+     */
+    public static boolean hasErrors(BizDocEnvelope document, String messageClass, boolean refresh) throws DatastoreException {
         boolean hasErrors = false;
 
         if (document != null) {
-            BizDocErrorSet errorSet = refresh(document).getErrorSet();
+            if (refresh) document = refresh(document);
+            hasErrors = hasErrors(document.getErrorSet(), messageClass);
+        }
 
-            if (errorSet != null && errorSet.getErrorCount() > 0) {
-                if (messageClass == null) {
-                    hasErrors = true;
-                } else {
-                    ActivityLogEntry[] activityLogEntries = errorSet.getErrors(messageClass);
-                    hasErrors = activityLogEntries != null && activityLogEntries.length > 0;
-                }
+        return hasErrors;
+    }
+
+    /**
+     * Returns true if the given BizDocEnvelope has any errors of the given message class.
+     *
+     * @param errors                The BizDocErrorSet to check for errors.
+     * @param messageClass          The class of error to check for.
+     * @return                      True if the given BizDocErrorSet has errors of the given class.
+     */
+    public static boolean hasErrors(BizDocErrorSet errors, String messageClass) {
+        boolean hasErrors = false;
+
+        if (errors != null && errors.getErrorCount() > 0) {
+            if (messageClass == null) {
+                hasErrors = true;
+            } else {
+                ActivityLogEntry[] activityLogEntries = errors.getErrors(messageClass);
+                hasErrors = activityLogEntries != null && activityLogEntries.length > 0;
             }
         }
 
         return hasErrors;
+    }
+
+    /**
+     * Returns true if the given BizDocEnvelope has any errors of the given message class.
+     *
+     * @param document              The BizDocEnvelope to check for errors.
+     * @param messageClasses        The classes of error to check for.
+     * @return                      True if the given BizDocEnvelope has errors of the given class.
+     * @throws DatastoreException   If a database error occurs.
+     */
+    public static ActivityLogEntry[] getErrors(IData document, IData messageClasses) throws DatastoreException {
+        Set<String> classes = null;
+        if (messageClasses != null) {
+            classes = new HashSet<String>();
+            IDataCursor cursor = messageClasses.getCursor();
+            try {
+                while (cursor.next()) {
+                    String key = cursor.getKey();
+                    Object value = cursor.getValue();
+                    if (value != null && BooleanHelper.normalize(value)) {
+                        classes.add(key);
+                    }
+                }
+            } finally {
+                cursor.destroy();
+            }
+        }
+
+        return getErrors(normalize(document, false), classes);
+    }
+
+    /**
+     * Returns true if the given BizDocEnvelope has any errors of the given message class.
+     *
+     * @param document              The BizDocEnvelope to check for errors.
+     * @param messageClasses        The classes of error to check for.
+     * @return                      True if the given BizDocEnvelope has errors of the given class.
+     * @throws DatastoreException   If a database error occurs.
+     */
+    public static ActivityLogEntry[] getErrors(BizDocEnvelope document, Set<String> messageClasses) throws DatastoreException {
+        ActivityLogEntry[] output = null;
+
+        if (document != null) {
+            BizDocErrorSet errorSet = document.getErrorSet();
+            if (errorSet != null) {
+                int errorCount = errorSet.getErrorCount();
+                if (errorCount > 0) {
+                    List<ActivityLogEntry> errors = new ArrayList<ActivityLogEntry>(errorCount);
+                    if (messageClasses == null) {
+                        IDataCursor cursor = errorSet.getCursor();
+                        try {
+                            while(cursor.next()) {
+                                String messageClass = cursor.getKey();
+                                ActivityLogEntry[] activityLogEntries = errorSet.getErrors(messageClass);
+                                if (activityLogEntries != null) {
+                                    Collections.addAll(errors, activityLogEntries);
+                                }
+                            }
+                        } finally {
+                            cursor.destroy();
+                        }
+                    } else {
+                        for (String messageClass : messageClasses) {
+                            ActivityLogEntry[] activityLogEntries = errorSet.getErrors(messageClass);
+                            if (activityLogEntries != null) {
+                                Collections.addAll(errors, activityLogEntries);
+                            }
+                        }
+                    }
+
+                    if (errors.size() > 0) {
+                        output = errors.toArray(new ActivityLogEntry[0]);
+                    }
+                }
+            }
+        }
+
+        return output;
     }
 
     /**
