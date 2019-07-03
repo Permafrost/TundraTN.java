@@ -29,10 +29,10 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BizDocStore;
@@ -49,8 +49,14 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSName;
+import permafrost.tundra.content.DuplicateException;
+import permafrost.tundra.content.MalformedException;
+import permafrost.tundra.content.StrictException;
+import permafrost.tundra.content.UnsupportedException;
+import permafrost.tundra.content.ValidationException;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
+import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.profile.ProfileHelper;
 
@@ -612,7 +618,7 @@ public final class BizDocEnvelopeHelper {
 
         if (document != null) {
             if (refresh) document = refresh(document);
-            hasErrors = hasErrors(document.getErrorSet(), messageClass);
+            hasErrors = hasErrors(document.getErrorSet(), getMessageClassesSet(messageClass));
         }
 
         return hasErrors;
@@ -622,22 +628,53 @@ public final class BizDocEnvelopeHelper {
      * Returns true if the given BizDocEnvelope has any errors of the given message class.
      *
      * @param errors                The BizDocErrorSet to check for errors.
-     * @param messageClass          The class of error to check for.
+     * @param messageClasses        One or more message classes to check for.
      * @return                      True if the given BizDocErrorSet has errors of the given class.
      */
-    public static boolean hasErrors(BizDocErrorSet errors, String messageClass) {
-        boolean hasErrors = false;
-
+    public static boolean hasErrors(BizDocErrorSet errors, Set<String> messageClasses) {
         if (errors != null && errors.getErrorCount() > 0) {
-            if (messageClass == null) {
-                hasErrors = true;
-            } else {
-                ActivityLogEntry[] activityLogEntries = errors.getErrors(messageClass);
-                hasErrors = activityLogEntries != null && activityLogEntries.length > 0;
+            if (messageClasses == null || messageClasses.size() == 0) {
+                messageClasses = getMessageClasses(errors);
+            }
+
+            if (messageClasses != null) {
+                for (String messageClass : messageClasses) {
+                    ActivityLogEntry[] entries = errors.getErrors(messageClass);
+                    if (entries != null) {
+                        for (ActivityLogEntry entry : entries) {
+                            if (entry != null) {
+                                if (entry.getEntryType() == ActivityLogEntry.TYPE_ERROR) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        return hasErrors;
+        return false;
+    }
+
+    /**
+     * Returns all message classes that exist in the given error set.
+     *
+     * @param errors    The error set to get message classes from.
+     * @return          All message classes that exist in the given error set.
+     */
+    private static Set<String> getMessageClasses(BizDocErrorSet errors) {
+        Set<String> output = new HashSet<String>();
+
+        IDataCursor cursor = errors.getCursor();
+        try {
+            while(cursor.next()) {
+                output.add(cursor.getKey());
+            }
+        } finally {
+            cursor.destroy();
+        }
+
+        return output;
     }
 
     /**
@@ -649,24 +686,7 @@ public final class BizDocEnvelopeHelper {
      * @throws DatastoreException   If a database error occurs.
      */
     public static ActivityLogEntry[] getErrors(IData document, IData messageClasses) throws DatastoreException {
-        Set<String> classes = null;
-        if (messageClasses != null) {
-            classes = new HashSet<String>();
-            IDataCursor cursor = messageClasses.getCursor();
-            try {
-                while (cursor.next()) {
-                    String key = cursor.getKey();
-                    Object value = cursor.getValue();
-                    if (value != null && BooleanHelper.normalize(value)) {
-                        classes.add(key);
-                    }
-                }
-            } finally {
-                cursor.destroy();
-            }
-        }
-
-        return getErrors(normalize(document, false), classes);
+        return getErrors(normalize(document, false), getMessageClassesSet(messageClasses));
     }
 
     /**
@@ -686,24 +706,21 @@ public final class BizDocEnvelopeHelper {
                 int errorCount = errorSet.getErrorCount();
                 if (errorCount > 0) {
                     List<ActivityLogEntry> errors = new ArrayList<ActivityLogEntry>(errorCount);
-                    if (messageClasses == null) {
-                        IDataCursor cursor = errorSet.getCursor();
-                        try {
-                            while(cursor.next()) {
-                                String messageClass = cursor.getKey();
-                                ActivityLogEntry[] activityLogEntries = errorSet.getErrors(messageClass);
-                                if (activityLogEntries != null) {
-                                    Collections.addAll(errors, activityLogEntries);
-                                }
-                            }
-                        } finally {
-                            cursor.destroy();
-                        }
-                    } else {
+                    if (messageClasses == null || messageClasses.size() == 0) {
+                        messageClasses = getMessageClasses(errorSet);
+                    }
+
+                    if (messageClasses != null) {
                         for (String messageClass : messageClasses) {
-                            ActivityLogEntry[] activityLogEntries = errorSet.getErrors(messageClass);
-                            if (activityLogEntries != null) {
-                                Collections.addAll(errors, activityLogEntries);
+                            ActivityLogEntry[] entries = errorSet.getErrors(messageClass);
+                            if (entries != null) {
+                                for (ActivityLogEntry entry : entries) {
+                                    if (entry != null) {
+                                        if (entry.getEntryType() == ActivityLogEntry.TYPE_ERROR) {
+                                            errors.add(entry);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -716,6 +733,151 @@ public final class BizDocEnvelopeHelper {
         }
 
         return output;
+    }
+
+    /**
+     * The regular expression pattern to detect if a bizdoc error is a duplicate error.
+     */
+    private static final Pattern DUPLICATE_DOCUMENT_ERROR_PATTERN = Pattern.compile("^(Duplicate.+|.+unique.+)$");
+
+    /**
+     * Checks if the given document has any errors of the given message classes, and if so throws an exception to stop
+     * further processing.
+     *
+     * @param document          The bizdoc to check.
+     * @param messageClasses    The activity log message classes to check.
+     * @throws ServiceException If the given bizdoc has errors logged against it with any of the given message classes.
+     */
+    public static void raiseIfErrors(IData document, IData messageClasses) throws ServiceException {
+        raiseIfErrors(normalize(document, false), getMessageClassesSet(messageClasses));
+    }
+
+    /**
+     * Checks if the given document has any errors of the given message classes, and if so throws an exception to stop
+     * further processing.
+     *
+     * @param document          The bizdoc to check.
+     * @param messageClasses    The activity log message classes to check.
+     * @throws ServiceException If the given bizdoc has errors logged against it with any of the given message classes.
+     */
+    public static void raiseIfErrors(BizDocEnvelope document, Set<String> messageClasses) throws ServiceException {
+        if (document != null) {
+            if ("Unknown".equals(document.getDocType().getName())) {
+                throw new UnsupportedException("Unsupported message format");
+            } else {
+                ActivityLogEntry[] errors = getErrors(document, messageClasses);
+                if (errors != null && errors.length > 0) {
+                    boolean first = true;
+                    StringBuilder builder = new StringBuilder();
+                    Class exceptionClass = null;
+
+                    for (ActivityLogEntry error : errors) {
+                        if (error != null) {
+                            if (!first) {
+                                builder.append("\n");
+                            }
+
+                            String entryClass = error.getEntryClass();
+                            String briefMessage = error.getBriefMessage();
+                            String fullMessage = error.getFullMessage();
+
+                            builder.append("[");
+                            builder.append(entryClass);
+                            builder.append("] ");
+                            builder.append(briefMessage);
+
+                            if (fullMessage != null && !fullMessage.equals("")) {
+                                builder.append(": ");
+                                String[] lines = StringHelper.lines(fullMessage);
+                                if (lines != null && lines.length > 0) {
+                                    String firstLine = lines[0];
+                                    if (firstLine != null) {
+                                        builder.append(firstLine.trim());
+                                    }
+                                }
+                            }
+
+                            if ("Validation".equals(entryClass)) {
+                                exceptionClass = ValidationException.class;
+                            } else if (exceptionClass == null) {
+                                if ("General".equals(entryClass)) {
+                                    exceptionClass = MalformedException.class;
+                                } else if ("Saving".equals(entryClass) && DUPLICATE_DOCUMENT_ERROR_PATTERN.matcher(briefMessage).matches()) {
+                                    exceptionClass = DuplicateException.class;
+                                }
+                            }
+
+                            first = false;
+                        }
+                    }
+
+                    String message = builder.toString();
+
+                    if (!"".equals(message)) {
+                        StrictException exception;
+
+                        if (ValidationException.class.equals(exceptionClass)) {
+                            exception = new ValidationException(message);
+                        } else if (MalformedException.class.equals(exceptionClass)) {
+                            exception = new MalformedException(message);
+                        } else if (DuplicateException.class.equals(exceptionClass)) {
+                            exception = new DuplicateException(message);
+                        } else {
+                            exception = new StrictException(message);
+                        }
+
+                        throw exception;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Converts the given IData containing a set of message class names as keys and boolean flags as values to a set
+     * that only includes the message class names associated with the value of true.
+     *
+     * @param messageClasses    The message classes to convert.
+     * @return                  A set of message classes associated with the value of true.
+     */
+    private static Set<String> getMessageClassesSet(IData messageClasses) {
+        Set<String> classes = null;
+        if (messageClasses != null) {
+            classes = new HashSet<String>();
+            IDataCursor cursor = messageClasses.getCursor();
+            try {
+                while (cursor.next()) {
+                    String key = cursor.getKey();
+                    Object value = cursor.getValue();
+                    if (value != null && BooleanHelper.normalize(value)) {
+                        classes.add(key);
+                    }
+                }
+            } finally {
+                cursor.destroy();
+            }
+        }
+
+        return classes == null || classes.size() == 0 ? null : classes;
+    }
+
+    /**
+     * Converts the given IData containing a set of message class names as keys and boolean flags as values to a set
+     * that only includes the message class names associated with the value of true.
+     *
+     * @param messageClasses    The message classes to convert.
+     * @return                  A set of message classes associated with the value of true.
+     */
+    private static Set<String> getMessageClassesSet(String... messageClasses) {
+        Set<String> classes = new HashSet<String>();
+        if (messageClasses != null && messageClasses.length > 0) {
+            for (String messageClass : messageClasses) {
+                if (messageClass != null) {
+                    classes.add(messageClass);
+                }
+            }
+        }
+        return classes;
     }
 
     /**
