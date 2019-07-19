@@ -29,14 +29,11 @@ import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.route.RoutingRule;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
-import com.wm.data.IDataFactory;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ThreadHelper;
-import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.util.concurrent.AbstractPrioritizedCallable;
 import java.math.BigDecimal;
-import java.text.MessageFormat;
 
 /**
  * Used to defer processing a bizdoc to another thread.
@@ -51,11 +48,12 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
      */
     public static final String THREAD_PRIORITY_ATTRIBUTE_NAME = "Thread Priority";
     /**
-     * Document user statuses set or used by this class.
+     * Bizdoc user status set when routing is completed successfully.
      */
-    public static final String BIZDOC_USER_STATUS_DEFERRED = "DEFERRED";
-    public static final String BIZDOC_USER_STATUS_ROUTING = "ROUTING";
     public static final String BIZDOC_USER_STATUS_DONE = "DONE";
+    /**
+     * Bizdoc user status set when routing failed.
+     */
     public static final String BIZDOC_USER_STATUS_ERROR = "ERROR";
     /**
      * The internal ID of the bizdoc to be routed.
@@ -77,135 +75,137 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
      * The thread priority to use when executing this route.
      */
     protected int threadPriority = Thread.NORM_PRIORITY;
+    /**
+     * Whether this route requires initialization to be run.
+     */
+    protected volatile boolean requiresInitialization = true;
 
     /**
      * Constructs a new CallableRoute.
      *
-     * @param id    The internal ID of the bizdoc to be routed.
+     * @param id                The internal ID of the bizdoc to be routed.
      */
-    public CallableRoute(String id) throws ServiceException {
-        this(BizDocEnvelopeHelper.get(id, true));
+    public CallableRoute(String id) {
+        if (id == null) throw new NullPointerException("id must not be null");
+        this.id = id;
     }
 
     /**
      * Constructs a new CallableRoute.
      *
-     * @param bizdoc    The bizdoc to be routed.
-     */
-    public CallableRoute(BizDocEnvelope bizdoc) throws ServiceException {
-        this(bizdoc, null);
-    }
-
-    /**
-     * Constructs a new CallableRoute.
-     *
-     * @param bizdoc    The bizdoc to be routed.
-     * @param rule      The rule to use when routing.
-     */
-    public CallableRoute(BizDocEnvelope bizdoc, RoutingRule rule) throws ServiceException {
-        this(bizdoc, rule, null);
-    }
-
-    /**
-     * Constructs a new CallableRoute.
-     *
-     * @param bizdoc     The bizdoc to be routed.
-     * @param rule       The rule to use when routing.
-     * @param parameters The optional TN_parms to use when routing.
+     * @param bizdoc            The bizdoc to be routed.
+     * @param rule              The rule to use when routing.
+     * @param parameters        The optional TN_parms to use when routing.
+     * @throws ServiceException If an error occurs.
      */
     public CallableRoute(BizDocEnvelope bizdoc, RoutingRule rule, IData parameters) throws ServiceException {
         if (bizdoc == null) throw new NullPointerException("bizdoc must not be null");
-        if (rule == null) rule = RoutingRuleHelper.select(bizdoc, parameters);
 
         this.id = bizdoc.getInternalId();
         this.bizdoc = bizdoc;
-        // if rule is not synchronous, change it to be synchronous since it's already being executed
-        // asynchronously as a deferred route so we don't want it to spawn yet another thread
-        this.rule = rule.getServiceInvokeType().equals("sync") ? rule : new SynchronousRoutingRule(rule);
+        this.rule = rule;
         this.parameters = IDataHelper.duplicate(parameters);
+    }
 
-        IData attributes = bizdoc.getAttributes();
-        if (attributes != null) {
-            IDataCursor cursor = attributes.getCursor();
-            try {
-                BigDecimal messagePriority = IDataHelper.get(cursor, MESSAGE_PRIORITY_ATTRIBUTE_NAME, BigDecimal.class);
-                if (messagePriority != null) {
-                    this.priority = messagePriority.doubleValue();
-                }
+    /**
+     * Initializes this route.
+     *
+     * @throws ServiceException If an error occurs.
+     */
+    protected synchronized void initialize() throws ServiceException {
+        if (requiresInitialization) {
+            requiresInitialization = false;
 
-                BigDecimal threadPriority = IDataHelper.get(cursor, THREAD_PRIORITY_ATTRIBUTE_NAME, BigDecimal.class);
-                if (threadPriority != null) {
-                    this.threadPriority = ThreadHelper.normalizePriority(threadPriority.intValue());
-                }
-            } finally {
-                cursor.destroy();
+            if (id == null && bizdoc == null) throw new NullPointerException("bizdoc must not be null");
+
+            if (bizdoc == null) {
+                bizdoc = BizDocEnvelopeHelper.get(id, true);
             }
-        }
 
-        if (!BIZDOC_USER_STATUS_DEFERRED.equals(bizdoc.getUserStatus())) {
-            BizDocEnvelopeHelper.setStatus(bizdoc, null, BIZDOC_USER_STATUS_DEFERRED);
+            if (rule == null) rule = RoutingRuleHelper.select(bizdoc, parameters);
+            // if rule is not synchronous, change it to be synchronous since it's already being executed
+            // asynchronously as a deferred route so we don't want it to spawn yet another thread
+            rule = rule.getServiceInvokeType().equals("sync") ? rule : new SynchronousRoutingRule(rule);
+
+            IData attributes = bizdoc.getAttributes();
+            if (attributes != null) {
+                IDataCursor cursor = attributes.getCursor();
+                try {
+                    BigDecimal messagePriority = IDataHelper.get(cursor, MESSAGE_PRIORITY_ATTRIBUTE_NAME, BigDecimal.class);
+                    if (messagePriority != null) {
+                        this.priority = messagePriority.doubleValue();
+                    }
+
+                    BigDecimal threadPriorityAttribute = IDataHelper.get(cursor, THREAD_PRIORITY_ATTRIBUTE_NAME, BigDecimal.class);
+                    if (threadPriorityAttribute != null) {
+                        threadPriority = ThreadHelper.normalizePriority(threadPriorityAttribute.intValue());
+                    }
+                } finally {
+                    cursor.destroy();
+                }
+            }
         }
     }
 
     /**
-     * Returns the thread priority this route should be executed with.
+     * Returns the identity of the bizdoc this route is executed against.
      *
-     * @return the thread priority this route should be executed with.
+     * @return the identity of the bizdoc this route is executed against.
      */
-    public int getThreadPriority() {
-        return threadPriority;
+    public String getIdentity() {
+        return id;
+    }
+
+    /**
+     * Returns the priority of this object, where larger values are higher priority, and with a nominal range of 1..10.
+     *
+     * @return the priority of this object, where larger values are higher priority, and with a nominal range of 1..10.
+     */
+    @Override
+    public double getPriority() {
+        try {
+            initialize();
+        } catch(ServiceException ex) {
+            // do nothing
+        }
+        return super.getPriority();
     }
 
     /**
      * Routes the bizdoc.
+     *
+     * @throws ServiceException If an error occurs.
      */
     @Override
     public IData call() throws ServiceException {
         IData output;
 
         Thread currentThread = Thread.currentThread();
-        String currentThreadName = currentThread.getName();
-        int currentThreadPriority = currentThread.getPriority();
+        int previousThreadPriority = currentThread.getPriority();
 
+        // lazy initialization so route objects can be constructed from id as quickly as possible
+        initialize();
+
+        currentThread.setPriority(threadPriority);
+
+        String previousStatus = bizdoc.getUserStatus();
         String doneStatus = BIZDOC_USER_STATUS_DONE;
-        boolean wasRouted = false;
 
         try {
-            currentThread.setName(MessageFormat.format("{0}: BizDoc {1} PROCESSING {2}", currentThreadName, BizDocEnvelopeHelper.toLogString(bizdoc), DateTimeHelper.now("datetime")));
-            currentThread.setPriority(getThreadPriority());
+            output = RoutingRuleHelper.route(rule, bizdoc, parameters);
 
-            if (BizDocEnvelopeHelper.setStatus(id, null, null, BIZDOC_USER_STATUS_ROUTING, BIZDOC_USER_STATUS_DEFERRED, false)) {
-                // status was able to be changed, so we have a "lock" on the bizdoc and can now route it
-                wasRouted = true;
-
-                output = RoutingRuleHelper.route(rule, bizdoc, parameters);
-
-                if (BizDocEnvelopeHelper.hasErrors(bizdoc)) {
-                    doneStatus = doneStatus + " W/ ERRORS";
-                }
-
-                BizDocEnvelopeHelper.setStatus(bizdoc, null, null, doneStatus, BIZDOC_USER_STATUS_ROUTING, false);
-            } else {
-                output = IDataFactory.create();
+            if (BizDocEnvelopeHelper.hasErrors(bizdoc)) {
+                doneStatus = doneStatus + " W/ ERRORS";
             }
+
+            BizDocEnvelopeHelper.setUserStatusForPrevious(bizdoc, doneStatus, previousStatus);
         } catch(ServiceException ex) {
-            if (wasRouted) BizDocEnvelopeHelper.setStatus(bizdoc, null, null, BIZDOC_USER_STATUS_ERROR, BIZDOC_USER_STATUS_ROUTING, false);
+            BizDocEnvelopeHelper.setUserStatusForPrevious(bizdoc, BIZDOC_USER_STATUS_ERROR, previousStatus);
             throw ex;
         } finally {
-            currentThread.setName(currentThreadName);
-            currentThread.setPriority(currentThreadPriority);
+            currentThread.setPriority(previousThreadPriority);
         }
 
         return output;
-    }
-
-    /**
-     * Returns a string representation of this object.
-     *
-     * @return a string representation of this object.
-     */
-    @Override
-    public String toString() {
-        return super.toString() + " BizDoc [ID=" + id + "]";
     }
 }

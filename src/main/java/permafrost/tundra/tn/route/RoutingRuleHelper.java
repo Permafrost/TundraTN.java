@@ -161,7 +161,7 @@ public class RoutingRuleHelper {
         Deferrer deferrer = Deferrer.getInstance();
 
         if (deferrer.isStarted() && (!isSynchronous(rule) || shouldDefer(parameters))) {
-            deferrer.defer(new CallableRoute(bizdoc, rule, parameters));
+            deferrer.defer(bizdoc, rule, parameters);
         } else {
             route(rule, bizdoc, parameters);
         }

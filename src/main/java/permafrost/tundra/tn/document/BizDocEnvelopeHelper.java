@@ -337,6 +337,12 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException     If a database error is encountered.
      */
     private static boolean setStatusForPrevious(String internalID, String systemStatus, String previousSystemStatus, String userStatus, String previousUserStatus) throws ServiceException {
+        if (internalID == null) throw new NullPointerException("internalID must not be null");
+        if (systemStatus == null) throw new NullPointerException("userStatus must not be null");
+        if (previousSystemStatus == null) throw new NullPointerException("previousUserStatus must not be null");
+        if (userStatus == null) throw new NullPointerException("userStatus must not be null");
+        if (previousUserStatus == null) throw new NullPointerException("previousUserStatus must not be null");
+
         Connection connection = null;
         PreparedStatement statement = null;
         boolean result = false;
@@ -378,11 +384,9 @@ public final class BizDocEnvelopeHelper {
      * @return                      True if the status was updated.
      * @throws ServiceException     If a database error is encountered.
      */
-    private static boolean setSystemStatusForPrevious(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus) throws ServiceException {
+    public static boolean setSystemStatusForPrevious(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus) throws ServiceException {
         boolean result = setSystemStatusForPrevious(bizdoc.getInternalId(), systemStatus, previousSystemStatus);
-
         if (result) bizdoc.setSystemStatus(systemStatus);
-
         return result;
     }
 
@@ -396,7 +400,11 @@ public final class BizDocEnvelopeHelper {
      * @return                      True if the status was updated.
      * @throws ServiceException     If a database error is encountered.
      */
-    private static boolean setSystemStatusForPrevious(String internalID, String systemStatus, String previousSystemStatus) throws ServiceException {
+    public static boolean setSystemStatusForPrevious(String internalID, String systemStatus, String previousSystemStatus) throws ServiceException {
+        if (internalID == null) throw new NullPointerException("internalID must not be null");
+        if (systemStatus == null) throw new NullPointerException("userStatus must not be null");
+        if (previousSystemStatus == null) throw new NullPointerException("previousUserStatus must not be null");
+
         Connection connection = null;
         PreparedStatement statement = null;
         boolean result = false;
@@ -436,11 +444,9 @@ public final class BizDocEnvelopeHelper {
      * @return                      True if the status was updated.
      * @throws ServiceException     If a database error is encountered.
      */
-    private static boolean setUserStatusForPrevious(BizDocEnvelope bizdoc, String userStatus, String previousUserStatus) throws ServiceException {
+    public static boolean setUserStatusForPrevious(BizDocEnvelope bizdoc, String userStatus, String previousUserStatus) throws ServiceException {
         boolean result = setUserStatusForPrevious(bizdoc.getInternalId(), userStatus, previousUserStatus);
-
         if (result) bizdoc.setUserStatus(userStatus);
-
         return result;
     }
 
@@ -454,7 +460,11 @@ public final class BizDocEnvelopeHelper {
      * @return                      True if the status was updated.
      * @throws ServiceException     If a database error is encountered.
      */
-    private static boolean setUserStatusForPrevious(String internalID, String userStatus, String previousUserStatus) throws ServiceException {
+    public static boolean setUserStatusForPrevious(String internalID, String userStatus, String previousUserStatus) throws ServiceException {
+        if (internalID == null) throw new NullPointerException("internalID must not be null");
+        if (userStatus == null) throw new NullPointerException("userStatus must not be null");
+        if (previousUserStatus == null) throw new NullPointerException("previousUserStatus must not be null");
+
         Connection connection = null;
         PreparedStatement statement = null;
         boolean result = false;
