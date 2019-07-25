@@ -33,12 +33,18 @@ import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ThreadHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.util.concurrent.AbstractPrioritizedCallable;
+import permafrost.tundra.util.concurrent.Priority;
 import java.math.BigDecimal;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Used to defer processing a bizdoc to another thread.
  */
 public class CallableRoute extends AbstractPrioritizedCallable<IData> {
+    /**
+     * The default message priority used when messages do not specify a message priority.
+     */
+    public static final double DEFAULT_MESSAGE_PRIORITY = 5.0d;
     /**
      * The document attribute name for route priority.
      */
@@ -71,10 +77,6 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
      * The TN_parms to use when routing.
      */
     protected IData parameters;
-    /**
-     * The thread priority to use when executing this route.
-     */
-    protected int threadPriority = Thread.NORM_PRIORITY;
     /**
      * Whether this route requires initialization to be run.
      */
@@ -127,23 +129,7 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
             // asynchronously as a deferred route so we don't want it to spawn yet another thread
             rule = rule.getServiceInvokeType().equals("sync") ? rule : new SynchronousRoutingRule(rule);
 
-            IData attributes = bizdoc.getAttributes();
-            if (attributes != null) {
-                IDataCursor cursor = attributes.getCursor();
-                try {
-                    BigDecimal messagePriority = IDataHelper.get(cursor, MESSAGE_PRIORITY_ATTRIBUTE_NAME, BigDecimal.class);
-                    if (messagePriority != null) {
-                        this.priority = messagePriority.doubleValue();
-                    }
-
-                    BigDecimal threadPriorityAttribute = IDataHelper.get(cursor, THREAD_PRIORITY_ATTRIBUTE_NAME, BigDecimal.class);
-                    if (threadPriorityAttribute != null) {
-                        threadPriority = ThreadHelper.normalizePriority(threadPriorityAttribute.intValue());
-                    }
-                } finally {
-                    cursor.destroy();
-                }
-            }
+            priority = new CallableRoutePriority(bizdoc);
         }
     }
 
@@ -157,12 +143,12 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
     }
 
     /**
-     * Returns the priority of this object, where larger values are higher priority, and with a nominal range of 1..10.
+     * Returns the priority of this object.
      *
-     * @return the priority of this object, where larger values are higher priority, and with a nominal range of 1..10.
+     * @return the priority of this object.
      */
     @Override
-    public double getPriority() {
+    public Priority getPriority() {
         try {
             initialize();
         } catch(ServiceException ex) {
@@ -186,7 +172,10 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
         // lazy initialization so route objects can be constructed from id as quickly as possible
         initialize();
 
-        currentThread.setPriority(threadPriority);
+        // escalate or de-escalate thread priority if required
+        if (priority instanceof CallableRoutePriority) {
+            currentThread.setPriority(((CallableRoutePriority)priority).getThreadPriority());
+        }
 
         String previousStatus = bizdoc.getUserStatus();
         String doneStatus = BIZDOC_USER_STATUS_DONE;
@@ -207,5 +196,110 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
         }
 
         return output;
+    }
+
+    /**
+     * Priority implementation for CallableRoute objects.
+     */
+    private static class CallableRoutePriority implements Priority {
+        /**
+         * The sequencer used to stamp CallableRoutePriority objects with their creation sequence.
+         */
+        protected static AtomicLong CALLABLE_ROUTE_PRIORITY_SEQUENCER = new AtomicLong();
+        /**
+         * The create datetime to the nearest minute for the bizdoc being routed.
+         */
+        protected long createDateTime;
+        /**
+         * The message priority used to prioritize bizdocs created in the same minute.
+         */
+        protected double messagePriority;
+        /**
+         * The creation sequence used to prioritize bizdocs created in the same minute with the same message priority.
+         */
+        protected long createSequence = CALLABLE_ROUTE_PRIORITY_SEQUENCER.incrementAndGet();
+        /**
+         * The thread priority to use when routing.
+         */
+        protected int threadPriority = Thread.NORM_PRIORITY;
+
+        /**
+         * Construct a new CallableRoutePriority.
+         *
+         * @param bizdoc    The bizdoc whose route is to be prioritized.
+         */
+        public CallableRoutePriority(BizDocEnvelope bizdoc) {
+            if (bizdoc == null) throw new NullPointerException("bizdoc must not be null");
+
+            this.createDateTime = bizdoc.getTimestamp().getTime() / (1000 * 60);
+            this.messagePriority = DEFAULT_MESSAGE_PRIORITY;
+
+            IData attributes = bizdoc.getAttributes();
+            if (attributes != null) {
+                IDataCursor cursor = attributes.getCursor();
+                try {
+                    BigDecimal messagePriorityAttribute = IDataHelper.get(cursor, MESSAGE_PRIORITY_ATTRIBUTE_NAME, BigDecimal.class);
+                    if (messagePriorityAttribute != null) {
+                        messagePriority = messagePriorityAttribute.doubleValue();
+                    }
+
+                    BigDecimal threadPriorityAttribute = IDataHelper.get(cursor, THREAD_PRIORITY_ATTRIBUTE_NAME, BigDecimal.class);
+                    if (threadPriorityAttribute != null) {
+                        threadPriority = ThreadHelper.normalizePriority(threadPriorityAttribute.intValue());
+                    }
+                } finally {
+                    cursor.destroy();
+                }
+            }
+        }
+
+        /**
+         * Returns the thread priority to use when routing.
+         *
+         * @return the thread priority to use when routing.
+         */
+        public int getThreadPriority() {
+            return threadPriority;
+        }
+
+        /**
+         * Compares this CallableRoutePriority with another CallableRoutePriority, in order to prioritize routes.
+         *
+         * @param other The other CallableRoutePriority to compare to.
+         * @return      The result of the comparison.
+         */
+        @Override
+        public int compareTo(Priority other) {
+            int comparison;
+            if (other instanceof CallableRoutePriority) {
+                long otherCreateDateTime = ((CallableRoutePriority)other).createDateTime;
+                double otherMessagePriority = ((CallableRoutePriority)other).messagePriority;
+                long otherSequence = ((CallableRoutePriority)other).createSequence;
+
+                if (createDateTime < otherCreateDateTime) {
+                    comparison = -1;
+                } else if (createDateTime > otherCreateDateTime) {
+                    comparison = 1;
+                } else {
+                    if (messagePriority > otherMessagePriority) {
+                        comparison = -1;
+                    } else if (messagePriority < otherMessagePriority) {
+                        comparison = 1;
+                    } else {
+                        if (createSequence < otherSequence) {
+                            comparison = -1;
+                        } else if (createSequence > otherSequence) {
+                            comparison = 1;
+                        } else {
+                            comparison = 0;
+                        }
+                    }
+                }
+            } else {
+                // cannot compare with different priority implementation, so default to equal
+                comparison = 0;
+            }
+            return comparison;
+        }
     }
 }

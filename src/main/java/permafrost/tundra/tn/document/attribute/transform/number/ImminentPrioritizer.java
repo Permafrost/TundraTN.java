@@ -31,7 +31,7 @@ import permafrost.tundra.data.IDataYAMLParser;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.time.DurationHelper;
 import permafrost.tundra.tn.document.attribute.transform.Transformer;
-import permafrost.tundra.util.concurrent.Prioritized;
+import permafrost.tundra.tn.route.CallableRoute;
 import javax.xml.datatype.Duration;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -83,7 +83,7 @@ public class ImminentPrioritizer extends Transformer<Double> {
                 BigDecimal priorityFloor = IDataHelper.get(cursor, "priority", BigDecimal.class);
 
                 if (priorityFloor == null) {
-                    priorityFloor = new BigDecimal(Prioritized.DEFAULT_PRIORITY);
+                    priorityFloor = new BigDecimal(CallableRoute.DEFAULT_MESSAGE_PRIORITY);
                 } else {
                     priorityFloor = new BigDecimal(priorityFloor.toBigInteger()); // remove mantissa
                 }
