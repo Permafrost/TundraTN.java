@@ -39,6 +39,7 @@ import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSName;
 import com.wm.util.Masks;
+import permafrost.tundra.io.InputOutputHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import java.io.IOException;
@@ -49,7 +50,10 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
+import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -66,11 +70,11 @@ public final class DeliveryQueueHelper {
     /**
      * SQL statement to select head of a delivery queue in job creation datetime order.
      */
-    private static final String SELECT_NEXT_DELIVERY_JOB_ORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED') AND TimeCreated <= ? AND TimeUpdated <= ?";
+    private static final String SELECT_NEXT_DELIVERY_JOB_ORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ?) AND TimeCreated <= ? AND TimeUpdated <= ?";
     /**
      * SQL statement to select head of a delivery queue in indeterminate order.
      */
-    private static final String SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE QueueName = ? AND JobStatus = 'QUEUED' AND TimeCreated <= ? AND TimeUpdated <= ?)";
+    private static final String SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated <= ? AND TimeUpdated <= ? ORDER BY TimeCreated ASC";
     /**
      * The age a delivery job must be before it is eligible to be processed.
      */
@@ -236,7 +240,7 @@ public final class DeliveryQueueHelper {
      * @return              The job at the head of the given queue, or null if the queue is empty.
      * @throws SQLException If a database error occurs.
      */
-    public static GuaranteedJob peek(DeliveryQueue queue, boolean ordered) throws SQLException {
+    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered) throws SQLException {
         return peek(queue, ordered, null);
     }
 
@@ -249,7 +253,7 @@ public final class DeliveryQueueHelper {
      * @return              The job at the head of the given queue, or null if the queue is empty.
      * @throws SQLException If a database error occurs.
      */
-    public static GuaranteedJob peek(DeliveryQueue queue, boolean ordered, Duration age) throws SQLException {
+    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, Duration age) throws SQLException {
         return peek(queue, ordered, age == null ? DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS : age.getTimeInMillis(new Date()));
     }
 
@@ -262,33 +266,53 @@ public final class DeliveryQueueHelper {
      * @return              The job at the head of the given queue, or null if the queue is empty.
      * @throws SQLException If a database error occurs.
      */
-    public static GuaranteedJob peek(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
+    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
+        return peek(queue, ordered, age, InputOutputHelper.DEFAULT_BUFFER_SIZE);
+    }
+
+    /**
+     * Returns the head of the given delivery queue without dequeuing it.
+     *
+     * @param queue         The delivery queue whose head job is to be returned.
+     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
+     * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
+     * @return              The job at the head of the given queue, or null if the queue is empty.
+     * @throws SQLException If a database error occurs.
+     */
+    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, long age, int fetchSize) throws SQLException {
         if (queue == null) return null;
         if (age < 0L) age = 0L;
 
         Connection connection = null;
         PreparedStatement statement = null;
         ResultSet results = null;
-        GuaranteedJob job = null;
+        List<GuaranteedJob> jobs = Collections.emptyList();
 
         try {
             connection = Datastore.getConnection();
             statement = connection.prepareStatement(ordered ? SELECT_NEXT_DELIVERY_JOB_ORDERED_SQL : SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL);
             statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
             statement.clearParameters();
+            statement.setFetchSize(fetchSize);
 
+            int index = 0;
             String queueName = queue.getQueueName();
-            SQLWrappers.setChoppedString(statement, 1, queueName, "DeliveryQueue.QueueName");
-            SQLWrappers.setChoppedString(statement, 2, queueName, "DeliveryQueue.QueueName");
+            SQLWrappers.setChoppedString(statement, ++index, queueName, "DeliveryQueue.QueueName");
+            if (ordered) {
+                SQLWrappers.setChoppedString(statement, ++index, queueName, "DeliveryQueue.QueueName");
+            }
 
             Timestamp timestamp = new Timestamp(System.currentTimeMillis() - age);
-            SQLWrappers.setTimestamp(statement, 3, timestamp);
-            SQLWrappers.setTimestamp(statement, 4, timestamp);
+            SQLWrappers.setTimestamp(statement, ++index, timestamp);
+            SQLWrappers.setTimestamp(statement, ++index, timestamp);
 
             results = statement.executeQuery();
 
-            if (results.next()) {
-                job = GuaranteedJobHelper.get(results.getString(1));
+            while (results.next()) {
+                if (jobs.size() == 0) {
+                    jobs = new ArrayList<GuaranteedJob>();
+                }
+                jobs.add(GuaranteedJobHelper.get(results.getString(1)));
             }
 
             connection.commit();
@@ -301,7 +325,7 @@ public final class DeliveryQueueHelper {
             Datastore.releaseConnection(connection);
         }
 
-        return job;
+        return jobs;
     }
 
     /**
@@ -339,15 +363,15 @@ public final class DeliveryQueueHelper {
      * @throws SQLException If a database error occurs.
      */
     public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
-        GuaranteedJob job;
-        while((job = peek(queue, ordered, age)) != null) {
+        List<GuaranteedJob> jobs;
+        while((jobs = peek(queue, ordered, age, 1)).size() > 0) {
+            GuaranteedJob job = jobs.get(0);
             GuaranteedJobHelper.setDelivering(job);
             // multiple threads or processes may be competing for queued tasks, so we will only return the job at the
             // head of the queue if this thread was able to set the job status to delivering
-            if (job.isDelivering()) break;
+            if (job.isDelivering()) return job;
         }
-
-        return job;
+        return null;
     }
 
     /**

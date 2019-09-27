@@ -13,21 +13,24 @@ import permafrost.tundra.id.UUIDHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.lang.ThreadHelper;
-import permafrost.tundra.server.BlockingServerThreadPoolExecutor;
 import permafrost.tundra.server.SchedulerHelper;
 import permafrost.tundra.server.SchedulerStatus;
+import permafrost.tundra.server.ServerThreadPoolExecutor;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.util.concurrent.DirectExecutorService;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import javax.xml.datatype.Duration;
 
@@ -232,18 +235,32 @@ public class DeliveryQueueProcessor {
                             // set default sleep duration for when there are no pending jobs in queue or all threads are busy
                             sleepDuration = MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS;
 
-                            int activeCount = 0;
+                            int queueSize = 0;
                             if (executor instanceof ThreadPoolExecutor) {
-                                activeCount = ((ThreadPoolExecutor)executor).getActiveCount();
+                                queueSize = ((ThreadPoolExecutor)executor).getQueue().size();
                             }
 
-                            if (activeCount < concurrency) {
-                                GuaranteedJob job = DeliveryQueueHelper.pop(queue, ordered, age);
-                                if (job != null) {
-                                    // submit the job to the executor to be processed
-                                    executor.submit(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus));
+                            if (queueSize == 0) {
+                                List<GuaranteedJob> jobs = DeliveryQueueHelper.peek(queue, ordered, age);
+                                if (jobs.size() > 0) {
+                                    Collection<CallableGuaranteedJob> tasks;
+                                    if (concurrency <= 1) {
+                                        tasks = new PriorityQueue<CallableGuaranteedJob>(jobs.size());
+                                    } else {
+                                        tasks = new ArrayList<CallableGuaranteedJob>(jobs.size());
+                                    }
+
+                                    for (GuaranteedJob job : jobs) {
+                                        tasks.add(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus));
+                                    }
+
+                                    for (CallableGuaranteedJob task : tasks) {
+                                        // submit the job to the executor to be processed
+                                        executor.submit(task);
+                                    }
+
                                     didPreviousPollProcessJob = true;
-                                } else if (activeCount == 0) {
+                                } else {
                                     // no pending jobs, and thread pool is idle
                                     if (didPreviousPollProcessJob) {
                                         sleepDuration = WAIT_AFTER_EMPTY_DELIVERY_QUEUE_POLL_MILLISECONDS;
@@ -309,8 +326,8 @@ public class DeliveryQueueProcessor {
         if (concurrency <= 1) {
             executor = new DirectExecutorService();
         } else {
-            executor = new BlockingServerThreadPoolExecutor(concurrency, getThreadPrefix(queue, parentContext) + WORKER_THREAD_SUFFIX, null, threadPriority, threadDaemon, invokeState);
-            ((BlockingServerThreadPoolExecutor)executor).allowCoreThreadTimeOut(true);
+            executor = new ServerThreadPoolExecutor(concurrency, getThreadPrefix(queue, parentContext) + WORKER_THREAD_SUFFIX, null, threadPriority, threadDaemon, invokeState, new PriorityBlockingQueue<Runnable>(), new ThreadPoolExecutor.AbortPolicy());
+            ((ThreadPoolExecutor)executor).allowCoreThreadTimeOut(true);
         }
 
         return executor;
