@@ -50,16 +50,18 @@ import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.time.DurationHelper;
 import permafrost.tundra.time.DurationPattern;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
+import permafrost.tundra.tn.document.BizDocEnvelopePriority;
 import permafrost.tundra.tn.profile.ProfileCache;
+import permafrost.tundra.util.concurrent.AbstractPrioritizedCallable;
 import java.text.MessageFormat;
 import java.util.List;
-import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
 import javax.xml.datatype.Duration;
 
 /**
  * Callable for invoking a given service against a given job.
  */
-public class CallableGuaranteedJob implements Callable<IData> {
+public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
     /**
      * The bizdoc user status to use when a job is dequeued.
      */
@@ -151,7 +153,7 @@ public class CallableGuaranteedJob implements Callable<IData> {
      * @param retryFactor       The factor used to extend the time to wait on each retry.
      * @param timeToWait        The time to wait between each retry.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
-     * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhaused.
+     * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhausted.
      */
     public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus) {
         if (queue == null) throw new NullPointerException("queue must not be null");
@@ -170,6 +172,11 @@ public class CallableGuaranteedJob implements Callable<IData> {
         this.suspend = suspend;
         this.statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
         this.exhaustedStatus = exhaustedStatus;
+
+        BizDocEnvelope bizdoc = job.getBizDocEnvelope();
+        if (bizdoc != null) {
+            priority = new BizDocEnvelopePriority(bizdoc, 1, TimeUnit.DAYS);
+        }
     }
 
     /**
@@ -187,40 +194,50 @@ public class CallableGuaranteedJob implements Callable<IData> {
         Thread owningThread = Thread.currentThread();
         String owningThreadPrefix = owningThread.getName();
         String jobLogString = GuaranteedJobHelper.toLogString(job);
+        boolean requiresCompletion = false;
 
         try {
-            BizDocEnvelope bizdoc = job.getBizDocEnvelope();
+            GuaranteedJobHelper.setDelivering(job);
+            if (job.isDelivering()) {
+                requiresCompletion = true;
 
-            owningThread.setName(MessageFormat.format("{0}: Task {1} PROCESSING {2}", owningThreadPrefix, jobLogString, DateTimeHelper.now("datetime")));
+                BizDocEnvelope bizdoc = job.getBizDocEnvelope();
 
-            if (bizdoc != null) {
-                BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence);
+                owningThread.setName(MessageFormat.format("{0}: Task {1} PROCESSING {2}", owningThreadPrefix, jobLogString, DateTimeHelper.now("datetime")));
+
+                if (bizdoc != null) {
+                    BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence);
+                }
+
+                GuaranteedJobHelper.log(job, "MESSAGE", "Processing", MessageFormat.format("Dequeued from {0} queue \"{1}\"", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service \"{0}\" attempting to process document", service.getFullName()));
+
+                IDataCursor cursor = pipeline.getCursor();
+                IDataUtil.put(cursor, "$task", job);
+
+                if (bizdoc != null) {
+                    bizdoc = BizDocEnvelopeHelper.get(bizdoc.getInternalId(), true);
+                    IDataUtil.put(cursor, "bizdoc", bizdoc);
+                    IDataUtil.put(cursor, "sender", ProfileCache.getInstance().get(bizdoc.getSenderId()));
+                    IDataUtil.put(cursor, "receiver", ProfileCache.getInstance().get(bizdoc.getReceiverId()));
+                }
+
+                cursor.destroy();
+
+                output = Service.doInvoke(service, session, pipeline);
+
+                owningThread.setName(MessageFormat.format("{0}: Task {1} COMPLETED {2}", owningThreadPrefix, jobLogString, DateTimeHelper.now("datetime")));
             }
-
-            GuaranteedJobHelper.log(job, "MESSAGE", "Processing", MessageFormat.format("Dequeued from {0} queue \"{1}\"", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service \"{0}\" attempting to process document", service.getFullName()));
-
-            IDataCursor cursor = pipeline.getCursor();
-            IDataUtil.put(cursor, "$task", job);
-
-            if (bizdoc != null) {
-                bizdoc = BizDocEnvelopeHelper.get(bizdoc.getInternalId(), true);
-                IDataUtil.put(cursor, "bizdoc", bizdoc);
-                IDataUtil.put(cursor, "sender", ProfileCache.getInstance().get(bizdoc.getSenderId()));
-                IDataUtil.put(cursor, "receiver", ProfileCache.getInstance().get(bizdoc.getReceiverId()));
-            }
-
-            cursor.destroy();
-
-            output = Service.doInvoke(service, session, pipeline);
-
-            owningThread.setName(MessageFormat.format("{0}: Task {1} COMPLETED {2}", owningThreadPrefix, jobLogString, DateTimeHelper.now("datetime")));
         } catch (Exception ex) {
             owningThread.setName(MessageFormat.format("{0}: Task {1} FAILED: {2} {3}", owningThreadPrefix, jobLogString, ExceptionHelper.getMessage(ex), DateTimeHelper.now("datetime")));
             exception = ex;
         } finally {
             owningThread.setName(owningThreadPrefix);
-            setJobCompleted(output, exception, System.nanoTime() - startTime);
-            if (exception != null) throw exception;
+            if (requiresCompletion) {
+                setJobCompleted(output, exception, System.nanoTime() - startTime);
+            }
+            if (exception != null) {
+                throw exception;
+            }
         }
 
         return output;
