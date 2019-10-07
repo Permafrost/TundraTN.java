@@ -35,6 +35,7 @@ import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.route.RoutingRule;
 import com.wm.data.IData;
 import com.wm.data.IDataFactory;
+import permafrost.tundra.io.InputOutputHelper;
 import permafrost.tundra.lang.Startable;
 import permafrost.tundra.server.SchedulerHelper;
 import permafrost.tundra.server.SchedulerStatus;
@@ -304,6 +305,7 @@ public class Deferrer implements Startable {
                 statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
                 statement.clearParameters();
                 SQLWrappers.setString(statement, 1, BIZDOC_USER_STATUS_DEFERRED);
+                statement.setFetchSize(InputOutputHelper.DEFAULT_BUFFER_SIZE);
 
                 boolean shouldContinue = true;
 
