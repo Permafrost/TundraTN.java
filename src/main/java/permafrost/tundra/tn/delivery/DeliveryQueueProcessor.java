@@ -21,12 +21,15 @@ import permafrost.tundra.util.concurrent.DirectExecutorService;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.text.MessageFormat;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
+import java.util.Queue;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
@@ -54,6 +57,11 @@ public class DeliveryQueueProcessor {
      * The wait between each refresh of a delivery queue settings from the database.
      */
     private static final long WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS = 5000L;
+    /**
+     * The threshold of continuous task failure at which time the queue processing will exit, which defends against
+     * a queue with very many tasks and continuous failure overwhelming Integration Server.
+     */
+    private static final long TERMINATE_WITH_CONTINUOUS_FAILURE_THRESHOLD = 10L;
     /**
      * The suffix used on worker thread names.
      */
@@ -227,6 +235,16 @@ public class DeliveryQueueProcessor {
                 try {
                     boolean didPreviousPollProcessJob = false;
 
+                    Queue<CallableGuaranteedJob> tasks;
+                    if (concurrency > 1) {
+                        tasks = new ArrayDeque<CallableGuaranteedJob>();
+                    } else {
+                        // tasks need to be prioritized ahead of time when using current thread to execute them
+                        tasks = new PriorityQueue<CallableGuaranteedJob>();
+                    }
+
+                    ContinuousFailureDetector continuousFailureDetector = new ContinuousFailureDetector();
+
                     // while not interrupted and (not invoked by TN or queue is enabled): process queued jobs
                     while (!Thread.interrupted() && (!invokedByTradingNetworks || isProcessing)) {
                         try {
@@ -241,24 +259,21 @@ public class DeliveryQueueProcessor {
                             }
 
                             if (queueSize == 0) {
-                                List<GuaranteedJob> jobs = DeliveryQueueHelper.peek(queue, ordered, age);
-                                if (jobs.size() > 0) {
-                                    Collection<CallableGuaranteedJob> tasks;
-                                    if (concurrency <= 1) {
-                                        tasks = new PriorityQueue<CallableGuaranteedJob>(jobs.size());
-                                    } else {
-                                        tasks = new ArrayList<CallableGuaranteedJob>(jobs.size());
-                                    }
-
+                                if (tasks.size() == 0) {
+                                    List<GuaranteedJob> jobs = DeliveryQueueHelper.peek(queue, ordered, age);
                                     for (GuaranteedJob job : jobs) {
-                                        tasks.add(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus));
+                                        tasks.add(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, continuousFailureDetector));
                                     }
-
-                                    for (CallableGuaranteedJob task : tasks) {
-                                        // submit the job to the executor to be processed
+                                }
+                                if (tasks.size() > 0) {
+                                    CallableGuaranteedJob task;
+                                    while ((task = tasks.poll()) != null) {
                                         executor.submit(task);
+                                        // when single-threaded, submit only the head task to the executor to be
+                                        // processed, so that this thread can then check if any exit criteria is
+                                        // met between tasks
+                                        if (concurrency == 1) break;
                                     }
-
                                     didPreviousPollProcessJob = true;
                                 } else {
                                     // no pending jobs, and thread pool is idle
@@ -282,7 +297,7 @@ public class DeliveryQueueProcessor {
                             // refresh the delivery queue settings from the database, in case they have changed
                             if (invokedByTradingNetworks && System.currentTimeMillis() >= nextDeliveryQueueRefreshTime) {
                                 queue = DeliveryQueueHelper.refresh(queue);
-                                isProcessing = DeliveryQueueHelper.isProcessing(queue) && SchedulerHelper.status() == SchedulerStatus.STARTED;
+                                isProcessing = DeliveryQueueHelper.isProcessing(queue) && SchedulerHelper.status() == SchedulerStatus.STARTED && !continuousFailureDetector.hasFailedContinuously(TERMINATE_WITH_CONTINUOUS_FAILURE_THRESHOLD);
                                 nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS;
                             }
                         } catch (InterruptedException ex) {
@@ -295,7 +310,7 @@ public class DeliveryQueueProcessor {
                 } finally {
                     try {
                         // shutdown the supervisor and all worker threads
-                        executor.shutdown();
+                        executor.shutdownNow();
                     } finally {
                         // restore owning thread priority and name
                         Thread.currentThread().setPriority(previousThreadPriority);

@@ -122,24 +122,10 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
      * The user status a BizDocEnvelope is set to if all deliveries of the job are exhausted.
      */
     private String exhaustedStatus;
-
     /**
-     * Creates a new CallableGuaranteedJob which when called invokes the given service against the given job.
-     *
-     * @param queue             The delivery queue on which the job queued.
-     * @param job               The job to be processed.
-     * @param service           The service to be invoked to process the given job.
-     * @param session           The session used when invoking the given service.
-     * @param pipeline          The input pipeline used when invoking the given service.
-     * @param retryLimit        The number of retries this job should attempt.
-     * @param retryFactor       The factor used to extend the time to wait on each retry.
-     * @param timeToWait        The time to wait between each retry.
-     * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
-     * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhausted.
+     * Used for detecting if a delivery queue has continuous failure and should terminate.
      */
-    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, String service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus) {
-        this(queue, job, service == null ? null : NSName.create(service), session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus);
-    }
+    private ContinuousFailureDetector continuousFailureDetector;
 
     /**
      * Creates a new CallableGuaranteedJob which when called invokes the given service against the given job.
@@ -156,6 +142,24 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
      * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhausted.
      */
     public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus) {
+        this(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, null);
+    }
+
+    /**
+     * Creates a new CallableGuaranteedJob which when called invokes the given service against the given job.
+     *
+     * @param queue             The delivery queue on which the job queued.
+     * @param job               The job to be processed.
+     * @param service           The service to be invoked to process the given job.
+     * @param session           The session used when invoking the given service.
+     * @param pipeline          The input pipeline used when invoking the given service.
+     * @param retryLimit        The number of retries this job should attempt.
+     * @param retryFactor       The factor used to extend the time to wait on each retry.
+     * @param timeToWait        The time to wait between each retry.
+     * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
+     * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhausted.
+     */
+    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus, ContinuousFailureDetector continuousFailureDetector) {
         if (queue == null) throw new NullPointerException("queue must not be null");
         if (job == null) throw new NullPointerException("job must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
@@ -172,6 +176,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
         this.suspend = suspend;
         this.statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
         this.exhaustedStatus = exhaustedStatus;
+        this.continuousFailureDetector = continuousFailureDetector;
 
         BizDocEnvelope bizdoc = job.getBizDocEnvelope();
         if (bizdoc != null) {
@@ -255,6 +260,8 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
     private void setJobCompleted(IData serviceOutput, Throwable exception, long duration) throws Exception {
         boolean success = exception == null;
         int retry = 1;
+
+        if (continuousFailureDetector != null) continuousFailureDetector.didComplete(success);
 
         while(true) {
             try {
