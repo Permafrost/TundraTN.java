@@ -276,6 +276,7 @@ public final class DeliveryQueueHelper {
      * @param queue         The delivery queue whose head job is to be returned.
      * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
      * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
+     * @param fetchSize     The maximum number of jobs to be returned in one call.
      * @return              The job at the head of the given queue, or null if the queue is empty.
      * @throws SQLException If a database error occurs.
      */
@@ -364,12 +365,13 @@ public final class DeliveryQueueHelper {
      */
     public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
         List<GuaranteedJob> jobs;
-        while((jobs = peek(queue, ordered, age, 1)).size() > 0) {
-            GuaranteedJob job = jobs.get(0);
-            GuaranteedJobHelper.setDelivering(job);
-            // multiple threads or processes may be competing for queued tasks, so we will only return the job at the
-            // head of the queue if this thread was able to set the job status to delivering
-            if (job.isDelivering()) return job;
+        while((jobs = peek(queue, ordered, age)).size() > 0) {
+            for (GuaranteedJob job : jobs) {
+                GuaranteedJobHelper.setDelivering(job);
+                // multiple threads or processes may be competing for queued tasks, so we will only return the job at the
+                // head of the queue if this thread was able to set the job status to delivering
+                if (job.isDelivering()) return job;
+            }
         }
         return null;
     }
