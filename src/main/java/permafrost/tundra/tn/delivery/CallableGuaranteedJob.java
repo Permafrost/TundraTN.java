@@ -141,24 +141,6 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhausted.
      */
-    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus) {
-        this(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, null);
-    }
-
-    /**
-     * Creates a new CallableGuaranteedJob which when called invokes the given service against the given job.
-     *
-     * @param queue             The delivery queue on which the job queued.
-     * @param job               The job to be processed.
-     * @param service           The service to be invoked to process the given job.
-     * @param session           The session used when invoking the given service.
-     * @param pipeline          The input pipeline used when invoking the given service.
-     * @param retryLimit        The number of retries this job should attempt.
-     * @param retryFactor       The factor used to extend the time to wait on each retry.
-     * @param timeToWait        The time to wait between each retry.
-     * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
-     * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhausted.
-     */
     public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus, ContinuousFailureDetector continuousFailureDetector) {
         if (queue == null) throw new NullPointerException("queue must not be null");
         if (job == null) throw new NullPointerException("job must not be null");
@@ -180,7 +162,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
 
         BizDocEnvelope bizdoc = job.getBizDocEnvelope();
         if (bizdoc != null) {
-            priority = new BizDocEnvelopePriority(bizdoc, 1, TimeUnit.DAYS);
+            this.priority = new BizDocEnvelopePriority(bizdoc, 1, TimeUnit.DAYS);
         }
     }
 
