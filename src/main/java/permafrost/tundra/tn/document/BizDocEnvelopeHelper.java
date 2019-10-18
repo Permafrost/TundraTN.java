@@ -504,11 +504,11 @@ public final class BizDocEnvelopeHelper {
     private static String getStatusMessage(String systemStatus, String userStatus) {
         String message = null;
         if (systemStatus != null && userStatus != null) {
-            message = MessageFormat.format("System status changed to \"{0}\"; user status changed to \"{1}\"", systemStatus, userStatus);
+            message = MessageFormat.format("System status changed to {0}; user status changed to {1}", systemStatus, userStatus);
         } else if (systemStatus != null) {
-            message = MessageFormat.format("System status changed to \"{0}\"", systemStatus);
+            message = MessageFormat.format("System status changed to {0}", systemStatus);
         } else if (userStatus != null) {
-            message = MessageFormat.format("User status changed to \"{0}\"", userStatus);
+            message = MessageFormat.format("User status changed to {0}", userStatus);
         }
         return message;
     }

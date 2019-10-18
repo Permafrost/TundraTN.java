@@ -85,7 +85,7 @@ public class RetryableDeliveryJob extends DelegatingDeliveryJob {
                 if (exhausted) {
                     if (retryLimit > 0) {
                         BizDocEnvelopeHelper.setStatus(getBizDocEnvelope(), null, exhaustedStatus, statusSilence);
-                        log(this, "ERROR", "Delivery", MessageFormat.format("Exhausted all retries ({0}/{1})", retries, retryLimit), MessageFormat.format("Exhausted all retries ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\"", retries, retryLimit, getJobId(), queue.getQueueType(), queueName));
+                        log(this, "ERROR", "Delivery", MessageFormat.format("Exhausted all retries ({0}/{1})", retries, retryLimit), MessageFormat.format("Exhausted all retries ({0} of {1}) of task {2} on {3} queue {4}", retries, retryLimit, getJobId(), queue.getQueueType(), queueName));
                     }
 
                     if (suspend) {
@@ -104,11 +104,11 @@ public class RetryableDeliveryJob extends DelegatingDeliveryJob {
                         if (!isSuspended) {
                             // suspend the queue if not already suspended
                             DeliveryQueueHelper.suspend(queue);
-                            log(this, "WARNING", "Delivery", MessageFormat.format("Suspended {0} queue \"{1}\"", queue.getQueueType(), queueName), MessageFormat.format("Delivery of {0} queue \"{1}\" was suspended due to task \"{2}\" exhaustion", queue.getQueueType(), queueName, getJobId()));
+                            log(this, "WARNING", "Delivery", MessageFormat.format("Suspended {0} queue {1}", queue.getQueueType(), queueName), MessageFormat.format("Delivery of {0} queue {1} was suspended due to task {2} exhaustion", queue.getQueueType(), queueName, getJobId()));
                         }
 
                         BizDocEnvelopeHelper.setStatus(getBizDocEnvelope(), BIZDOC_ENVELOPE_QUEUED_SYSTEM_STATUS, isSuspended ? BIZDOC_ENVELOPE_REQUEUED_USER_STATUS : BIZDOC_ENVELOPE_SUSPENDED_USER_STATUS, statusSilence);
-                        log(this, "MESSAGE", "Delivery", MessageFormat.format("Retries reset ({0}/{1})", retries, retryLimit), MessageFormat.format("Retries reset to ensure task is processed upon queue delivery resumption; if this task is not required to be processed again, it should be manually deleted. Next retry ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\" scheduled no earlier than \"{5}\"", retries, retryLimit, getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
+                        log(this, "MESSAGE", "Delivery", MessageFormat.format("Retries reset ({0}/{1})", retries, retryLimit), MessageFormat.format("Retries reset to ensure task is processed upon queue delivery resumption; if this task is not required to be processed again, it should be manually deleted. Next retry ({0} of {1}) of task {2} on {3} queue {4} scheduled no earlier than {5}", retries, retryLimit, getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
                     }
                 } else {
                     nextRetry = calculateNextRetryDateTime();
@@ -116,7 +116,7 @@ public class RetryableDeliveryJob extends DelegatingDeliveryJob {
                     GuaranteedJobHelper.save(this);
 
                     BizDocEnvelopeHelper.setStatus(getBizDocEnvelope(), BIZDOC_ENVELOPE_QUEUED_SYSTEM_STATUS, BIZDOC_ENVELOPE_REQUEUED_USER_STATUS, statusSilence);
-                    log(this, "MESSAGE", "Delivery", MessageFormat.format("Next retry scheduled ({0}/{1})", retries, retryLimit), MessageFormat.format("Next retry ({0} of {1}) of task \"{2}\" on {3} queue \"{4}\" scheduled no earlier than \"{5}\"", retries, retryLimit, getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
+                    log(this, "MESSAGE", "Delivery", MessageFormat.format("Next retry scheduled ({0}/{1})", retries, retryLimit), MessageFormat.format("Next retry ({0} of {1}) of task {2} on {3} queue {4} scheduled no earlier than {5}", retries, retryLimit, getJobId(), queue.getQueueType(), queueName, DateTimeHelper.format(nextRetry)));
                 }
             }
 

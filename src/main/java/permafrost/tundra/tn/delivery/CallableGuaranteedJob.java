@@ -196,7 +196,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
                     BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence);
                 }
 
-                GuaranteedJobHelper.log(job, "MESSAGE", "Processing", MessageFormat.format("Dequeued from {0} queue \"{1}\"", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service \"{0}\" attempting to process document", service.getFullName()));
+                GuaranteedJobHelper.log(job, "MESSAGE", "Processing", MessageFormat.format("Dequeued from {0} queue {1}", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service {0} attempting to process document", service.getFullName()));
 
                 IDataCursor cursor = pipeline.getCursor();
                 IDataUtil.put(cursor, "$task", job);
@@ -259,7 +259,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
                     if (retryLimit > 0 && GuaranteedJobHelper.hasUnrecoverableErrors(job)) {
                         // abort the delivery job so it won't be retried
                         GuaranteedJobHelper.setRetryStrategy(job, 0, 1, 0);
-                        GuaranteedJobHelper.log(job, "ERROR", "Delivery", "Delivery aborted", MessageFormat.format("Delivery task \"{0}\" on {1} queue \"{2}\" was aborted due to unrecoverable errors being encountered, and will not be retried", job.getJobId(), queue.getQueueType(), queue.getQueueName()));
+                        GuaranteedJobHelper.log(job, "ERROR", "Delivery", "Delivery aborted", MessageFormat.format("Delivery task {0} on {1} queue {2} was aborted due to unrecoverable errors being encountered, and will not be retried", job.getJobId(), queue.getQueueType(), queue.getQueueName()));
                     } else {
                         GuaranteedJobHelper.setRetryStrategy(job, retryLimit, retryFactor, timeToWait);
                     }
