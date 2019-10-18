@@ -26,7 +26,6 @@ package permafrost.tundra.tn.delivery;
 
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
-import com.wm.app.b2b.server.scheduler.ScheduledTask;
 import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.QueueOperations;
 import com.wm.app.tn.db.SQLWrappers;
@@ -43,6 +42,9 @@ import permafrost.tundra.io.InputOutputHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -51,7 +53,6 @@ import java.sql.Timestamp;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
@@ -482,30 +483,141 @@ public final class DeliveryQueueHelper {
             boolean noOverlap = BooleanHelper.parse(schedule.getNoOverlap());
 
             if (type.equals(DeliverySchedule.TYPE_REPEATING)) {
-                ScheduledTask.Simple repeatingTask = new ScheduledTask.Simple(Long.parseLong(schedule.getInterval()) * 1000L, noOverlap, start, end);
-
-                if (!repeatingTask.isExpired()) {
-                    repeatingTask.calcNextTime();
-                    next = repeatingTask.getNextRun();
-                }
+                next = getRepeatingNextRun(Long.parseLong(schedule.getInterval()) * 1000L, noOverlap, start, end);
             } else if (type.equals(DeliverySchedule.TYPE_COMPLEX)) {
-                ScheduledTask.Mask complexTask = new ScheduledTask.Mask(Masks.buildLongMask(schedule.getMinutes()),
-                                                                        Masks.buildIntMask(schedule.getHours()),
-                                                                        Masks.buildIntMask(schedule.getDaysOfMonth()),
-                                                                        Masks.buildIntMask(schedule.getDaysOfWeek()),
-                                                                        Masks.buildIntMask(schedule.getMonths()),
-                                                                        noOverlap, start, end);
-
-                if (!complexTask.isExpired()) {
-                    complexTask.calcNextTime();
-                    next = complexTask.getNextRun();
-                }
+                next = getComplexNextRun(Masks.buildLongMask(schedule.getMinutes()), Masks.buildIntMask(schedule.getHours()),
+                        Masks.buildIntMask(schedule.getDaysOfMonth()), Masks.buildIntMask(schedule.getDaysOfWeek()),
+                        Masks.buildIntMask(schedule.getMonths()), noOverlap, start, end);
             }
         } catch(ParseException ex) {
             ExceptionHelper.raise(ex);
         }
 
         return next;
+    }
+
+    /**
+     * Use reflection to work around backwards incompatible changes to the scheduled task classes in 9.x and higher.
+     */
+    private static Constructor REPEATING_SCHEDULED_TASK_CONSTRUCTOR = null;
+    private static Method REPEATING_SCHEDULED_TASK_IS_EXPIRED = null;
+    private static Method REPEATING_SCHEDULED_TASK_CALC_NEXT_TIME = null;
+    private static Method REPEATING_SCHEDULED_TASK_GET_NEXT_RUN = null;
+    private static Constructor COMPLEX_SCHEDULED_TASK_CONSTRUCTOR = null;
+    private static Method COMPLEX_SCHEDULED_TASK_IS_EXPIRED = null;
+    private static Method COMPLEX_SCHEDULED_TASK_CALC_NEXT_TIME = null;
+    private static Method COMPLEX_SCHEDULED_TASK_GET_NEXT_RUN = null;
+
+    static {
+        Class repeatingTaskClass = null, complexTaskClass = null;
+
+        try {
+            repeatingTaskClass = Class.forName("com.wm.app.b2b.server.scheduler.Simple");
+        } catch(ClassNotFoundException ex) {
+            try {
+                repeatingTaskClass = Class.forName("com.wm.app.b2b.server.scheduler.ScheduledTask$Simple");
+            } catch (ClassNotFoundException err) {
+                // ignore exception
+            }
+        }
+
+        if (repeatingTaskClass != null) {
+            try {
+                REPEATING_SCHEDULED_TASK_CONSTRUCTOR = repeatingTaskClass.getConstructor(long.class, boolean.class, long.class, long.class);
+                REPEATING_SCHEDULED_TASK_IS_EXPIRED = repeatingTaskClass.getMethod("isExpired");
+                REPEATING_SCHEDULED_TASK_CALC_NEXT_TIME = repeatingTaskClass.getMethod("calcNextTime");
+                REPEATING_SCHEDULED_TASK_GET_NEXT_RUN = repeatingTaskClass.getMethod("getNextRun");
+            } catch(NoSuchMethodException ex) {
+                // ignore exception
+            }
+        }
+
+        try {
+            complexTaskClass = Class.forName("com.wm.app.b2b.server.scheduler.Mask");
+        } catch(ClassNotFoundException ex) {
+            try {
+                complexTaskClass = Class.forName("com.wm.app.b2b.server.scheduler.ScheduledTask$Mask");
+            } catch (ClassNotFoundException err) {
+                // ignore exception
+            }
+        }
+
+        if (complexTaskClass != null) {
+            try {
+                COMPLEX_SCHEDULED_TASK_CONSTRUCTOR = complexTaskClass.getConstructor(long.class, int.class, int.class, int.class, int.class, boolean.class, long.class, long.class);
+                COMPLEX_SCHEDULED_TASK_IS_EXPIRED = complexTaskClass.getMethod("isExpired");
+                COMPLEX_SCHEDULED_TASK_CALC_NEXT_TIME = complexTaskClass.getMethod("calcNextTime");
+                COMPLEX_SCHEDULED_TASK_GET_NEXT_RUN = complexTaskClass.getMethod("getNextRun");
+            } catch(NoSuchMethodException ex) {
+                // ignore exception
+            }
+        }
+    }
+
+    /**
+     * Returns the next time a simple repeating task with the given parameters should run.
+     *
+     * @param interval      The repeat interval.
+     * @param runFromEnd    Whether tasks should not be overlapped.
+     * @param start         The start time of the task.
+     * @param end           The end time of the task.
+     * @return              The next time the task should run.
+     */
+    private static long getRepeatingNextRun(long interval, boolean runFromEnd, long start, long end) {
+        long nextRun = 0;
+
+        try {
+            Object task = REPEATING_SCHEDULED_TASK_CONSTRUCTOR.newInstance(interval, runFromEnd, start, end);
+
+            boolean isExpired = (Boolean)REPEATING_SCHEDULED_TASK_IS_EXPIRED.invoke(task);
+            if (!isExpired) {
+                REPEATING_SCHEDULED_TASK_CALC_NEXT_TIME.invoke(task);
+                nextRun = (Long) REPEATING_SCHEDULED_TASK_GET_NEXT_RUN.invoke(task);
+            }
+        } catch(IllegalAccessException ex) {
+            throw new RuntimeException(ex);
+        } catch(InstantiationException ex) {
+            throw new RuntimeException(ex);
+        } catch(InvocationTargetException ex) {
+            throw new RuntimeException(ex);
+        }
+
+        return nextRun;
+    }
+
+    /**
+     * Returns the next time a complex repeating task with the given parameters should run.
+     *
+     * @param minuteMask        The minute mask for the task.
+     * @param hourMask          The hour mask for the task.
+     * @param dayOfMonthMask    The day of month mask for the task.
+     * @param dayOfWeekMask     The day of week mask for the task.
+     * @param monthMask         The month mask for the task.
+     * @param runFromEnd        Whether tasks should not be overlapped.
+     * @param start             The start time of the task.
+     * @param end               The end time of the task.
+     * @return                  The next time the task should run.
+     */
+    private static long getComplexNextRun(long minuteMask, int hourMask, int dayOfMonthMask, int dayOfWeekMask, int monthMask, boolean runFromEnd, long start, long end) {
+        long nextRun = 0;
+
+        try {
+            Object task = COMPLEX_SCHEDULED_TASK_CONSTRUCTOR.newInstance(minuteMask, hourMask, dayOfMonthMask, dayOfWeekMask, monthMask, runFromEnd, start, end);
+
+            boolean isExpired = (Boolean)COMPLEX_SCHEDULED_TASK_IS_EXPIRED.invoke(task);
+            if (!isExpired) {
+                COMPLEX_SCHEDULED_TASK_CALC_NEXT_TIME.invoke(task);
+                nextRun = (Long) COMPLEX_SCHEDULED_TASK_GET_NEXT_RUN.invoke(task);
+            }
+        } catch(IllegalAccessException ex) {
+            throw new RuntimeException(ex);
+        } catch(InstantiationException ex) {
+            throw new RuntimeException(ex);
+        } catch(InvocationTargetException ex) {
+            throw new RuntimeException(ex);
+        }
+
+        return nextRun;
     }
 
     /**
