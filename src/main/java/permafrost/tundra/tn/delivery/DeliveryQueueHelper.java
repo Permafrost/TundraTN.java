@@ -287,7 +287,7 @@ public final class DeliveryQueueHelper {
         Connection connection = null;
         PreparedStatement statement = null;
         ResultSet results = null;
-        List<GuaranteedJob> jobs = Collections.emptyList();
+        List<GuaranteedJob> jobs = new ArrayList<GuaranteedJob>();
 
         try {
             connection = Datastore.getConnection();
@@ -310,10 +310,8 @@ public final class DeliveryQueueHelper {
             results = statement.executeQuery();
 
             while (results.next()) {
-                if (jobs.size() == 0) {
-                    jobs = new ArrayList<GuaranteedJob>();
-                }
-                jobs.add(GuaranteedJobHelper.get(results.getString(1)));
+                GuaranteedJob job = GuaranteedJobHelper.get(results.getString(1));
+                if (job != null) jobs.add(job);
             }
 
             connection.commit();
