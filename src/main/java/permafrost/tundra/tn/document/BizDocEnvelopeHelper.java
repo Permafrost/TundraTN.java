@@ -58,6 +58,8 @@ import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.time.DateTimeHelper;
+import permafrost.tundra.tn.log.ActivityLogHelper;
+import permafrost.tundra.tn.log.EntryType;
 import permafrost.tundra.tn.profile.ProfileHelper;
 
 /**
@@ -263,7 +265,7 @@ public final class BizDocEnvelopeHelper {
             result = setUserStatusForPrevious(bizdoc, userStatus, previousUserStatus);
         }
 
-        if (result) log(bizdoc, "MESSAGE", "General", "Status changed", getStatusMessage(systemStatus, userStatus));
+        if (result) ActivityLogHelper.log(EntryType.normalize("MESSAGE"), "General", "Status changed", getStatusMessage(systemStatus, userStatus), bizdoc);
 
         return result;
     }
@@ -296,7 +298,7 @@ public final class BizDocEnvelopeHelper {
             result = setUserStatusForPrevious(internalID, userStatus, previousUserStatus);
         }
 
-        if (result) log(internalID, "MESSAGE", "General", "Status changed", getStatusMessage(systemStatus, userStatus));
+        if (result) ActivityLogHelper.log(EntryType.normalize("MESSAGE"), "General", "Status changed", getStatusMessage(systemStatus, userStatus), get(internalID));
 
         return result;
     }
@@ -511,73 +513,6 @@ public final class BizDocEnvelopeHelper {
             message = MessageFormat.format("User status changed to {0}", userStatus);
         }
         return message;
-    }
-
-    /**
-     * The implementation service for BizDocEnvelope logging.
-     */
-    private static final NSName LOG_SERVICE = NSName.create("tundra.tn:log");
-
-    /**
-     * Adds an activity log statement to the given BizDocEnvelope.
-     * TODO: convert this to a pure java service, rather than an invoke of a flow service.
-     *
-     * @param bizdoc            The BizDocEnvelope to add the activity log statement to.
-     * @param messageType       The type of message to be logged.
-     * @param messageClass      The class of the message to be logged.
-     * @param messageSummary    The summary of the message to be logged.
-     * @param messageDetails    The detail of the message to be logged.
-     * @throws ServiceException If an error occurs while logging.
-     */
-    public static void log(BizDocEnvelope bizdoc, String messageType, String messageClass, String messageSummary, String messageDetails) throws ServiceException {
-        IData input = IDataFactory.create();
-        IDataCursor cursor = input.getCursor();
-        IDataUtil.put(cursor, "$bizdoc", bizdoc);
-        IDataUtil.put(cursor, "$type", messageType);
-        IDataUtil.put(cursor, "$class", messageClass);
-        IDataUtil.put(cursor, "$summary", messageSummary);
-        IDataUtil.put(cursor, "$message", messageDetails);
-        cursor.destroy();
-
-        try {
-            Service.doInvoke(LOG_SERVICE, input);
-        } catch (Exception ex) {
-            ExceptionHelper.raise(ex);
-        }
-    }
-
-    /**
-     * Adds an activity log statement to the given BizDocEnvelope.
-     * TODO: convert this to a pure java service, rather than an invoke of a flow service.
-     *
-     * @param internalID        The BizDocEnvelope internal ID for the bizdoc to add the activity log statement to.
-     * @param messageType       The type of message to be logged.
-     * @param messageClass      The class of the message to be logged.
-     * @param messageSummary    The summary of the message to be logged.
-     * @param messageDetails    The detail of the message to be logged.
-     * @throws ServiceException If an error occurs while logging.
-     */
-    public static void log(String internalID, String messageType, String messageClass, String messageSummary, String messageDetails) throws ServiceException {
-        IData input = IDataFactory.create();
-        IDataCursor cursor = input.getCursor();
-
-        IData bizdoc = IDataFactory.create();
-        IDataCursor bizdocCursor = bizdoc.getCursor();
-        bizdocCursor.insertAfter("InternalID", internalID);
-        bizdocCursor.destroy();
-
-        IDataUtil.put(cursor, "$bizdoc", bizdoc);
-        IDataUtil.put(cursor, "$type", messageType);
-        IDataUtil.put(cursor, "$class", messageClass);
-        IDataUtil.put(cursor, "$summary", messageSummary);
-        IDataUtil.put(cursor, "$message", messageDetails);
-        cursor.destroy();
-
-        try {
-            Service.doInvoke(LOG_SERVICE, input);
-        } catch (Exception ex) {
-            ExceptionHelper.raise(ex);
-        }
     }
 
     /**

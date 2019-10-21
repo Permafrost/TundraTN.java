@@ -40,6 +40,8 @@ import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataUtil;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
+import permafrost.tundra.tn.log.ActivityLogHelper;
+import permafrost.tundra.tn.log.EntryType;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -390,15 +392,14 @@ public final class GuaranteedJobHelper {
     /**
      * Adds an activity log statement to the given job.
      *
-     * @param job     The GuaranteedJob to add the activity log statement to.
-     * @param type    The type of message to be logged.
-     * @param klass   The class of the message to be logged.
-     * @param summary The summary of the message to be logged.
-     * @param message The detail of the message to be logged.
-     * @throws ServiceException If an error occurs while logging.
+     * @param job               The GuaranteedJob to add the activity log statement to.
+     * @param entryType         The type of message to be logged.
+     * @param entryClass        The class of the message to be logged.
+     * @param summary           The summary of the message to be logged.
+     * @param message           The detail of the message to be logged.
      */
-    public static void log(GuaranteedJob job, String type, String klass, String summary, String message) throws ServiceException {
-        BizDocEnvelopeHelper.log(job.getBizDocEnvelope(), type, klass, summary, message);
+    public static void log(GuaranteedJob job, String entryType, String entryClass, String summary, String message) {
+        ActivityLogHelper.log(EntryType.normalize(entryType), entryClass, summary, message, job.getBizDocEnvelope());
     }
 
     /**
