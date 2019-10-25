@@ -27,6 +27,7 @@ package permafrost.tundra.tn.route;
 import com.wm.app.b2b.server.InvokeState;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
+import com.wm.app.b2b.server.ServiceThread;
 import com.wm.app.b2b.server.User;
 import com.wm.app.b2b.server.ns.Namespace;
 import com.wm.app.tn.doc.BizDocEnvelope;
@@ -188,8 +189,8 @@ public class RoutingRuleHelper {
                 cursor.insertAfter("rule", rule instanceof ImmutableRoutingRule ? rule : new ImmutableRoutingRule(rule));
                 cursor.insertAfter("bizdoc", bizdoc);
                 if (parameters != null) cursor.insertAfter("TN_parms", parameters);
-
-                pipeline = Service.doInvoke("wm.tn.route", "route", pipeline);
+                ServiceThread serviceThread = Service.doThreadInvoke("wm.tn.route", "route", pipeline);
+                pipeline = serviceThread.getIData();
             } catch(Exception ex) {
                 exception = ex;
                 ExceptionHelper.raise(ex);
