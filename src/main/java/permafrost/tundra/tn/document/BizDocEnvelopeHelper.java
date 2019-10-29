@@ -255,6 +255,10 @@ public final class BizDocEnvelopeHelper {
 
         boolean result;
 
+        if ("DONE".equals(userStatus) && hasErrors(bizdoc)) {
+            userStatus = userStatus + " W/ ERRORS";
+        }
+
         if (previousSystemStatus == null && previousUserStatus == null) {
             result = BizDocStore.changeStatus(bizdoc.getInternalId(), systemStatus, userStatus);
         } else if (systemStatus != null && userStatus != null) {
@@ -284,23 +288,7 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException     If a database error is encountered.
      */
     public static boolean setStatus(String internalID, String systemStatus, String previousSystemStatus, String userStatus, String previousUserStatus, boolean silence) throws ServiceException {
-        if (internalID == null || silence) return false;
-
-        boolean result;
-
-        if (previousSystemStatus == null && previousUserStatus == null) {
-            result = BizDocStore.changeStatus(internalID, systemStatus, userStatus);
-        } else if (systemStatus != null && userStatus != null) {
-            result = setStatusForPrevious(internalID, systemStatus, previousSystemStatus, userStatus, previousUserStatus);
-        } else if (systemStatus != null) {
-            result = setSystemStatusForPrevious(internalID, systemStatus, previousSystemStatus);
-        } else {
-            result = setUserStatusForPrevious(internalID, userStatus, previousUserStatus);
-        }
-
-        if (result) ActivityLogHelper.log(EntryType.normalize("MESSAGE"), "General", "Status changed", getStatusMessage(systemStatus, userStatus), get(internalID));
-
-        return result;
+        return setStatus(get(internalID), systemStatus, previousSystemStatus, userStatus, previousUserStatus, silence);
     }
 
     /**
