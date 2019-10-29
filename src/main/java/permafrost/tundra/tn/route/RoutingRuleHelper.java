@@ -148,6 +148,26 @@ public class RoutingRuleHelper {
     }
 
     /**
+     * Whether the given rule is to be invoked asynchronously.
+     *
+     * @param rule  The rule to check.
+     * @return      True if the rule is to be invoked asynchronously.
+     */
+    public static boolean isAsynchronous(RoutingRule rule) {
+        return rule.getServiceInvokeType().equals("async");
+    }
+
+    /**
+     * Whether the given rule is to be invoked reliably.
+     *
+     * @param rule  The rule to check.
+     * @return      True if the rule is to be invoked reliably.
+     */
+    public static boolean isReliable(RoutingRule rule) {
+        return rule.getServiceInvokeType().equals("reliable");
+    }
+
+    /**
      * Processes the given bizdoc using the given rule.
      *
      * @param rule              The rule to use.
@@ -161,7 +181,7 @@ public class RoutingRuleHelper {
 
         Deferrer deferrer = Deferrer.getInstance();
 
-        if (deferrer.isStarted() && (!isSynchronous(rule) || shouldDefer(parameters))) {
+        if (deferrer.isStarted() && (isAsynchronous(rule) || shouldDefer(parameters))) {
             deferrer.defer(bizdoc, rule, parameters);
         } else {
             route(rule, bizdoc, parameters);
