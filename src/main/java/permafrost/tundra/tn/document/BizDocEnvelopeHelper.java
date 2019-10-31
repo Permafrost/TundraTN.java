@@ -113,11 +113,13 @@ public final class BizDocEnvelopeHelper {
     public static BizDocEnvelope normalize(IData input, boolean includeContent) throws DatastoreException {
         if (input == null) return null;
 
-        BizDocEnvelope document = null;
+        BizDocEnvelope document;
 
         if (input instanceof BizDocEnvelope) {
             document = (BizDocEnvelope)input;
-            if (includeContent && document.getContent() == null) document = get(document.getInternalId(), includeContent);
+            if (includeContent && document.isPersisted() && document.getContentParts() == null) {
+                document = get(document.getInternalId(), includeContent);
+            }
         } else {
             IDataCursor cursor = input.getCursor();
             try {
@@ -131,6 +133,8 @@ public final class BizDocEnvelopeHelper {
                 cursor.destroy();
             }
         }
+
+        if (document == null) throw new NullPointerException("bizdoc is unexpectedly null");
 
         return document;
     }
