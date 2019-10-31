@@ -121,10 +121,10 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
                 bizdoc = BizDocEnvelopeHelper.get(id, true);
             }
 
-            if (rule == null) rule = RoutingRuleHelper.select(bizdoc, parameters);
-            // if rule is not synchronous, change it to be synchronous since it's already being executed
+            if (rule == null) rule = RoutingRuleHelper.match(bizdoc, parameters);
+            // if rule is asynchronous, change it to be synchronous since it's already being executed
             // asynchronously as a deferred route so we don't want it to spawn yet another thread
-            rule = rule.getServiceInvokeType().equals("sync") ? rule : new SynchronousRoutingRule(rule);
+            rule = RoutingRuleHelper.isAsynchronous(rule) ? new SynchronousRoutingRule(rule) : rule;
 
             priority = new BizDocEnvelopePriority(bizdoc);
         }
@@ -194,5 +194,4 @@ public class CallableRoute extends AbstractPrioritizedCallable<IData> {
 
         return output;
     }
-
 }
