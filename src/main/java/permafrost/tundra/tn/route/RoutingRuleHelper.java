@@ -231,6 +231,8 @@ public class RoutingRuleHelper {
      * @throws ServiceException If an error occurs.
      */
     public static RoutingRule match(BizDocEnvelope bizdoc, IData parameters, boolean useActivityLog) throws ServiceException {
+        if (bizdoc == null) throw new NullPointerException("bizdoc must not be null");
+
         RoutingRule rule = null;
 
         String ruleID = null, ruleName = null;
@@ -245,36 +247,33 @@ public class RoutingRuleHelper {
             }
         }
 
-        if (ruleID == null && ruleName == null) {
-            if (useActivityLog) {
-                IData pipeline = IDataFactory.create();
-                IDataCursor cursor = pipeline.getCursor();
-
-                try {
-                    cursor.insertAfter("bizdoc", bizdoc);
-                    if (parameters != null) cursor.insertAfter("TN_parms", parameters);
-                    cursor.destroy();
-
-                    pipeline = Service.doInvoke("wm.tn.route", "getFirstMatch", pipeline);
-
-                    cursor = pipeline.getCursor();
-                    rule = (RoutingRule)IDataUtil.get(cursor, "rule");
-                    cursor.destroy();
-                } catch(Exception ex) {
-                    ExceptionHelper.raise(ex);
-                } finally {
-                    cursor.destroy();
-                }
-            } else {
-                rule = RoutingRuleStore.getFirstMatch(bizdoc);
-            }
-        } else if (ruleID != null) {
+        if (ruleID != null) {
             rule = RoutingRuleStore.getRule(ruleID);
-        } else {
+        } else if (ruleName != null) {
             rule = RoutingRuleStore.getRuleByName(ruleName);
+        } else if (useActivityLog) {
+            IData pipeline = IDataFactory.create();
+            IDataCursor cursor = pipeline.getCursor();
+
+            try {
+                cursor.insertAfter("bizdoc", bizdoc);
+                if (parameters != null) cursor.insertAfter("TN_parms", parameters);
+                cursor.destroy();
+
+                pipeline = Service.doInvoke("wm.tn.route", "getFirstMatch", pipeline);
+
+                cursor = pipeline.getCursor();
+                rule = (RoutingRule)IDataUtil.get(cursor, "rule");
+                cursor.destroy();
+            } catch(Exception ex) {
+                ExceptionHelper.raise(ex);
+            } finally {
+                cursor.destroy();
+            }
+        } else {
+            rule = RoutingRuleStore.getFirstMatch(bizdoc);
         }
 
-        // duplicate the rule to avoid race conditions with multiple threads accessing the same rule object
         return rule;
     }
 
