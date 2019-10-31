@@ -31,13 +31,16 @@ import com.wm.app.b2b.server.ServiceThread;
 import com.wm.app.b2b.server.User;
 import com.wm.app.b2b.server.ns.Namespace;
 import com.wm.app.tn.doc.BizDocEnvelope;
+import com.wm.app.tn.route.RoutingException;
 import com.wm.app.tn.route.RoutingRule;
+import com.wm.app.tn.route.RoutingRuleList;
 import com.wm.app.tn.route.RoutingRuleStore;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSService;
+import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.IterableHelper;
@@ -48,6 +51,7 @@ import permafrost.tundra.time.DurationPattern;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.util.TNFixedDataHelper;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -60,15 +64,150 @@ public class RoutingRuleHelper {
     private RoutingRuleHelper() {}
 
     /**
-     * Returns the processing rule to be used to process the given bizdoc.
+     * Normalizes the given IData representation of a routing rule as a RoutingRule object.
      *
-     * @param bizdoc            The bizdoc to be processed.
-     * @param parameters        The TN_parms routing hints to use.
-     * @return                  The selected processing rule.
-     * @throws ServiceException If an error occurs.
+     * @param rule              An IData representation of a routing rule which includes either RuleID or RuleName.
+     * @return                  The RoutingRule object for the given rule.
+     * @throws RoutingException If no rule exists with the given identity or name, or if a data storage error occurs.
      */
-    public static RoutingRule select(BizDocEnvelope bizdoc, IData parameters) throws ServiceException {
-        return select(bizdoc, parameters, false);
+    public static RoutingRule normalize(IData rule) throws RoutingException {
+        if (rule == null) return null;
+
+        RoutingRule routingRule;
+
+        if (rule instanceof RoutingRule) {
+            routingRule = (RoutingRule)rule;
+        } else {
+            IDataCursor cursor = rule.getCursor();
+            try {
+                String ruleID = IDataHelper.get(cursor, "RuleID", String.class);
+                String ruleName = IDataHelper.get(cursor, "RuleName", String.class);
+
+                if (ruleID == null && ruleName == null) {
+                    throw new IllegalArgumentException("RuleID or RuleName is required");
+                }
+
+                routingRule = getByIdentityOrName(ruleID, ruleName, true);
+            } finally {
+                cursor.destroy();
+            }
+        }
+
+        return routingRule;
+    }
+
+    /**
+     * Returns the list of routing rules defined in Trading Networks.
+     *
+     * @return the list of routing rules defined in Trading Networks.
+     */
+    public static List<RoutingRule> list() {
+        RoutingRuleList input = RoutingRuleStore.getList();
+        List<RoutingRule> output = new ArrayList<RoutingRule>(input.size());
+        for (Object rule : input.toArray()) {
+            if (rule instanceof RoutingRule) {
+                output.add((RoutingRule)rule);
+            }
+        }
+        return output;
+    }
+
+    /**
+     * Returns the routing rule with the given identity.
+     *
+     * @param ruleID    The rule identity.
+     * @return          The rule with the given identity.
+     */
+    public static RoutingRule get(String ruleID) {
+        return getByIdentityOrName(ruleID, null);
+    }
+
+    /**
+     * Returns the routing rule with the given name.
+     *
+     * @param ruleName  The rule name.
+     * @return          The rule with the given name.
+     */
+    public static RoutingRule getByName(String ruleName) {
+        return getByIdentityOrName(null, ruleName);
+    }
+
+    /**
+     * Returns the routing rule with the given identity or name.
+     *
+     * @param ruleID    The rule identity.
+     * @param ruleName  The rule name.
+     * @return          The rule with the given identity if specified, or with the given name.
+     */
+    public static RoutingRule getByIdentityOrName(String ruleID, String ruleName) {
+        RoutingRule rule = null;
+        try {
+            rule = getByIdentityOrName(ruleID, ruleName, false);
+        } catch(RoutingException ex) {
+            // ignore exception, as it should never be thrown as raise argument is false
+        }
+        return rule;
+    }
+
+    /**
+     * Returns the routing rule with the given identity or name.
+     *
+     * @param ruleID            The rule identity.
+     * @param ruleName          The rule name.
+     * @param raise             Whether to throw an exception if no rule exists with the given identity or name.
+     * @return                  The rule with the given identity if specified, or with the given name.
+     * @throws RoutingException If no rule exists with the given identity or name, or if a datastore error occurs.
+     */
+    public static RoutingRule getByIdentityOrName(String ruleID, String ruleName, boolean raise) throws RoutingException {
+        RoutingRule rule = null;
+        try {
+            if (ruleID != null) {
+                rule = RoutingRuleStore.getRule(ruleID);
+            } else {
+                rule = RoutingRuleStore.getRuleByName(ruleName);
+            }
+        } catch(RoutingException ex) {
+            String message = ex.getMessage();
+            if (raise || !message.matches("Processing rule \\S+ does not exist\\.")) {
+                throw ex;
+            }
+        }
+        return rule;
+    }
+
+    /**
+     * Sets the given routing rule status to enabled.
+     *
+     * @param rule  The routing rule to set the status on.
+     */
+    public static void enable(RoutingRule rule) {
+        setStatus(rule, true);
+    }
+
+    /**
+     * Sets the given routing rule status to disabled.
+     *
+     * @param rule  The routing rule to set the status on.
+     */
+    public static void disable(RoutingRule rule) {
+        setStatus(rule, false);
+    }
+
+    /**
+     * Sets the status on the given routing rule.
+     *
+     * @param rule      The routing rule to set the status on.
+     * @param enabled   Whether the routing rule status should be enabled or disabled.
+     */
+    private static void setStatus(RoutingRule rule, boolean enabled) {
+        if (rule == null) return;
+
+        try {
+            rule.setDisabled(!enabled);
+            RoutingRuleStore.updateStatus(rule);
+        } catch(RoutingException ex) {
+            throw new RuntimeException(ex);
+        }
     }
 
     /**
@@ -79,7 +218,19 @@ public class RoutingRuleHelper {
      * @return                  The selected processing rule.
      * @throws ServiceException If an error occurs.
      */
-    public static RoutingRule select(BizDocEnvelope bizdoc, IData parameters, boolean useActivityLog) throws ServiceException {
+    public static RoutingRule match(BizDocEnvelope bizdoc, IData parameters) throws ServiceException {
+        return match(bizdoc, parameters, false);
+    }
+
+    /**
+     * Returns the processing rule to be used to process the given bizdoc.
+     *
+     * @param bizdoc            The bizdoc to be processed.
+     * @param parameters        The TN_parms routing hints to use.
+     * @return                  The selected processing rule.
+     * @throws ServiceException If an error occurs.
+     */
+    public static RoutingRule match(BizDocEnvelope bizdoc, IData parameters, boolean useActivityLog) throws ServiceException {
         RoutingRule rule = null;
 
         String ruleID = null, ruleName = null;
@@ -177,7 +328,7 @@ public class RoutingRuleHelper {
      */
     public static void execute(RoutingRule rule, BizDocEnvelope bizdoc, IData parameters) throws ServiceException {
         if (bizdoc == null) throw new NullPointerException("bizdoc must not be null");
-        if (rule == null) rule = select(bizdoc, parameters);
+        if (rule == null) rule = match(bizdoc, parameters);
 
         Deferrer deferrer = Deferrer.getInstance();
 
@@ -209,7 +360,9 @@ public class RoutingRuleHelper {
                 cursor.insertAfter("rule", rule instanceof ImmutableRoutingRule ? rule : new ImmutableRoutingRule(rule));
                 cursor.insertAfter("bizdoc", bizdoc);
                 if (parameters != null) cursor.insertAfter("TN_parms", parameters);
+
                 ServiceThread serviceThread = Service.doThreadInvoke("wm.tn.route", "route", pipeline);
+
                 pipeline = serviceThread.getIData();
             } catch(Exception ex) {
                 exception = ex;
