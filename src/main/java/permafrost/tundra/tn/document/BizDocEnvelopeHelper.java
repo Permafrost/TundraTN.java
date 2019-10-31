@@ -33,7 +33,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
-import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BizDocStore;
 import com.wm.app.tn.db.Datastore;
@@ -46,9 +45,7 @@ import com.wm.app.tn.err.ActivityLogEntry;
 import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
-import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
-import com.wm.lang.ns.NSName;
 import permafrost.tundra.content.DuplicateException;
 import permafrost.tundra.content.MalformedException;
 import permafrost.tundra.content.StrictException;
@@ -123,12 +120,16 @@ public final class BizDocEnvelopeHelper {
             if (includeContent && document.getContent() == null) document = get(document.getInternalId(), includeContent);
         } else {
             IDataCursor cursor = input.getCursor();
-            String id = IDataUtil.getString(cursor, "InternalID");
-            cursor.destroy();
-
-            if (id == null) throw new IllegalArgumentException("InternalID is required");
-
-            document = get(id, includeContent);
+            try {
+                String id = IDataUtil.getString(cursor, "InternalID");
+                if (id == null) {
+                    throw new IllegalArgumentException("InternalID is required");
+                } else {
+                    document = get(id, includeContent);
+                }
+            } finally {
+                cursor.destroy();
+            }
         }
 
         return document;
