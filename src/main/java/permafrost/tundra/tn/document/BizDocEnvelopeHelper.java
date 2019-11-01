@@ -51,6 +51,7 @@ import permafrost.tundra.content.MalformedException;
 import permafrost.tundra.content.StrictException;
 import permafrost.tundra.content.UnsupportedException;
 import permafrost.tundra.content.ValidationException;
+import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.StringHelper;
@@ -173,6 +174,71 @@ public final class BizDocEnvelopeHelper {
     public static BizDocEnvelope refresh(BizDocEnvelope document) throws DatastoreException {
         if (document == null) return null;
         return get(document.getInternalId());
+    }
+
+    /**
+     * Returns the BizDocEnvelope identity from the given document subset that contains an InternalID value.
+     *
+     * @param documentSubset    The document subset to get the identity from.
+     * @return                  The internal identity of the BizDocEnvelope associated with the given document subset.
+     */
+    public static String getIdentity(IData documentSubset) {
+        String documentIdentity = null;
+
+        if (documentSubset != null) {
+            IDataCursor cursor = documentSubset.getCursor();
+            try {
+                documentIdentity = IDataHelper.get(cursor, "InternalID", String.class);
+            } finally {
+                cursor.destroy();
+            }
+        }
+
+        return documentIdentity;
+    }
+
+    /**
+     * The regular expression pattern used to identify derivative relationships.
+     */
+    private static final Pattern DERIVATIVE_RELATIONSHIP_PATTERN = Pattern.compile("Derivative:.*");
+
+    /**
+     * Returns the BizDocEnvelope derived from the given document with the given sender and receiver, if it exists.
+     *
+     * @param originalDocumentID    The original document's internal identity whose derivative is to be returned.
+     * @param derivedSenderID       The derivative's sender profile internal identity.
+     * @param derivedReceiverID     The derivative's receiver profile internal identity.
+     * @return                      The derivative BizDocEnvelope, if it exists.
+     * @throws DatastoreException   If a database error occurs.
+     */
+    public static BizDocEnvelope getDerivative(String originalDocumentID, String derivedSenderID, String derivedReceiverID) throws DatastoreException {
+        BizDocEnvelope derivedDocument = null;
+
+        if (originalDocumentID != null && derivedSenderID != null && derivedReceiverID != null) {
+            IData relationships = BizDocStore.getRelatedDocuments(originalDocumentID, null);
+            if (relationships != null) {
+                IDataCursor cursor = relationships.getCursor();
+                try {
+                    while(cursor.next()) {
+                        String relationship = cursor.getKey();
+                        String[] documentIdentities = (String[])cursor.getValue();
+                        if (relationship != null && DERIVATIVE_RELATIONSHIP_PATTERN.matcher(relationship).matches()) {
+                            if (documentIdentities != null && documentIdentities.length > 1 && documentIdentities[1] != null) {
+                                BizDocEnvelope candidateDocument = get(documentIdentities[1]);
+                                if (candidateDocument != null && derivedSenderID.equals(candidateDocument.getSenderId()) && derivedReceiverID.equals(candidateDocument.getReceiverId())) {
+                                    derivedDocument = candidateDocument;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } finally {
+                    cursor.destroy();
+                }
+            }
+        }
+
+        return derivedDocument;
     }
 
     /**
