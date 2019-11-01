@@ -45,7 +45,6 @@ import com.wm.app.tn.err.ActivityLogEntry;
 import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
-import com.wm.data.IDataUtil;
 import permafrost.tundra.content.DuplicateException;
 import permafrost.tundra.content.MalformedException;
 import permafrost.tundra.content.StrictException;
@@ -124,7 +123,7 @@ public final class BizDocEnvelopeHelper {
         } else {
             IDataCursor cursor = input.getCursor();
             try {
-                String id = IDataUtil.getString(cursor, "InternalID");
+                String id = IDataHelper.get(cursor, "InternalID", String.class);
                 if (id == null) {
                     throw new IllegalArgumentException("InternalID is required");
                 } else {

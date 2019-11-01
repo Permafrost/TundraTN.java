@@ -28,8 +28,7 @@ import com.wm.app.tn.profile.Destination;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
-import com.wm.data.IDataUtil;
-import permafrost.tundra.lang.BooleanHelper;
+import permafrost.tundra.data.IDataHelper;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -111,23 +110,20 @@ public final class DestinationHelper {
         if (destination == null ) return null;
 
         // take a copy of the destination so we can fix some field values for backwards-compatibility
-        IData output = IDataFactory.create();
-        IDataUtil.append(destination, output);
+        IData output = IDataHelper.duplicate(destination);
 
         IDataCursor cursor = output.getCursor();
-
-        // fix protocol to be an actual protocol rather than the destination name for custom destinations
-        String protocol = IDataUtil.getString(cursor, "B2BService");
-        if (protocol != null) {
-            IDataUtil.put(cursor, "Protocol", protocol);
+        try {
+            // fix protocol to be an actual protocol rather than the destination name for custom destinations
+            String protocol = IDataHelper.get(cursor, "B2BService", String.class);
+            IDataHelper.put(cursor, "Protocol", protocol, false);
+            // add name to the destination structure
+            IDataHelper.put(cursor, "DestinationName", getName(destination));
+            // add whether destination is the primary destination as a boolean string
+            IDataHelper.put(cursor, "IsPrimary", destination.isPrimary(), String.class);
+        } finally {
+            cursor.destroy();
         }
-
-        // add name to the destination structure
-        IDataUtil.put(cursor, "DestinationName", getName(destination));
-        // add whether destination is the primary destination as a boolean string
-        IDataUtil.put(cursor, "IsPrimary", BooleanHelper.emit(destination.isPrimary()));
-
-        cursor.destroy();
 
         return output;
     }

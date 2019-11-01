@@ -28,7 +28,7 @@ import com.wm.app.tn.db.BizDocTypeStore;
 import com.wm.app.tn.doc.BizDocType;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
-import com.wm.data.IDataUtil;
+import permafrost.tundra.data.IDataHelper;
 
 /**
  * A collection of convenience methods for working with Trading Networks BizDocType objects.
@@ -68,18 +68,19 @@ public final class BizDocTypeHelper {
     public static BizDocType normalize(IData input) {
         if (input == null) return null;
 
-        BizDocType output = null;
+        BizDocType output;
 
         if (input instanceof BizDocType) {
             output = (BizDocType)input;
         } else {
             IDataCursor cursor = input.getCursor();
-            String id = IDataUtil.getString(cursor, "TypeID");
-            cursor.destroy();
-
-            if (id == null) throw new IllegalArgumentException("TypeID is required");
-
-            output = get(id);
+            try {
+                String id = IDataHelper.get(cursor, "TypeID", String.class);
+                if (id == null) throw new IllegalArgumentException("TypeID is required");
+                output = get(id);
+            } finally {
+                cursor.destroy();
+            }
         }
 
         return output;

@@ -38,10 +38,8 @@ import com.wm.app.tn.route.RoutingRuleStore;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
-import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSService;
 import permafrost.tundra.data.IDataHelper;
-import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.IterableHelper;
 import permafrost.tundra.server.ServerLogger;
@@ -240,8 +238,8 @@ public class RoutingRuleHelper {
         if (parameters != null) {
             IDataCursor cursor = parameters.getCursor();
             try {
-                ruleID = IDataUtil.getString(cursor, "processingRuleID");
-                ruleName = IDataUtil.getString(cursor, "processingRuleName");
+                ruleID = IDataHelper.get(cursor, "processingRuleID", String.class);
+                ruleName = IDataHelper.get(cursor, "processingRuleName", String.class);
             } finally {
                 cursor.destroy();
             }
@@ -263,7 +261,7 @@ public class RoutingRuleHelper {
                 pipeline = Service.doInvoke("wm.tn.route", "getFirstMatch", pipeline);
 
                 cursor = pipeline.getCursor();
-                rule = (RoutingRule)IDataUtil.get(cursor, "rule");
+                rule = IDataHelper.get(cursor, "rule", RoutingRule.class);
                 cursor.destroy();
             } catch(Exception ex) {
                 ExceptionHelper.raise(ex);
@@ -387,10 +385,7 @@ public class RoutingRuleHelper {
         if (parameters != null) {
             IDataCursor cursor = parameters.getCursor();
             try {
-                String bypassRouting = IDataUtil.getString(cursor, "$bypassRouting");
-                if (bypassRouting != null) {
-                    isRoutable = BooleanHelper.parse(bypassRouting);
-                }
+                isRoutable = !IDataHelper.getOrDefault(cursor, "$bypassRouting", Boolean.class, false);
             } finally {
                 cursor.destroy();
             }
@@ -410,10 +405,7 @@ public class RoutingRuleHelper {
         if (parameters != null) {
             IDataCursor cursor = parameters.getCursor();
             try {
-                String deferredRouting = IDataUtil.getString(cursor, "$deferredRouting");
-                if (deferredRouting != null) {
-                    shouldDefer = BooleanHelper.parse(deferredRouting);
-                }
+                shouldDefer = IDataHelper.getOrDefault(cursor, "$deferredRouting", Boolean.class, false);
             } finally {
                 cursor.destroy();
             }

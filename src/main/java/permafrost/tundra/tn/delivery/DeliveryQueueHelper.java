@@ -35,9 +35,9 @@ import com.wm.app.tn.delivery.GuaranteedJob;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
-import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSName;
 import com.wm.util.Masks;
+import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.io.InputOutputHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
@@ -224,8 +224,11 @@ public final class DeliveryQueueHelper {
         try {
             IData pipeline = IDataFactory.create();
             IDataCursor cursor = pipeline.getCursor();
-            IDataUtil.put(cursor, "queue", queue);
-            cursor.destroy();
+            try {
+                IDataHelper.put(cursor, "queue", queue);
+            } finally {
+                cursor.destroy();
+            }
 
             Service.doInvoke(UPDATE_QUEUE_SERVICE_NAME, pipeline);
         } catch(Exception ex) {
@@ -637,7 +640,7 @@ public final class DeliveryQueueHelper {
                 if (pipeline != null) {
                     IDataCursor cursor = pipeline.getCursor();
                     try {
-                        statusSilence = BooleanHelper.parse(IDataUtil.getString(cursor, "$status.silence?"));
+                        statusSilence = IDataHelper.getOrDefault(cursor, "$status.silence?", Boolean.class, false);
                     } finally {
                         cursor.destroy();
                     }
@@ -659,14 +662,15 @@ public final class DeliveryQueueHelper {
 
         IData output = IDataFactory.create();
         IDataCursor cursor = output.getCursor();
-
-        IDataUtil.put(cursor, "name", input.getQueueName());
-        IDataUtil.put(cursor, "type", input.getQueueType());
-        IDataUtil.put(cursor, "status", input.getState());
-        IDataUtil.put(cursor, "length", "" + length(input));
-        IDataUtil.put(cursor, "queue", input);
-
-        cursor.destroy();
+        try {
+            IDataHelper.put(cursor, "name", input.getQueueName());
+            IDataHelper.put(cursor, "type", input.getQueueType());
+            IDataHelper.put(cursor, "status", input.getState());
+            IDataHelper.put(cursor, "length", "" + length(input));
+            IDataHelper.put(cursor, "queue", input);
+        } finally {
+            cursor.destroy();
+        }
 
         return output;
     }

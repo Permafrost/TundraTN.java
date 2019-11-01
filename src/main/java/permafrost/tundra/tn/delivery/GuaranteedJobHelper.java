@@ -38,7 +38,7 @@ import com.wm.app.tn.profile.ProfileStoreException;
 import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
-import com.wm.data.IDataUtil;
+import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.log.ActivityLogHelper;
 import permafrost.tundra.tn.log.EntryType;
@@ -130,7 +130,7 @@ public final class GuaranteedJobHelper {
             job = (GuaranteedJob)input;
         } else {
             IDataCursor cursor = input.getCursor();
-            String id = IDataUtil.getString(cursor, "TaskId");
+            String id = IDataHelper.get(cursor, "TaskId", String.class);
             cursor.destroy();
 
             if (id == null) throw new IllegalArgumentException("TaskId is required");

@@ -37,7 +37,6 @@ import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
-import com.wm.data.IDataUtil;
 import com.wm.lang.ns.NSName;
 import com.wm.lang.ns.NSService;
 import permafrost.tundra.data.IDataHelper;
@@ -199,16 +198,16 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
                 GuaranteedJobHelper.log(job, "MESSAGE", "Processing", MessageFormat.format("Dequeued from {0} queue {1}", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service {0} attempting to process document", service.getFullName()));
 
                 IDataCursor cursor = pipeline.getCursor();
-                IDataUtil.put(cursor, "$task", job);
-
-                if (bizdoc != null) {
-                    bizdoc = BizDocEnvelopeHelper.get(bizdoc.getInternalId(), true);
-                    IDataUtil.put(cursor, "bizdoc", bizdoc);
-                    IDataUtil.put(cursor, "sender", ProfileCache.getInstance().get(bizdoc.getSenderId()));
-                    IDataUtil.put(cursor, "receiver", ProfileCache.getInstance().get(bizdoc.getReceiverId()));
+                try {
+                    IDataHelper.put(cursor, "$task", job);
+                    if (bizdoc != null) {
+                        IDataHelper.put(cursor, "bizdoc", BizDocEnvelopeHelper.normalize(bizdoc, true));
+                        IDataHelper.put(cursor, "sender", ProfileCache.getInstance().get(bizdoc.getSenderId()));
+                        IDataHelper.put(cursor, "receiver", ProfileCache.getInstance().get(bizdoc.getReceiverId()));
+                    }
+                } finally {
+                    cursor.destroy();
                 }
-
-                cursor.destroy();
 
                 output = Service.doInvoke(service, session, pipeline);
 
