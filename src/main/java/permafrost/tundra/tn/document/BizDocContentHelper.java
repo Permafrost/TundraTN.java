@@ -191,7 +191,7 @@ public final class BizDocContentHelper {
 
             List<NSService> callStack = ServiceHelper.getCallStack();
             if (contentPartName == null) {
-                contentPartName = MessageFormat.format("transport_{0}.yaml", DateTimeHelper.format(currentDateTime, "datetime", "yyyyMMddHHmmssSSSZ"));
+                contentPartName = MessageFormat.format("tundra_tn_receive_transport_{0}.yaml", DateTimeHelper.format(currentDateTime, "datetime", "yyyyMMddHHmmssSSSZ"));
             }
 
             IData transport = InvokeStateHelper.currentRedactedTransport();
