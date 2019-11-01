@@ -150,6 +150,38 @@ public final class ProfileHelper {
     }
 
     /**
+     * Returns the profile identity from the given IData profile subset.
+     *
+     * @param profileSubset The IData profile subset, which might contain either "ProfileID" or "Corporate/PartnerID".
+     * @return              The profile identity.
+     */
+    public static String getIdentity(IData profileSubset) {
+        String profileIdentity = null;
+
+        if (profileSubset != null) {
+            IDataCursor cursor = profileSubset.getCursor();
+            try {
+                profileIdentity = IDataHelper.get(cursor, "ProfileID", String.class);
+                if (profileIdentity == null) {
+                    IData corporate = IDataHelper.get(cursor, "Corporate", IData.class);
+                    if (corporate != null) {
+                        IDataCursor corporateCursor = corporate.getCursor();
+                        try {
+                            profileIdentity = IDataHelper.get(corporateCursor, "PartnerID", String.class);
+                        } finally {
+                            corporateCursor.destroy();
+                        }
+                    }
+                }
+            } finally {
+                cursor.destroy();
+            }
+        }
+
+        return profileIdentity;
+    }
+
+    /**
      * Returns the My Enterprise profile from the Trading Networks database.
      *
      * @return                  The My Enterprise profile from the Trading Networks database, or null if no My
