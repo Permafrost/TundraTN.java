@@ -26,9 +26,11 @@ package permafrost.tundra.tn.document;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.Charset;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.SQLWrappers;
@@ -37,9 +39,15 @@ import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocType;
 import com.wm.app.tn.doc.FFDocType;
 import com.wm.app.tn.doc.XMLDocType;
+import com.wm.data.IData;
+import com.wm.data.IDataCursor;
+import com.wm.data.IDataFactory;
+import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.io.InputStreamHelper;
+import permafrost.tundra.lang.CharsetHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.mime.MIMETypeHelper;
+import javax.activation.MimeType;
 
 /**
  * A collection of convenience methods for working with Trading Networks BizDocEnvelope content parts.
@@ -69,6 +77,49 @@ public final class BizDocContentHelper {
      * Disallow instantiation of this class.
      */
     private BizDocContentHelper() {}
+
+    /**
+     * Adds a new BizDocContentPart to the given BizDocEnvelope document.
+     *
+     * @param document          The document against which to add the new content part.
+     * @param partName          The name of the new content part.
+     * @param contentType       The MIME content type the new content part uses.
+     * @param charset           The character set the new content part uses, if any.
+     * @param content           The data content for the new content part.
+     * @param overwrite         Whether to overwrite an existing part with the same name.
+     * @throws ServiceException If an error occurs.
+     */
+    public static void addContentPart(BizDocEnvelope document, String partName, String contentType, Charset charset, InputStream content, boolean overwrite) throws ServiceException {
+        if (overwrite) {
+            BizDocContentPart contentPart = document.getContentPart(partName);
+            if (contentPart != null) {
+                removeContentPart(document, partName);
+            }
+        }
+
+        MimeType mimeType = MIMETypeHelper.normalize(MIMETypeHelper.of(contentType));
+        final String charsetParameterName = "charset";
+        if (charset != null) {
+            mimeType.setParameter(charsetParameterName, charset.displayName());
+        } else if (mimeType.getParameter(charsetParameterName) == null && MIMETypeHelper.isText(mimeType)) {
+            mimeType.setParameter(charsetParameterName, CharsetHelper.DEFAULT_CHARSET_NAME);
+        }
+
+        IData pipeline = IDataFactory.create();
+        IDataCursor cursor = pipeline.getCursor();
+        try {
+            IDataHelper.put(cursor, "bizdoc", document);
+            IDataHelper.put(cursor, "partName", partName);
+            IDataHelper.put(cursor, "partStream", content);
+            IDataHelper.put(cursor, "mimeType", mimeType.toString());
+
+            Service.doInvoke("wm.tn.doc", "addContentPart", pipeline);
+        } catch(Exception ex) {
+            ExceptionHelper.raise(ex);
+        } finally {
+            cursor.destroy();
+        }
+    }
 
     /**
      * Deletes the given BizDocContentPart from the Trading Networks database.
@@ -213,5 +264,16 @@ public final class BizDocContentHelper {
      */
     public static BizDocContentPart getContentPart(BizDocEnvelope document) {
         return getContentPart(document, null);
+    }
+
+    /**
+     * Returns whether the given BizDocEnvelope contains a BizDocContentPart with the given part name.
+     *
+     * @param document  The BizDocEnvelope to check the BizDocContentPart existence on.
+     * @param partName  The part name of the BizDocContentPart to check existence of.
+     * @return          True if there exists a BizDocContentPart with the given part name on the given document.
+     */
+    public static boolean exists(BizDocEnvelope document, String partName) {
+        return document != null && document.getContentPart(partName) != null;
     }
 }
