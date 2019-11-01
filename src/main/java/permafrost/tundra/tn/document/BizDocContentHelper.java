@@ -30,6 +30,8 @@ import java.nio.charset.Charset;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.text.MessageFormat;
+import java.util.List;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.Datastore;
@@ -42,11 +44,17 @@ import com.wm.app.tn.doc.XMLDocType;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
+import com.wm.lang.ns.NSService;
+import permafrost.tundra.collection.CollectionHelper;
 import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.data.IDataYAMLParser;
 import permafrost.tundra.io.InputStreamHelper;
 import permafrost.tundra.lang.CharsetHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.mime.MIMETypeHelper;
+import permafrost.tundra.server.InvokeStateHelper;
+import permafrost.tundra.server.ServiceHelper;
+import permafrost.tundra.time.DateTimeHelper;
 import javax.activation.MimeType;
 
 /**
@@ -160,6 +168,54 @@ public final class BizDocContentHelper {
      */
     public static void removeContentPart(BizDocEnvelope document, BizDocContentPart contentPart) throws ServiceException {
         removeContentPart(document, contentPart == null ? null : contentPart.getPartName());
+    }
+
+    /**
+     * Logs the current transport information against the given BizDocEnvelope document as a new content part.
+     *
+     * @param document  The BizDocEnvelope to log the current transport against.
+     */
+    public static void addTransportContentPart(BizDocEnvelope document) throws ServiceException {
+        addTransportContentPart(document, null);
+    }
+
+    /**
+     * Logs the current transport information against the given BizDocEnvelope document as a new content part.
+     *
+     * @param document  The BizDocEnvelope to log the current transport against.
+     * @param document  The BizDocEnvelope to log the current transport against.
+     */
+    public static void addTransportContentPart(BizDocEnvelope document, String contentPartName) throws ServiceException {
+        if (document != null) {
+            String currentDateTime = DateTimeHelper.now("datetime");
+
+            List<NSService> callStack = ServiceHelper.getCallStack();
+            if (contentPartName == null) {
+                contentPartName = MessageFormat.format("transport_{0}.yaml", DateTimeHelper.format(currentDateTime, "datetime", "yyyyMMddHHmmssSSSZ"));
+            }
+
+            IData transport = InvokeStateHelper.currentRedactedTransport();
+
+            if (transport != null) {
+                IData contentPart = IDataFactory.create();
+                IDataCursor contentPartCursor = contentPart.getCursor();
+                try {
+                    IDataHelper.put(contentPartCursor, "datetime", currentDateTime);
+                    IDataHelper.put(contentPartCursor, "transport", transport);
+                    if (callStack.size() > 0) IDataHelper.put(contentPartCursor, "callstack", CollectionHelper.stringify(callStack));
+                } finally {
+                    contentPartCursor.destroy();
+                }
+
+                IDataYAMLParser parser = new IDataYAMLParser();
+                try {
+                    InputStream content = parser.emit(contentPart, CharsetHelper.DEFAULT_CHARSET, InputStream.class);
+                    BizDocContentHelper.addContentPart(document, contentPartName, "text/yaml", CharsetHelper.DEFAULT_CHARSET, content, true);
+                } catch(IOException ex) {
+                    ExceptionHelper.raise(ex);
+                }
+            }
+        }
     }
 
     /**
