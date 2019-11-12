@@ -278,7 +278,7 @@ public final class BizDocContentHelper {
     public static BizDocContentPart getContentPart(BizDocEnvelope document, String partName) {
         if (document == null) return null;
 
-        BizDocContentPart contentPart = null;
+        BizDocContentPart contentPart;
 
         if (partName == null) {
             BizDocType documentType = document.getDocType();
