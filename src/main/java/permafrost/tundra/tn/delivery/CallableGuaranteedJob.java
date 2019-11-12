@@ -26,6 +26,7 @@ package permafrost.tundra.tn.delivery;
 
 import com.wm.app.b2b.server.InvokeState;
 import com.wm.app.b2b.server.Service;
+import com.wm.app.b2b.server.ServiceThread;
 import com.wm.app.b2b.server.Session;
 import com.wm.app.b2b.server.User;
 import com.wm.app.b2b.server.ns.Namespace;
@@ -209,7 +210,8 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
                     cursor.destroy();
                 }
 
-                output = Service.doInvoke(service, session, pipeline);
+                ServiceThread serviceThread = Service.doThreadInvoke(service, session, pipeline);
+                output = serviceThread.getIData();
 
                 owningThread.setName(MessageFormat.format("{0}: Task {1} COMPLETED {2}", owningThreadPrefix, jobLogString, DateTimeHelper.now("datetime")));
             }
