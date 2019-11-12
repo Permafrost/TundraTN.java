@@ -103,7 +103,7 @@ public class Deferrer implements Startable {
      */
     protected static final long DEFAULT_RESTART_SCHEDULE_MILLISECONDS = 60 * 60 * 1000L;
     /**
-     * The default maximum capacity for the work queue.
+     * The default number of threads to use for executing deferred routes.
      */
     protected static final int DEFAULT_THREAD_POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
     /**
