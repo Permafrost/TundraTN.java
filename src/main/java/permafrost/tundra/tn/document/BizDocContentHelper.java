@@ -248,7 +248,11 @@ public final class BizDocContentHelper {
         InputStream content = null;
 
         try {
-            content = InputStreamHelper.normalize(contentPart.getContent(document.getInternalId()));
+            Object partContent = contentPart.getContent(document.getInternalId());
+            if (partContent == null && contentPart.getLength() == 0 && !contentPart.isLargePart()) {
+                partContent = new byte[0];
+            }
+            content = InputStreamHelper.normalize(partContent);
         } catch (IOException ex) {
             ExceptionHelper.raise(ex);
         }
