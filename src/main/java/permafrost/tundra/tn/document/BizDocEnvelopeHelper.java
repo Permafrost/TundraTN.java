@@ -24,6 +24,11 @@
 
 package permafrost.tundra.tn.document;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.Charset;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -45,19 +50,36 @@ import com.wm.app.tn.err.ActivityLogEntry;
 import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
+import com.wm.data.IDataFactory;
+import com.wm.util.tspace.Reservation;
+import org.w3c.dom.Node;
+import permafrost.tundra.content.ContentParser;
 import permafrost.tundra.content.DuplicateException;
 import permafrost.tundra.content.MalformedException;
 import permafrost.tundra.content.StrictException;
 import permafrost.tundra.content.UnsupportedException;
 import permafrost.tundra.content.ValidationException;
 import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.id.ULID;
+import permafrost.tundra.id.UUIDHelper;
+import permafrost.tundra.io.InputStreamHelper;
 import permafrost.tundra.lang.BooleanHelper;
+import permafrost.tundra.lang.BytesHelper;
+import permafrost.tundra.lang.CharsetHelper;
 import permafrost.tundra.lang.ExceptionHelper;
+import permafrost.tundra.lang.ObjectHelper;
 import permafrost.tundra.lang.StringHelper;
+import permafrost.tundra.mime.MIMEClassification;
+import permafrost.tundra.mime.MIMETypeHelper;
+import permafrost.tundra.security.MessageDigestHelper;
+import permafrost.tundra.server.ServiceHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.log.ActivityLogHelper;
 import permafrost.tundra.tn.log.EntryType;
 import permafrost.tundra.tn.profile.ProfileHelper;
+import permafrost.tundra.xml.XMLHelper;
+import permafrost.tundra.xml.dom.NodeHelper;
+import javax.activation.MimeType;
 
 /**
  * A collection of convenience methods for working with Trading Networks BizDocEnvelope objects.
@@ -901,5 +923,195 @@ public final class BizDocEnvelopeHelper {
             }
         }
         return output;
+    }
+
+    /**
+     * Recognizes the given content returning a BizDocEnvelope reading for routing to Trading Networks.
+     *
+     * @param content           The content to be recognized.
+     * @param contentIdentity   The type of identity to be assigned to the resulting BizDocEnvelope if required.
+     * @param contentNamespace  The XML namespace prefixes and URIs used when serializing content if it is specified as an IData.
+     * @param parameters        The TN_parms routing hints used when recognizing the content.
+     * @return                  A BizDocEnvelope representing the given content ready for routing to Trading Networks.
+     * @throws ServiceException If a recognition error occurs.
+     */
+    public static BizDocEnvelope recognize(Object content, String contentIdentity, IData contentNamespace, IData parameters) throws ServiceException {
+        BizDocEnvelope bizdoc = null;
+
+        if (content != null) {
+            InputStream inputStream;
+
+            IData pipeline = IDataFactory.create();
+            IDataCursor pipelineCursor = pipeline.getCursor();
+
+            if (parameters == null) parameters = IDataFactory.create();
+            IDataCursor parameterCursor = parameters.getCursor();
+
+            try {
+                String defaultIdentity = null;
+                MimeType contentType = IDataHelper.get(parameterCursor, "$contentType", MimeType.class);
+                Charset contentEncoding = IDataHelper.get(parameterCursor, "$contentEncoding", Charset.class);
+                String contentSchema = IDataHelper.get(parameterCursor, "$contentSchema", String.class);
+                Integer contentLength = IDataHelper.get(parameterCursor, "$contentLength", Integer.class);
+
+                // convert given content to an InputStream if required
+                if (content instanceof InputStream || content instanceof byte[] || content instanceof String) {
+                    inputStream = InputStreamHelper.normalize(content, contentEncoding);
+                } else if (content instanceof Node) {
+                    // serialize org.w3c.dom.Node object to an InputStream
+                    inputStream = NodeHelper.emit((Node)content, contentEncoding);
+                } else if (content instanceof IData) {
+                    // serialize IData document to an InputStream using the specified schema
+                    ContentParser parser = new ContentParser(contentType, contentEncoding, contentSchema, contentNamespace, false, null);
+                    inputStream = parser.emit((IData)content);
+                    contentEncoding = parser.getCharset();
+                } else if (ObjectHelper.instance(content, "com.sap.conn.idoc.IDocDocumentList")) {
+                    // serialize IDocDocumentList to an InputStream containing IDoc XML
+                    IData scope = IDataFactory.create();
+                    IDataCursor scopeCursor = scope.getCursor();
+                    try {
+                        IDataHelper.put(scopeCursor, "iDocList", content);
+                        IDataHelper.put(scopeCursor, "conformsTo", contentSchema);
+                        scopeCursor.destroy();
+
+                        scope = ServiceHelper.invoke("pub.sap.idoc:iDocToDocument", scope);
+
+                        scopeCursor = scope.getCursor();
+                        IData document = IDataHelper.get(scopeCursor, "document", IData.class);
+
+                        ContentParser parser = new ContentParser(contentType, contentEncoding, contentSchema, contentNamespace, false, null);
+                        inputStream = parser.emit(document);
+                        contentEncoding = parser.getCharset();
+                    } finally {
+                        scopeCursor.destroy();
+                    }
+                } else {
+                    inputStream = InputStreamHelper.normalize(content, contentEncoding);
+                }
+
+                byte[] bytes = null;
+
+                // calculate content length if not provided in TN_parms/$contentLength
+                if (contentLength == null) {
+                    bytes = BytesHelper.normalize(inputStream);
+                    if (bytes != null) contentLength = bytes.length;
+                    IDataHelper.put(parameterCursor, "$contentLength", contentLength, String.class,false);
+                }
+
+                // if using a message digest for the bizdoc DocumentID, calculate digest before content InputStream
+                // is consumed by the recognition process
+                if (!(contentIdentity == null || "UUID".equals(contentIdentity) || "ULID".equals(contentIdentity))) {
+                    if (bytes == null) bytes = BytesHelper.normalize(inputStream);
+                    byte[] digest = MessageDigestHelper.digest(MessageDigestHelper.normalize(contentIdentity), bytes);
+                    defaultIdentity = BytesHelper.base64Encode(digest);
+                }
+
+                if (contentLength != null && contentLength > 0) {
+                    // normalize MIME media type (content type) and character set (encoding)
+                    if (contentType == null) {
+                        if (bytes == null) bytes = BytesHelper.normalize(inputStream);
+
+                        // if content is valid XML, then set content type to text/xml
+                        String[] errors = XMLHelper.validate(new ByteArrayInputStream(bytes), contentEncoding, null, null ,false);
+                        if (errors == null) {
+                            contentType = MIMETypeHelper.of("text/xml");
+                        } else {
+                            contentType = MIMETypeHelper.DEFAULT_MIME_TYPE;
+                        }
+                        IDataHelper.put(parameterCursor, "$contentType", contentType.toString());
+                    } else {
+                        if (contentEncoding == null) {
+                            contentEncoding = CharsetHelper.of(contentType.getParameter("charset"));
+                        }
+                        contentType.removeParameter("charset");
+                        IDataHelper.put(parameterCursor, "$contentType", contentType.toString());
+                    }
+
+                    if (bytes != null) inputStream = InputStreamHelper.normalize(bytes);
+
+                    if (contentEncoding == null) contentEncoding = CharsetHelper.DEFAULT_CHARSET;
+                    IDataHelper.put(parameterCursor, "$contentEncoding", contentEncoding.displayName());
+
+                    // invoke wm.tn.doc:handleLargeDoc so that large content is handled appropriately
+                    IDataHelper.put(pipelineCursor, "inputStream", inputStream);
+                    IDataHelper.put(pipelineCursor, "content-type", contentType.toString());
+                    IDataHelper.put(pipelineCursor, "content-length", contentLength, String.class);
+                    pipelineCursor.destroy();
+
+                    pipeline = ServiceHelper.invoke("wm.tn.doc:handleLargeDoc", pipeline);
+
+                    pipelineCursor = pipeline.getCursor();
+                    IDataHelper.remove(pipelineCursor, "inputStream");
+                    IDataHelper.remove(pipelineCursor, "content-type");
+                    IDataHelper.remove(pipelineCursor, "content-length");
+
+                    content = IDataHelper.first(pipelineCursor, Object.class, "node", "$reservation", "stream", "contentStream", "ffdata", "content", "jsonStream");
+
+                    IDataHelper.remove(pipelineCursor, "stream");
+                    IDataHelper.remove(pipelineCursor, "contentStream");
+                    IDataHelper.remove(pipelineCursor, "ffdata");
+                    IDataHelper.remove(pipelineCursor, "content");
+                    IDataHelper.remove(pipelineCursor, "jsonStream");
+
+                    // invoke wm.tn.doc:recognize to recognize the content
+                    if (!(content instanceof Node || content instanceof Reservation)) {
+                        InputStream contentStream = InputStreamHelper.normalize(content);
+                        MIMEClassification classification = MIMETypeHelper.classify(contentType, contentSchema);
+                        if (classification == MIMEClassification.XML) {
+                            IData scope = IDataFactory.create();
+                            IDataCursor scopeCursor = scope.getCursor();
+                            try {
+                                IDataHelper.put(scopeCursor, "$filestream", contentSchema);
+                                IDataHelper.put(scopeCursor, "encoding", contentEncoding.displayName());
+                                IDataHelper.put(scopeCursor, "isXML", "true");
+                                scopeCursor.destroy();
+
+                                scope = ServiceHelper.invoke("pub.xml:xmlStringToXMLNode", scope);
+
+                                scopeCursor = scope.getCursor();
+                                content = IDataHelper.get(scopeCursor, "node", Node.class);
+
+                                IDataHelper.put(pipelineCursor, "node", content, false);
+                            } finally {
+                                scopeCursor.destroy();
+                            }
+                        } else {
+                            IDataHelper.put(pipelineCursor, "ffdata", contentStream);
+                        }
+                    }
+
+                    IDataHelper.put(pipelineCursor, "TN_parms", parameters, false);
+                    pipelineCursor.destroy();
+
+                    pipeline = ServiceHelper.invoke("wm.tn.doc:recognize", pipeline);
+
+                    pipelineCursor = pipeline.getCursor();
+                    bizdoc = IDataHelper.get(pipelineCursor, "bizdoc", BizDocEnvelope.class);
+
+                    // assign a new DocumentID if bizdoc doesn't have one already
+                    if (bizdoc != null && bizdoc.getDocumentId() == null) {
+                        if (defaultIdentity == null) {
+                            if ("ULID".equals(contentIdentity)) {
+                                defaultIdentity = ULID.generate();
+                            } else {
+                                defaultIdentity = UUIDHelper.generate();
+                            }
+                        }
+                        if (defaultIdentity != null) {
+                            bizdoc.setDocumentId(defaultIdentity);
+                        }
+                    }
+                }
+            } catch(IOException ex) {
+                ExceptionHelper.raise(ex);
+            } catch(NoSuchAlgorithmException ex) {
+                ExceptionHelper.raise(ex);
+            } finally {
+                pipelineCursor.destroy();
+                parameterCursor.destroy();
+            }
+        }
+
+        return bizdoc;
     }
 }
