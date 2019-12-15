@@ -32,13 +32,16 @@ import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.SQLIntegrityConstraintViolationException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 import com.wm.app.b2b.server.ServiceException;
+import com.wm.app.tn.db.BDRelationshipOperations;
 import com.wm.app.tn.db.BizDocStore;
 import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.DatastoreException;
@@ -46,11 +49,15 @@ import com.wm.app.tn.db.SQLStatements;
 import com.wm.app.tn.db.SQLWrappers;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocErrorSet;
+import com.wm.app.tn.doc.BizDocType;
 import com.wm.app.tn.err.ActivityLogEntry;
 import com.wm.app.tn.profile.ProfileSummary;
+import com.wm.app.tn.route.PreRoutingFlags;
+import com.wm.app.tn.route.RoutingRule;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
+import com.wm.lang.ns.NSService;
 import com.wm.util.tspace.Reservation;
 import org.w3c.dom.Node;
 import permafrost.tundra.content.ContentParser;
@@ -74,9 +81,13 @@ import permafrost.tundra.mime.MIMETypeHelper;
 import permafrost.tundra.security.MessageDigestHelper;
 import permafrost.tundra.server.ServiceHelper;
 import permafrost.tundra.time.DateTimeHelper;
+import permafrost.tundra.time.DurationHelper;
+import permafrost.tundra.time.DurationPattern;
 import permafrost.tundra.tn.log.ActivityLogHelper;
 import permafrost.tundra.tn.log.EntryType;
+import permafrost.tundra.tn.profile.ProfileCache;
 import permafrost.tundra.tn.profile.ProfileHelper;
+import permafrost.tundra.tn.route.RoutingRuleHelper;
 import permafrost.tundra.xml.XMLHelper;
 import permafrost.tundra.xml.dom.NodeHelper;
 import javax.activation.MimeType;
@@ -715,6 +726,38 @@ public final class BizDocEnvelopeHelper {
     }
 
     /**
+     * The default set of ActivityLog error message classes.
+     */
+    private static final Set<String> DEFAULT_ERROR_MESSAGE_CLASSES;
+
+    static {
+        DEFAULT_ERROR_MESSAGE_CLASSES = new TreeSet<String>();
+        DEFAULT_ERROR_MESSAGE_CLASSES.add("Security");
+        DEFAULT_ERROR_MESSAGE_CLASSES.add("Recognition");
+        DEFAULT_ERROR_MESSAGE_CLASSES.add("Verification");
+        DEFAULT_ERROR_MESSAGE_CLASSES.add("Validation");
+        DEFAULT_ERROR_MESSAGE_CLASSES.add("Persistence");
+        DEFAULT_ERROR_MESSAGE_CLASSES.add("Saving");
+        DEFAULT_ERROR_MESSAGE_CLASSES.add("Routing");
+        DEFAULT_ERROR_MESSAGE_CLASSES.add("General");
+        DEFAULT_ERROR_MESSAGE_CLASSES.add("Processing");
+        DEFAULT_ERROR_MESSAGE_CLASSES.add("Delivery");
+        DEFAULT_ERROR_MESSAGE_CLASSES.add("Transient");
+        DEFAULT_ERROR_MESSAGE_CLASSES.add("Unrecoverable");
+    }
+
+    /**
+     * Returns true if the given BizDocEnvelope has any errors.
+     *
+     * @param document              The BizDocEnvelope to check for errors.
+     * @return                      True if the given BizDocEnvelope has errors.
+     * @throws DatastoreException   If a database error occurs.
+     */
+    public static ActivityLogEntry[] getErrors(BizDocEnvelope document) throws DatastoreException {
+        return getErrors(document, DEFAULT_ERROR_MESSAGE_CLASSES);
+    }
+
+    /**
      * Returns true if the given BizDocEnvelope has any errors of the given message class.
      *
      * @param document              The BizDocEnvelope to check for errors.
@@ -775,6 +818,16 @@ public final class BizDocEnvelopeHelper {
      */
     public static void raiseIfErrors(IData document, IData messageClasses) throws ServiceException {
         raiseIfErrors(normalize(document, false), getMessageClassesSet(messageClasses));
+    }
+
+    /**
+     * Checks if the given document has any errors, and if so throws an exception to stop further processing.
+     *
+     * @param document          The bizdoc to check.
+     * @throws ServiceException If the given bizdoc has errors logged against it.
+     */
+    public static void raiseIfErrors(BizDocEnvelope document) throws ServiceException {
+        raiseIfErrors(document, DEFAULT_ERROR_MESSAGE_CLASSES);
     }
 
     /**
@@ -1113,5 +1166,263 @@ public final class BizDocEnvelopeHelper {
         }
 
         return bizdoc;
+    }
+
+    /**
+     * Routes the given content to Trading Networks as a new BizDocEnvelope document.
+     *
+     * @param content           The content to be routed.
+     * @param contentIdentity   The type of document identity to assign to the BizDocEnvelope if none is extracted.
+     * @param contentType       The MIME media type of the given content.
+     * @param contentEncoding   The character set used to encode the given content.
+     * @param contentNamespace  The namespace prefixes and URIs required to parse the given content, if XML.
+     * @param contentSchema     The content schema used to parse the given content.
+     * @param attributes        The attributes to be set on the resulting BizDocEnvelope.
+     * @param parameters        The Trading Networks routing hints used while routing.
+     * @param pipeline          The pipeline against which variable substitution is resolved.
+     * @param strict            Whether to abort routing if there are errors on the recognized BizDocEnvelope.
+     * @return                  The newly routed BizDocEnvelope.
+     * @throws ServiceException If an error occurs during routing.
+     */
+    public static BizDocEnvelope route(Object content, String contentIdentity, MimeType contentType, Charset contentEncoding, IData contentNamespace, String contentSchema, IData attributes, IData parameters, IData pipeline, boolean strict) throws ServiceException {
+        long startTime = System.nanoTime();
+
+        BizDocEnvelope bizdoc = null;
+
+        if (content != null) {
+            if (parameters == null) parameters = IDataFactory.create();
+            IDataCursor parameterCursor = parameters.getCursor();
+
+            try {
+                if (contentType != null) IDataHelper.put(parameterCursor, "$contentType", contentType.toString());
+                if (contentEncoding != null) IDataHelper.put(parameterCursor, "$contentEncoding", contentEncoding.displayName());
+                if (contentSchema != null) IDataHelper.put(parameterCursor, "$contentSchema", contentSchema);
+            } finally {
+                parameterCursor.destroy();
+            }
+
+            bizdoc = recognize(content, contentIdentity, contentNamespace, parameters);
+
+            if (bizdoc != null) {
+                try {
+                    BizDocAttributeHelper.merge(bizdoc, attributes, pipeline, false);
+                } catch(ServiceException ex) {
+                    // ignore exception
+                }
+
+                route(bizdoc, false, null, parameters, strict);
+
+                NSService initiator = ServiceHelper.getInitiator();
+                IData context = IDataFactory.create();
+                IDataHelper.put(context, "Duration", DurationHelper.format((System.nanoTime() - startTime) / 1000000000.0, DurationPattern.XML_NANOSECONDS));
+                ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document routed by " + (initiator == null ? "???" : initiator.toString()), null, bizdoc, context);
+            }
+        }
+
+        return bizdoc;
+    }
+
+    public static void relate(BizDocEnvelope source, BizDocEnvelope target, String relationship) throws ServiceException {
+        if (source == null || target == null) return;
+        if (relationship == null) relationship = "Unknown";
+
+        long startTime = System.nanoTime();
+
+        try {
+            if (source.isPersisted() && target.isPersisted()) {
+                BDRelationshipOperations.relate(source.getInternalId(), target.getInternalId(), relationship);
+            } else if (source.isPersisted()) {
+                target.addRelationship(source.getInternalId(), target.getInternalId(), relationship);
+            } else {
+                source.addRelationship(source.getInternalId(), target.getInternalId(), relationship);
+            }
+
+            IData context = IDataFactory.create();
+            IDataHelper.put(context, "Duration", DurationHelper.format((System.nanoTime() - startTime) / 1000000000.0, DurationPattern.XML_NANOSECONDS));
+            ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document related to " + target.getInternalId(), "Document related to " + target.getInternalId() + ": " + relationship, source, context);
+            ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document related from " + source.getInternalId(), "Document related from " + source.getInternalId() + ": " + relationship, target, context);
+        } catch(SQLIntegrityConstraintViolationException ex) {
+            // ignore this exception, as these two documents are already related
+        } catch(SQLException ex) {
+            ExceptionHelper.raise(ex);
+        }
+    }
+
+    /**
+     * Reroutes the given BizDocEnvelope in Trading Networks.
+     *
+     * @param document              The BizDocEnvelope to reroute.
+     * @param parameters            The Trading Networks routing hints to use when routing.
+     * @throws ServiceException     If an error occurs during routing.
+     */
+    public static void reroute(BizDocEnvelope document, IData parameters) throws ServiceException {
+        if (document != null) {
+            RoutingRule rule = RoutingRuleHelper.match(document, parameters, true);
+            RoutingRuleHelper.execute(rule, document, parameters);
+        }
+    }
+
+    /**
+     * Routes the given BizDocEnvelope to Trading Networks.
+     *
+     * @param document              The BizDocEnvelope to route.
+     * @param transportLog          Whether to log the transport info as a content part.
+     * @param transportLogPartName  The content part name for the transport info log.
+     * @param parameters            The Trading Networks routing hints to use when routing.
+     * @param strict                Whether to abort routing if errors exist on the BizDocEnvelope.
+     * @throws ServiceException     If an error occurs during routing.
+     */
+    public static void route(BizDocEnvelope document, boolean transportLog, String transportLogPartName, IData parameters, boolean strict) throws ServiceException {
+        if (document != null) {
+            applyParameters(document, parameters);
+            RoutingRule rule = RoutingRuleHelper.match(document, parameters, true);
+            persist(document, rule, transportLog, transportLogPartName, strict);
+            RoutingRuleHelper.execute(rule, document, parameters);
+        }
+    }
+
+    /**
+     * Applies the Trading Networks routing hint parameters to the given BizDocEnvelope document.
+     *
+     * @param document          The BizDocEnvelope to apply the given parameters to.
+     * @param parameters        The routing hint parameters to apply.
+     * @throws ServiceException If a database error occurs.
+     */
+    private static void applyParameters(BizDocEnvelope document, IData parameters) throws ServiceException {
+        if (document == null || IDataHelper.size(parameters) == 0) return;
+
+        IDataCursor parameterCursor = parameters.getCursor();
+        try {
+            String documentID = IDataHelper.get(parameterCursor, "DocumentID", String.class);
+            if (documentID != null) document.setDocumentId(documentID);
+
+            String groupID = IDataHelper.get(parameterCursor, "GroupID", String.class);
+            if (groupID != null) document.setGroupId(groupID);
+
+            String conversationID = IDataHelper.get(parameterCursor, "ConversationID", String.class);
+            if (conversationID != null) document.setConversationId(conversationID);
+
+            String senderID = IDataHelper.get(parameterCursor, "SenderID", String.class);
+            if (senderID != null) {
+                IData profile = ProfileCache.getInstance().get(senderID);
+                if (profile != null) {
+                    document.setSenderId(IDataHelper.get(profile, "ProfileID", String.class));
+                }
+            }
+
+            String receiverID = IDataHelper.get(parameterCursor, "ReceiverID", String.class);
+            if (receiverID != null) {
+                IData profile = ProfileCache.getInstance().get(receiverID);
+                if (profile != null) {
+                    document.setReceiverId(IDataHelper.get(profile, "ProfileID", String.class));
+                }
+            }
+
+            String doctypeID = IDataHelper.get(parameterCursor, "DoctypeID", String.class);
+            if (doctypeID != null && !doctypeID.equals(document.getDocType().getId())) {
+                BizDocType type = BizDocTypeHelper.get(doctypeID);
+                if (type != null) document.setDocType(type);
+            }
+
+            String doctypeName = IDataHelper.get(parameterCursor, "DoctypeName", String.class);
+            if (doctypeName != null && !doctypeName.equals(document.getDocType().getName())) {
+                BizDocType type = BizDocTypeHelper.getByName(doctypeName);
+                if (type != null) document.setDocType(type);
+            }
+        } finally {
+            parameterCursor.destroy();
+        }
+    }
+
+    /**
+     * Persists the given BizDocEnvelope in the Trading Networks database.
+     *
+     * @param document
+     * @param rule                  The RoutingRule used to route the given BizDocEnvelope.
+     * @param transportLog          Whether to log the transport info as a content part.
+     * @param transportLogPartName  The content part name for the transport log.
+     * @param strict                Whether to abort routing if errors exist on the BizDocEnvelope.
+     * @throws ServiceException     If routing is aborted or a database error occurs.
+     */
+    public static void persist(BizDocEnvelope document, RoutingRule rule, boolean transportLog, String transportLogPartName, boolean strict) throws ServiceException {
+        if (document != null) {
+            if (transportLog) BizDocContentHelper.addTransportContentPart(document, transportLogPartName);
+            PreRoutingFlags preRoutingFlags = getPreRoutingFlags(document, rule);
+            document.setPersistOption(preRoutingFlags.getPersistOption());
+
+            IData scope = IDataFactory.create();
+            IDataCursor cursor = scope.getCursor();
+            try {
+                IDataHelper.put(scope, "bizdoc", document);
+                IDataHelper.put(scope, "flags", preRoutingFlags);
+                ServiceHelper.invoke("wm.tn.route:preroute", scope);
+            } finally {
+                cursor.destroy();
+            }
+
+            if (strict) {
+                ActivityLogEntry[] errors = BizDocEnvelopeHelper.getErrors(document);
+                if ((errors != null && errors.length > 0) || "Unknown".equals(document.getDocType().getName())) {
+                    ActivityLogHelper.log(EntryType.ERROR, "Unrecoverable", "Processing aborted due to errors encountered", "Processing of document was aborted due to errors encountered while routing in strict mode", document);
+                    setStatus(document, "ABORTED", "ABORTED");
+                    raiseIfErrors(document);
+                }
+            }
+        }
+    }
+
+    /**
+     * Returns the PreRoutingFlags for the given BizDocEnvelope and RoutingRule.
+     *
+     * @param document  The BizDocEnvelope being routed.
+     * @param rule      The RoutingRule routing the BizDocEnvelope.
+     * @return          The PreRoutingFlags to use when routing.
+     */
+    private static PreRoutingFlags getPreRoutingFlags(BizDocEnvelope document, RoutingRule rule) {
+        PreRoutingFlags preRoutingFlags;
+        PreRoutingFlags documentFlags = document.getDocType().getPreRoutingFlags();
+        PreRoutingFlags ruleFlags = rule == null ? null : rule.getPreRoutingFlags();
+
+        if (documentFlags == null && ruleFlags == null) {
+            preRoutingFlags = new PreRoutingFlags();
+        } else if (documentFlags != null && ruleFlags != null) {
+            preRoutingFlags = PreRoutingFlags.merge(documentFlags, ruleFlags);
+        } else if (documentFlags != null) {
+            preRoutingFlags = documentFlags;
+        } else {
+            preRoutingFlags = ruleFlags;
+        }
+
+        return preRoutingFlags;
+    }
+
+    /**
+     * Returns the content schema used for parsing this BizDocEnvelope's content.
+     *
+     * @param document  The BizDocEnvelope whose content schema is to be returned.
+     * @return          The content schema for the given BizDocEnvelope.
+     */
+    public static String getContentSchema(BizDocEnvelope document) {
+        return document == null ? null : BizDocTypeHelper.getContentSchema(document.getDocType());
+    }
+
+    /**
+     * Returns the content schema type used for parsing this BizDocEnvelope's content.
+     *
+     * @param document  The BizDocEnvelope whose content schema type is to be returned.
+     * @return          The content schema type for the given BizDocEnvelope.
+     */
+    public static String getContentSchemaType(BizDocEnvelope document) {
+        return document == null ? null : BizDocTypeHelper.getContentSchemaType(document.getDocType());
+    }
+
+    /**
+     * Returns the namespace declarations used for parsing this BizDocEnvelope's content.
+     *
+     * @param document  The BizDocEnvelope whose namespace declarations are to be returned.
+     * @return          The namespace declarations for the given BizDocEnvelope.
+     */
+    public static IData getNamespaceDeclarations(BizDocEnvelope document) {
+        return document == null ? null : BizDocTypeHelper.getNamespaceDeclarations(document.getDocType());
     }
 }
