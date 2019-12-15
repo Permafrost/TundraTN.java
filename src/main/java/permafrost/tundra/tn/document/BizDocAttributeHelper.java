@@ -24,14 +24,27 @@
 
 package permafrost.tundra.tn.document;
 
+import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BizDocAttributeStore;
+import com.wm.app.tn.db.BizDocStore;
 import com.wm.app.tn.doc.BizDocAttribute;
+import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
+import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.data.transform.Transformer;
+import permafrost.tundra.data.transform.string.Trimmer;
+import permafrost.tundra.flow.variable.SubstitutionHelper;
+import permafrost.tundra.lang.ObjectHelper;
+import permafrost.tundra.server.SystemHelper;
+import java.sql.Timestamp;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.Enumeration;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 
 /**
  * A collection of convenience methods for working with Trading Networks BizDocAttribute objects.
@@ -60,6 +73,143 @@ public final class BizDocAttributeHelper {
      */
     public static BizDocAttribute get(String id) {
         return BizDocAttributeStore.get(id, false);
+    }
+
+    /**
+     * The regular expression pattern to use to identify if $document was references in a variable substitution string.
+     */
+    protected static final Pattern DOCUMENT_REFERENCE_PATTERN = Pattern.compile("%(\\$document[^%]*)%");
+
+    /**
+     * Performs variable substitution on the given attributes and then merges them into the given BizDocEnvelope.
+     *
+     * @param bizdoc        The BizDocEnvelope to merge the given attributes into.
+     * @param attributes    The attributes to be merged.
+     * @param scope         The scope against which variable substitution is resolved.
+     * @param persist       Whether to persist the attribute changes immediately to the database.
+     */
+    public static void merge(BizDocEnvelope bizdoc, IData attributes, IData scope, boolean persist) throws ServiceException {
+        if (bizdoc != null && attributes != null) {
+            attributes = sanitize(attributes);
+            attributes = SubstitutionHelper.substitute(attributes, null, true, false, null, getScope(bizdoc, attributes, scope));
+            attributes = Transformer.transform(attributes, new Trimmer(true));
+            set(bizdoc, attributes);
+            if (persist) BizDocStore.updateAttributes(bizdoc);
+        }
+    }
+
+    /**
+     * Returns the scope required for merging attributes into a BizDocEnvelope.
+     *
+     * @param bizdoc            The BizDocEnvelope to merge the given attributes into.
+     * @param attributes        The attributes to be merged.
+     * @param scope             The scope against which variable substitution is resolved.
+     * @return                  The modified scope to use for variable substitution.
+     * @throws ServiceException If an error occurs when parsing the BizDocEnvelope content.
+     */
+    private static IData getScope(BizDocEnvelope bizdoc, IData attributes, IData scope) throws ServiceException {
+        if (scope == null) {
+            scope = IDataFactory.create();
+        } else {
+            scope = IDataHelper.duplicate(scope);
+        }
+
+        if (bizdoc != null && attributes != null) {
+            IDataCursor cursor = attributes.getCursor();
+            try {
+                while (cursor.next()) {
+                    Object value = cursor.getValue();
+                    if (value instanceof String) {
+                        if (DOCUMENT_REFERENCE_PATTERN.matcher((String)value).find()) {
+                            IDataHelper.put(scope, "$document", BizDocContentHelper.parse(bizdoc, null, false, false));
+                            break;
+                        }
+                    }
+                }
+                try {
+                    IDataHelper.put(scope, "$system", SystemHelper.reflect());
+                } catch(ServiceException ex) {
+                    // ignore exception
+                }
+            } finally {
+                cursor.destroy();
+            }
+        }
+
+        return scope;
+    }
+
+    /**
+     * Updates the given BizDocEnvelope with the given attributes.
+     *
+     * @param bizdoc        The BizDocEnvelope to set the given attributes on.
+     * @param attributes    The attributes to set.
+     */
+    public static void set(BizDocEnvelope bizdoc, IData attributes) {
+        if (bizdoc != null && attributes != null) {
+            IDataCursor cursor = attributes.getCursor();
+            try {
+                while(cursor.next()) {
+                    set(bizdoc, cursor.getKey(), cursor.getValue());
+                }
+            } finally {
+                cursor.destroy();
+            }
+        }
+    }
+
+    /**
+     * Updates the given BizDocEnvelope with the given attribute key and value.
+     *
+     * @param bizdoc    The BizDocEnvelope to set the given attribute on.
+     * @param key       The attribute key to set.
+     * @param value     The attribute value to set.
+     */
+    public static void set(BizDocEnvelope bizdoc, String key, Object value) {
+        if (bizdoc != null && key != null) {
+            if (value instanceof String) {
+                bizdoc.setStringValue(key, (String)value);
+            } else if (value instanceof Double) {
+                bizdoc.setNumberValue(key, (Double)value);
+            } else if (value instanceof Number) {
+                bizdoc.setNumberValue(key, ((Number)value).doubleValue());
+            } else if (value instanceof Timestamp) {
+                bizdoc.setDateValue(key, (Timestamp)value);
+            } else if (value instanceof Date) {
+                bizdoc.setDateValue(key, new Timestamp(((Date)value).getTime()));
+            } else if (value instanceof Calendar) {
+                bizdoc.setDateValue(key, new Timestamp(((Calendar)value).getTimeInMillis()));
+            } else if (value instanceof String[]) {
+                bizdoc.setStringListValue(key, (String[])value);
+            } else if (value instanceof Double[]) {
+                bizdoc.setNumberListValue(key, (Double[])value);
+            } else if (value instanceof Number[]) {
+                Number[] input = (Number[])value;
+                Double[] output = new Double[input.length];
+                for (int i = 0; i < input.length; i++) {
+                    output[i] = input[i] == null ? null : input[i].doubleValue();
+                }
+                bizdoc.setNumberListValue(key, output);
+            } else if (value instanceof Timestamp[]) {
+                bizdoc.setDateListValue(key, (Timestamp[])value);
+            } else if (value instanceof Date[]) {
+                Date[] input = (Date[])value;
+                Timestamp[] output = new Timestamp[input.length];
+                for (int i = 0; i < input.length; i++) {
+                    output[i] = input[i] == null ? null : new Timestamp(input[i].getTime());
+                }
+                bizdoc.setDateListValue(key, output);
+            } else if (value instanceof Calendar[]) {
+                Calendar[] input = (Calendar[])value;
+                Timestamp[] output = new Timestamp[input.length];
+                for (int i = 0; i < input.length; i++) {
+                    output[i] = input[i] == null ? null : new Timestamp(input[i].getTimeInMillis());
+                }
+                bizdoc.setDateListValue(key, output);
+            } else {
+                bizdoc.setStringValue(key, ObjectHelper.convert(value, String.class));
+            }
+        }
     }
 
     /**
