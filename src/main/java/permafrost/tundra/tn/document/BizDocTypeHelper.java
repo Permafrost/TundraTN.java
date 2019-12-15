@@ -26,8 +26,12 @@ package permafrost.tundra.tn.document;
 
 import com.wm.app.tn.db.BizDocTypeStore;
 import com.wm.app.tn.doc.BizDocType;
+import com.wm.app.tn.doc.FFDocType;
+import com.wm.app.tn.doc.XMLDocType;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
+import com.wm.data.IDataFactory;
+import com.wm.lang.ns.NSName;
 import permafrost.tundra.data.IDataHelper;
 
 /**
@@ -57,6 +61,47 @@ public final class BizDocTypeHelper {
      */
     public static BizDocType getByName(String name) {
         return BizDocTypeStore.getByName(name, true, true);
+    }
+
+    /**
+     * Returns the content schema used to parse this content for this BizDocType.
+     *
+     * @param type  The BizDocType whose content schema is to be returned.
+     * @return      The content schema for the given BizDocType.
+     */
+    public static String getContentSchema(BizDocType type) {
+        if (type == null) return null;
+
+        String contentSchema = null;
+
+        if (type instanceof XMLDocType) {
+            NSName recordBlueprint = ((XMLDocType)type).getRecordBlueprint();
+            if (recordBlueprint != null) contentSchema = recordBlueprint.getFullName();
+        } else if (type instanceof FFDocType) {
+            contentSchema = ((FFDocType)type).getParsingSchema();
+        }
+
+        return contentSchema;
+    }
+
+    /**
+     * Returns the content schema type used to parse this content for this BizDocType.
+     *
+     * @param type  The BizDocType whose content schema is to be returned.
+     * @return      The content schema type for the given BizDocType.
+     */
+    public static String getContentSchemaType(BizDocType type) {
+        if (type == null) return null;
+
+        String contentSchemaType = null;
+
+        if (type instanceof XMLDocType) {
+            contentSchemaType = "XML";
+        } else if (type instanceof FFDocType) {
+            contentSchemaType = "Flat File";
+        }
+
+        return contentSchemaType;
     }
 
     /**
