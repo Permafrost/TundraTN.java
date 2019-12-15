@@ -46,6 +46,7 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.lang.ns.NSService;
 import permafrost.tundra.collection.CollectionHelper;
+import permafrost.tundra.content.ContentParser;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.data.IDataYAMLParser;
 import permafrost.tundra.io.InputStreamHelper;
@@ -55,6 +56,10 @@ import permafrost.tundra.mime.MIMETypeHelper;
 import permafrost.tundra.server.InvokeStateHelper;
 import permafrost.tundra.server.ServiceHelper;
 import permafrost.tundra.time.DateTimeHelper;
+import permafrost.tundra.time.DurationHelper;
+import permafrost.tundra.time.DurationPattern;
+import permafrost.tundra.tn.log.ActivityLogHelper;
+import permafrost.tundra.tn.log.EntryType;
 import javax.activation.MimeType;
 
 /**
@@ -324,6 +329,58 @@ public final class BizDocContentHelper {
      */
     public static BizDocContentPart getContentPart(BizDocEnvelope document) {
         return getContentPart(document, null);
+    }
+
+    /**
+     * Parses the given BizDocEnvelope's content with the given part name.
+     *
+     * @param document          The BizDocEnvelope whose content is to be parsed.
+     * @param partName          The optional name of the content part to be parsed.
+     * @param validate          Whether the content should be validated against the schema.
+     * @param log               Whether to log the duration of the parse against the BizDocEnvelope.
+     * @return                  The parsed content.
+     * @throws ServiceException If an error occurs retrieving or parsing the content.
+     */
+    public static IData parse(BizDocEnvelope document, String partName, boolean validate, boolean log) throws ServiceException {
+        long startTime = System.nanoTime();
+
+        IData parsedContent = null;
+
+        if (document != null) {
+            try {
+                String contentSchema = BizDocEnvelopeHelper.getContentSchema(document);
+                BizDocContentPart contentPart = getContentPart(document, partName);
+                if (contentPart != null) {
+                    InputStream content = BizDocContentHelper.getContent(document, contentPart);
+                    MimeType contentType = MIMETypeHelper.of(contentPart.getMimeType());
+                    Charset contentEncoding = null;
+                    if (contentType != null) {
+                        contentEncoding = CharsetHelper.of(contentType.getParameter("charset"));
+                    }
+                    IData contentNamespace = BizDocEnvelopeHelper.getNamespaceDeclarations(document);
+
+                    ContentParser parser = new ContentParser(contentType, contentEncoding, contentSchema, contentNamespace, validate, null);
+
+                    parsedContent = parser.parse(content);
+
+                    if (log) {
+                        String message;
+                        if (contentSchema == null) {
+                            message = "Content parse by service tundra.tn.document:parse was successful";
+                        } else {
+                            message = "Content parse by service tundra.tn.document:parse using schema " + contentSchema + " was successful";
+                        }
+                        IData context = IDataFactory.create();
+                        IDataHelper.put(context, "Duration", DurationHelper.format((System.nanoTime() - startTime) / 1000000000.0, DurationPattern.XML_NANOSECONDS));
+                        ActivityLogHelper.log(EntryType.MESSAGE, "General", "Content parse successful", message, document, context);
+                    }
+                }
+            } catch (IOException ex) {
+                ExceptionHelper.raise(ex);
+            }
+        }
+
+        return parsedContent;
     }
 
     /**
