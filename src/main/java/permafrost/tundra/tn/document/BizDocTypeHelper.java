@@ -105,6 +105,40 @@ public final class BizDocTypeHelper {
     }
 
     /**
+     * Returns the namespace declarations from the given BizDocType.
+     *
+     * @param type  The BizDocType whose namespace declarations are to be returned.
+     * @return      The namespace declarations from the given BizDocType.
+     */
+    public static IData getNamespaceDeclarations(BizDocType type) {
+        IData namespace = null;
+
+        if (type != null) {
+            String[][] declarations = (String[][])type.get("nsDecls");
+            if (declarations != null) {
+                IDataCursor cursor = null;
+                try {
+                    for (int i = 0; i < declarations.length; i++) {
+                        if (declarations[i] != null && declarations[i].length > 1) {
+                            String key = declarations[i][0];
+                            String value = declarations[i][1];
+                            if (key != null && value != null) {
+                                if (namespace == null) namespace = IDataFactory.create();
+                                if (cursor == null) cursor = namespace.getCursor();
+                                IDataHelper.put(cursor, key, value);
+                                if ("prefix0".equals(key)) IDataHelper.put(cursor, "ns", value);
+                            }
+                        }
+                    }
+                } finally {
+                    if (cursor != null) cursor.destroy();
+                }
+            }
+        }
+        return namespace;
+    }
+
+    /**
      * Returns the given IData if its already a BizDocType, otherwise converts it to a BizDocType object.
      *
      * @param input The IData object to be converted to a BizDocType object.
