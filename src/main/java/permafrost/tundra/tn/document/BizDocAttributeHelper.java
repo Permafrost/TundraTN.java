@@ -86,15 +86,21 @@ public final class BizDocAttributeHelper {
      * @param bizdoc        The BizDocEnvelope to merge the given attributes into.
      * @param attributes    The attributes to be merged.
      * @param scope         The scope against which variable substitution is resolved.
-     * @param persist       Whether to persist the attribute changes immediately to the database.
+     * @param substitute    Whether to perform variable substitution on the attribute values.
      */
-    public static void merge(BizDocEnvelope bizdoc, IData attributes, IData scope, boolean persist) throws ServiceException {
+    public static void merge(BizDocEnvelope bizdoc, IData attributes, IData scope, boolean substitute) throws ServiceException {
         if (bizdoc != null && attributes != null) {
             attributes = sanitize(attributes);
-            attributes = SubstitutionHelper.substitute(attributes, null, true, false, null, getScope(bizdoc, attributes, scope));
+
+            if (substitute) {
+                attributes = SubstitutionHelper.substitute(attributes, null, true, false, null, getScope(bizdoc, attributes, scope));
+            }
+
             attributes = Transformer.transform(attributes, new Trimmer(true));
+
             set(bizdoc, attributes);
-            if (persist) BizDocStore.updateAttributes(bizdoc);
+
+            if (bizdoc.isPersisted()) BizDocStore.updateAttributes(bizdoc);
         }
     }
 

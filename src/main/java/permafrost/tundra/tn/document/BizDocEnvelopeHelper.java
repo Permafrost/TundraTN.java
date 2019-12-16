@@ -1205,7 +1205,7 @@ public final class BizDocEnvelopeHelper {
 
             if (bizdoc != null) {
                 try {
-                    BizDocAttributeHelper.merge(bizdoc, attributes, pipeline, false);
+                    BizDocAttributeHelper.merge(bizdoc, attributes, pipeline, true);
                 } catch(ServiceException ex) {
                     // ignore exception
                 }
