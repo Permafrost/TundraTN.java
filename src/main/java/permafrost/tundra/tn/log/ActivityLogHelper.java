@@ -29,6 +29,7 @@ import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.err.ActivityLogEntry;
 import com.wm.app.tn.err.SystemLog2;
+import com.wm.app.tn.route.PreRoutingFlags;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
@@ -42,6 +43,8 @@ import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.server.NameHelper;
 import permafrost.tundra.server.ServiceHelper;
 import permafrost.tundra.time.DateTimeHelper;
+import permafrost.tundra.time.DurationHelper;
+import permafrost.tundra.time.DurationPattern;
 import java.io.IOException;
 import java.util.List;
 
@@ -75,10 +78,66 @@ public class ActivityLogHelper {
      * @param messageSummary The summary of the message being logged.
      * @param messageDetail  The detail of the message being logged.
      * @param bizdoc         Optional related bizdoc to log against.
+     * @param startTime      The start time in nanoseconds.
+     * @param endTime        The end time in nanoseconds.
+     */
+    public static void log(EntryType entryType, String entryClass, String messageSummary, String messageDetail, BizDocEnvelope bizdoc, long startTime, long endTime) {
+        log(entryType, entryClass, messageSummary, messageDetail, bizdoc, getContext(null, startTime, endTime));
+    }
+
+    /**
+     * Logs the given message in the Trading Network's Activity Log.
+     *
+     * @param entryType      The entry type of the log.
+     * @param entryClass     The entry class of the log.
+     * @param messageSummary The summary of the message being logged.
+     * @param messageDetail  The detail of the message being logged.
+     * @param bizdoc         Optional related bizdoc to log against.
+     * @param duration       The duration in seconds to be included in the log context.
+     */
+    public static void log(EntryType entryType, String entryClass, String messageSummary, String messageDetail, BizDocEnvelope bizdoc, double duration) {
+        log(entryType, entryClass, messageSummary, messageDetail, bizdoc, getContext(null, duration));
+    }
+
+    /**
+     * Returns a context decorated with the given duration.
+     *
+     * @param context   The context to decorate.
+     * @param startTime The start time in nanoseconds.
+     * @param endTime   The end time in nanoseconds.
+     * @return          The context decorated with the given duration.
+     */
+    public static IData getContext(IData context, long startTime, long endTime) {
+        return getContext(context, (endTime - startTime) / 1000000000.0);
+    }
+
+    /**
+     * Returns a context decorated with the given duration.
+     *
+     * @param context   The context to decorate.
+     * @param duration  The duration in seconds.
+     * @return          The context decorated with the given duration.
+     */
+    public static IData getContext(IData context, double duration) {
+        if (context == null) context = IDataFactory.create();
+        IDataHelper.put(context, "Duration", DurationHelper.format(duration, DurationPattern.XML_NANOSECONDS));
+        return context;
+    }
+
+    /**
+     * Logs the given message in the Trading Network's Activity Log.
+     *
+     * @param entryType      The entry type of the log.
+     * @param entryClass     The entry class of the log.
+     * @param messageSummary The summary of the message being logged.
+     * @param messageDetail  The detail of the message being logged.
+     * @param bizdoc         Optional related bizdoc to log against.
      * @param context        Optional document containing key values to be included in the log for context.
      */
     public static void log(EntryType entryType, String entryClass, String messageSummary, String messageDetail, BizDocEnvelope bizdoc, IData context) {
-        if (bizdoc == null || bizdoc.isPersisted()) {
+        if (shouldLog(bizdoc)) {
+            entryType = EntryType.normalize(entryType);
+
             if (messageDetail == null) messageDetail = "";
             String[] messageDetailLines = StringHelper.lines(messageDetail);
             if (messageSummary == null) messageSummary = messageDetailLines[0];
@@ -105,6 +164,26 @@ public class ActivityLogHelper {
             }
             SystemLog2.dbLog(log);
         }
+    }
+
+    /**
+     * Returns whether ActivityLog entries should be logged against this BizDocEnvelope.
+     *
+     * @param document  The document to determine if logging should occur.
+     * @return          Whether logging should occur against this document.
+     */
+    private static boolean shouldLog(BizDocEnvelope document) {
+        boolean shouldLog = true;
+
+        if (document != null && document.isPersisted()) {
+            String persistOption = document.getPersistOption();
+            if (persistOption == null || persistOption.equals("")) {
+                persistOption = document.getDocType().getPreRoutingFlags().getPersistOption();
+            }
+            shouldLog = PreRoutingFlags.isPersistActLog(persistOption);
+        }
+
+        return shouldLog;
     }
 
     /**
