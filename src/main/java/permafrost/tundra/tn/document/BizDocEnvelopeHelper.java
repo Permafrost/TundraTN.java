@@ -35,6 +35,7 @@ import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -45,8 +46,13 @@ import com.wm.app.tn.db.BDRelationshipOperations;
 import com.wm.app.tn.db.BizDocStore;
 import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.DatastoreException;
+import com.wm.app.tn.db.DeliveryStore;
 import com.wm.app.tn.db.SQLStatements;
 import com.wm.app.tn.db.SQLWrappers;
+import com.wm.app.tn.delivery.DeliveryJob;
+import com.wm.app.tn.delivery.DeliveryQueue;
+import com.wm.app.tn.delivery.DeliveryUtils;
+import com.wm.app.tn.delivery.GuaranteedJob;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocErrorSet;
 import com.wm.app.tn.doc.BizDocType;
@@ -75,13 +81,13 @@ import permafrost.tundra.lang.CharsetHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.ObjectHelper;
 import permafrost.tundra.lang.StringHelper;
+import permafrost.tundra.lang.UnrecoverableException;
 import permafrost.tundra.mime.MIMEClassification;
 import permafrost.tundra.mime.MIMETypeHelper;
 import permafrost.tundra.security.MessageDigestHelper;
 import permafrost.tundra.server.ServiceHelper;
 import permafrost.tundra.time.DateTimeHelper;
-import permafrost.tundra.time.DurationHelper;
-import permafrost.tundra.time.DurationPattern;
+import permafrost.tundra.tn.delivery.GuaranteedJobHelper;
 import permafrost.tundra.tn.log.ActivityLogHelper;
 import permafrost.tundra.tn.log.EntryType;
 import permafrost.tundra.tn.profile.ProfileCache;
@@ -1419,5 +1425,107 @@ public final class BizDocEnvelopeHelper {
      */
     public static IData getNamespaceDeclarations(BizDocEnvelope document) {
         return document == null ? null : BizDocTypeHelper.getNamespaceDeclarations(document.getDocType());
+    }
+
+    private static final long MAXIMUM_TASK_DELIVERY_DURATION = 10 * 60 * 1000;
+    private static final String MESSAGE_EPOCH_ATTRIBUTE_NAME = "Message Epoch";
+
+    /**
+     * Enqueues the given BizDocEnvelope to the given DeliveryQueue.
+     *
+     * @param document          The document to enqueue.
+     * @param queue             The queue to enqueue the document to.
+     * @param force             Whether to restart pre-existing task regardless of status.
+     * @throws ServiceException If an exception occurs when enqueuing the document.
+     */
+    public static GuaranteedJob enqueue(BizDocEnvelope document, DeliveryQueue queue, boolean force, String messageSummary, IData context) throws ServiceException {
+        GuaranteedJob task = null;
+        boolean documentEnqueued = false;
+
+        if (document != null && document.isPersisted() && queue != null) {
+            long startTime = System.nanoTime();
+
+            EntryType entryType = EntryType.MESSAGE;
+            String messageDetail;
+
+            if (queue.isDraining() || queue.isDisabled()) {
+                throw new UnrecoverableException("Document " + document.getInternalId() + " could not be enqueued as " + queue.getQueueType() + " queue " + queue.getQueueName() + " is " + queue.getState());
+            } else {
+                IData receiver = ProfileCache.getInstance().get(document.getReceiverId());
+                if (receiver == null) {
+                    throw new UnrecoverableException("Document " + document.getInternalId() + " could not be enqueued as receiver " + document.getReceiverId() + " does not exist");
+                } else if (!"Active".equals(IDataHelper.get(receiver, "Status", String.class))) {
+                    throw new UnrecoverableException("Document " + document.getInternalId() + " could not be enqueued as receiver " + document.getReceiverId() + " is not active");
+                } else {
+                    try {
+                        if (messageSummary == null) {
+                            messageSummary = "Document enqueue";
+                        }
+
+                        GuaranteedJob[] existingTasks = GuaranteedJobHelper.list(document);
+                        for (GuaranteedJob existingTask : existingTasks) {
+                            if (queue.getQueueName().equals(existingTask.getQueueName())) {
+                                task = existingTask;
+                                if (force || existingTask.getStatusVal() == GuaranteedJob.FAILED || existingTask.getStatusVal() == GuaranteedJob.STOPPED || (existingTask.getStatusVal() == GuaranteedJob.DELIVERING && existingTask.getTimeUpdated() < (System.currentTimeMillis() - MAXIMUM_TASK_DELIVERY_DURATION))) {
+                                    GuaranteedJobHelper.restart(existingTask);
+                                    documentEnqueued = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (task == null) {
+                            task = DeliveryUtils.createQueuedJob(document, queue.getQueueName());
+
+                            if (IDataHelper.getOrDefault(receiver, "Corporation/RoutingOff", Boolean.class, false)) {
+                                task.setStatus(DeliveryJob.HELD);
+                            }
+
+                            // to support deferring tasks, set TimeCreated on task to Message Epoch document attribute
+                            // value if the attribute exists
+                            IData attributes = document.getAttributes();
+                            if (attributes != null) {
+                                IDataCursor cursor = attributes.getCursor();
+                                try {
+                                    String messageEpoch = IDataHelper.get(cursor, MESSAGE_EPOCH_ATTRIBUTE_NAME, String.class);
+                                    if (messageEpoch != null) {
+                                        Calendar epoch = DateTimeHelper.parse(messageEpoch, new String[]{"datetime", "datetime.jdbc", "date"});
+                                        if (epoch != null) {
+                                            task.setTimeCreated(epoch.getTimeInMillis());
+                                        }
+                                    }
+                                } catch(Exception ex) {
+                                    // ignore exception
+                                } finally {
+                                    cursor.destroy();
+                                }
+                            }
+
+                            DeliveryStore.insertJob(task);
+                            BizDocStore.queueForDelivery(document);
+
+                            messageSummary = messageSummary + " successful";
+                            messageDetail = "Document enqueued for delivery by " + queue.getQueueType() + " queue " + queue.getQueueName() + ": task " + task.getJobId() + " created";
+                        } else {
+                            if (documentEnqueued) {
+                                messageSummary = messageSummary + " successful";
+                                messageDetail = "Document enqueued for delivery by " + queue.getQueueType() + " queue " + queue.getQueueName() + ": pre-existing task " + task.getJobId() + " restarted";
+                            } else {
+                                task = null;
+                                entryType = EntryType.WARNING;
+                                messageSummary = messageSummary + " ignored";
+                                messageDetail = "Document enqueue for delivery by " + queue.getQueueType() + " queue " + queue.getQueueName() + " was ignored: one or more pre-existing tasks are already in-progress or completed";
+                            }
+                        }
+
+                        ActivityLogHelper.log(entryType, "General", messageSummary, messageDetail, document, ActivityLogHelper.getContext(context, startTime, System.nanoTime()));
+                    } catch(Exception ex) {
+                        ExceptionHelper.raise(ex);
+                    }
+                }
+            }
+        }
+
+        return task;
     }
 }
