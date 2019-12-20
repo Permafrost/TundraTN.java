@@ -57,7 +57,6 @@ import com.wm.app.tn.route.RoutingRule;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
-import com.wm.lang.ns.NSService;
 import com.wm.util.tspace.Reservation;
 import org.w3c.dom.Node;
 import permafrost.tundra.content.ContentParser;
@@ -1212,10 +1211,7 @@ public final class BizDocEnvelopeHelper {
 
                 route(bizdoc, false, null, parameters, strict);
 
-                NSService initiator = ServiceHelper.getInitiator();
-                IData context = IDataFactory.create();
-                IDataHelper.put(context, "Duration", DurationHelper.format((System.nanoTime() - startTime) / 1000000000.0, DurationPattern.XML_NANOSECONDS));
-                ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document routed by " + (initiator == null ? "???" : initiator.toString()), null, bizdoc, context);
+                ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document routed by " + ServiceHelper.getInitiator(), null, bizdoc, startTime, System.nanoTime());
             }
         }
 
@@ -1237,10 +1233,9 @@ public final class BizDocEnvelopeHelper {
                 source.addRelationship(source.getInternalId(), target.getInternalId(), relationship);
             }
 
-            IData context = IDataFactory.create();
-            IDataHelper.put(context, "Duration", DurationHelper.format((System.nanoTime() - startTime) / 1000000000.0, DurationPattern.XML_NANOSECONDS));
-            ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document related to " + target.getInternalId(), "Document related to " + target.getInternalId() + ": " + relationship, source, context);
-            ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document related from " + source.getInternalId(), "Document related from " + source.getInternalId() + ": " + relationship, target, context);
+            double duration = (System.nanoTime() - startTime) / 1000000000.0;
+            ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document related to " + target.getInternalId(), "Document related to " + target.getInternalId() + ": " + relationship, source, duration);
+            ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document related from " + source.getInternalId(), "Document related from " + source.getInternalId() + ": " + relationship, target, duration);
         } catch(SQLIntegrityConstraintViolationException ex) {
             // ignore this exception, as these two documents are already related
         } catch(SQLException ex) {
