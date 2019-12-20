@@ -175,12 +175,16 @@ public class ActivityLogHelper {
     private static boolean shouldLog(BizDocEnvelope document) {
         boolean shouldLog = true;
 
-        if (document != null && document.isPersisted()) {
-            String persistOption = document.getPersistOption();
-            if (persistOption == null || persistOption.equals("")) {
-                persistOption = document.getDocType().getPreRoutingFlags().getPersistOption();
+        if (document != null) {
+            if (document.isPersisted()) {
+                String persistOption = document.getPersistOption();
+                if (persistOption == null || persistOption.equals("")) {
+                    persistOption = document.getDocType().getPreRoutingFlags().getPersistOption();
+                }
+                shouldLog = PreRoutingFlags.isPersistActLog(persistOption);
+            } else {
+                shouldLog = false;
             }
-            shouldLog = PreRoutingFlags.isPersistActLog(persistOption);
         }
 
         return shouldLog;
