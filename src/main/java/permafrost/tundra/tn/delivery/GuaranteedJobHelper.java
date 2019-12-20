@@ -398,8 +398,8 @@ public final class GuaranteedJobHelper {
      * @param summary           The summary of the message to be logged.
      * @param message           The detail of the message to be logged.
      */
-    public static void log(GuaranteedJob job, String entryType, String entryClass, String summary, String message) {
-        ActivityLogHelper.log(EntryType.normalize(entryType), entryClass, summary, message, job.getBizDocEnvelope());
+    public static void log(GuaranteedJob job, EntryType entryType, String entryClass, String summary, String message) {
+        ActivityLogHelper.log(entryType, entryClass, summary, message, job.getBizDocEnvelope());
     }
 
     /**
