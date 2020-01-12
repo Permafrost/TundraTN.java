@@ -1427,8 +1427,18 @@ public final class BizDocEnvelopeHelper {
         return document == null ? null : BizDocTypeHelper.getNamespaceDeclarations(document.getDocType());
     }
 
-    private static final long MAXIMUM_TASK_DELIVERY_DURATION = 10 * 60 * 1000;
+    /**
+     * The maximum time a queued task can be in DELIVERING state before it becomes eligible to be restarted.
+     */
+    private static final long MAXIMUM_TASK_DELIVERING_MILLISECONDS = 10 * 60 * 1000;
+    /**
+     * The BizDocEnvelope attribute used to defer delivery of a queued task.
+     */
     private static final String MESSAGE_EPOCH_ATTRIBUTE_NAME = "Message Epoch";
+    /**
+     * The datetime patterns used when parsing value of the message epoch attribute.
+     */
+    private static final String[] MESSAGE_EPOCH_DATETIME_PATTERNS = new String[]{"datetime.jdbc", "datetime", "date", "time"};
 
     /**
      * Enqueues the given BizDocEnvelope to the given DeliveryQueue.
@@ -1466,7 +1476,7 @@ public final class BizDocEnvelopeHelper {
                         for (GuaranteedJob existingTask : existingTasks) {
                             if (queue.getQueueName().equals(existingTask.getQueueName())) {
                                 task = existingTask;
-                                if (force || existingTask.getStatusVal() == GuaranteedJob.FAILED || existingTask.getStatusVal() == GuaranteedJob.STOPPED || (existingTask.getStatusVal() == GuaranteedJob.DELIVERING && existingTask.getTimeUpdated() < (System.currentTimeMillis() - MAXIMUM_TASK_DELIVERY_DURATION))) {
+                                if (force || existingTask.getStatusVal() == GuaranteedJob.FAILED || existingTask.getStatusVal() == GuaranteedJob.STOPPED || (existingTask.getStatusVal() == GuaranteedJob.DELIVERING && existingTask.getTimeUpdated() < (System.currentTimeMillis() - MAXIMUM_TASK_DELIVERING_MILLISECONDS))) {
                                     GuaranteedJobHelper.restart(existingTask);
                                     documentEnqueued = true;
                                     break;
@@ -1482,16 +1492,19 @@ public final class BizDocEnvelopeHelper {
                             }
 
                             // to support deferring tasks, set TimeCreated on task to Message Epoch document attribute
-                            // value if the attribute exists
+                            // value if the attribute exists and can be parsed as a datetime and is in the future
                             IData attributes = document.getAttributes();
                             if (attributes != null) {
                                 IDataCursor cursor = attributes.getCursor();
                                 try {
                                     String messageEpoch = IDataHelper.get(cursor, MESSAGE_EPOCH_ATTRIBUTE_NAME, String.class);
                                     if (messageEpoch != null) {
-                                        Calendar epoch = DateTimeHelper.parse(messageEpoch, new String[]{"datetime", "datetime.jdbc", "date"});
+                                        Calendar epoch = DateTimeHelper.parse(messageEpoch, MESSAGE_EPOCH_DATETIME_PATTERNS);
                                         if (epoch != null) {
-                                            task.setTimeCreated(epoch.getTimeInMillis());
+                                            long epochMillis = epoch.getTimeInMillis();
+                                            if (epochMillis > System.currentTimeMillis()) {
+                                                task.setTimeCreated(epochMillis);
+                                            }
                                         }
                                     }
                                 } catch(Exception ex) {
