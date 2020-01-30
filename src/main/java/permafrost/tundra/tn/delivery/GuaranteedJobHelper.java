@@ -67,14 +67,6 @@ public final class GuaranteedJobHelper {
      */
     private static final String UPDATE_DELIVERY_JOB_RETRY_STRATEGY_SQL = "UPDATE DeliveryJob SET RetryLimit = ?, RetryFactor = ?, TimeToWait = ? WHERE JobID = ?";
     /**
-     * SQL statement for updating a Trading Networks delivery job status to "DELIVERING".
-     */
-    private static final String UPDATE_DELIVERY_JOB_STATUS_TO_DELIVERING_SQL = "deliver.job.update.delivering";
-    /**
-     * SQL statement for selecting all Trading Networks delivery jobs for a specific bizdoc.
-     */
-    private static final String SELECT_DELIVERY_JOBS_FOR_BIZDOC_SQL = "delivery.jobid.select.docid";
-    /**
      * The default timeout for database queries.
      */
     private static final int DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS = 30;
@@ -180,7 +172,7 @@ public final class GuaranteedJobHelper {
 
         try {
             connection = Datastore.getConnection();
-            statement = SQLStatements.prepareStatement(connection, SELECT_DELIVERY_JOBS_FOR_BIZDOC_SQL);
+            statement = SQLStatements.prepareStatement(connection, "delivery.jobid.select.docid");
             statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
             statement.clearParameters();
 
@@ -312,7 +304,7 @@ public final class GuaranteedJobHelper {
         try {
             connection = Datastore.getConnection();
 
-            statement = SQLStatements.prepareStatement(connection, UPDATE_DELIVERY_JOB_STATUS_TO_DELIVERING_SQL);
+            statement = SQLStatements.prepareStatement(connection, "deliver.job.update.delivering");
             statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
             statement.clearParameters();
 

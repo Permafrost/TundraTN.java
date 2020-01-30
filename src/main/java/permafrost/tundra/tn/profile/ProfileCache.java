@@ -24,6 +24,7 @@
 
 package permafrost.tundra.tn.profile;
 
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,8 +34,8 @@ import com.wm.app.tn.profile.Profile;
 import com.wm.app.tn.profile.ProfileStore;
 import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
-import permafrost.tundra.data.CopyOnWriteIDataMap;
 import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.lang.ExceptionHelper;
 
 /**
  * A local in-memory cache of Trading Networks partner cache, to improve performance of Trading Networks
@@ -77,16 +78,28 @@ public class ProfileCache {
      * @throws ServiceException If a database error occurs.
      */
     public void refresh() throws ServiceException {
-        for (String id : cache.keySet()) {
-             get(id, true);
+        try {
+            for (String id : cache.keySet()) {
+                get(id, true);
+            }
+            ProfileID.seed();
+        } catch(SQLException ex) {
+            ExceptionHelper.raise(ex);
         }
     }
 
     /**
      * Removes all Trading Networks partner profiles from the cache.
+     *
+     * @throws ServiceException If a database error occurs.
      */
-    public void clear() {
-        cache.clear();
+    public void clear() throws ServiceException {
+        try {
+            cache.clear();
+            ProfileID.seed();
+        } catch(SQLException ex) {
+            ExceptionHelper.raise(ex);
+        }
     }
 
     /**
@@ -106,15 +119,21 @@ public class ProfileCache {
      * @throws ServiceException If an error occurs.
      */
     public void seed(boolean refresh) throws ServiceException {
-        List summaries = ProfileStore.getProfileSummaryList(false, false);
+        try {
+            List summaries = ProfileStore.getProfileSummaryList(false, false);
 
-        if (summaries != null) {
-            for (Object object : summaries) {
-                if (object instanceof ProfileSummary) {
-                    ProfileSummary profile = (ProfileSummary)object;
-                    get(new ProfileID(profile.getProfileID()), refresh);
+            if (summaries != null) {
+                for (Object object : summaries) {
+                    if (object instanceof ProfileSummary) {
+                        ProfileSummary profile = (ProfileSummary)object;
+                        get(new ProfileID(profile.getProfileID()), refresh);
+                    }
                 }
             }
+
+            ProfileID.seed();
+        } catch(SQLException ex) {
+            ExceptionHelper.raise(ex);
         }
     }
 

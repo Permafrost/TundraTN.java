@@ -1338,7 +1338,7 @@ public final class BizDocEnvelopeHelper {
     /**
      * Persists the given BizDocEnvelope in the Trading Networks database.
      *
-     * @param document
+     * @param document              The BizDocEnvelope document to be persisted.
      * @param rule                  The RoutingRule used to route the given BizDocEnvelope.
      * @param transportLog          Whether to log the transport info as a content part.
      * @param transportLogPartName  The content part name for the transport log.

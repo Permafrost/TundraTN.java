@@ -24,10 +24,19 @@
 
 package permafrost.tundra.tn.profile;
 
+import com.wm.app.tn.db.Datastore;
+import com.wm.app.tn.db.SQLStatements;
+import com.wm.app.tn.db.SQLWrappers;
 import com.wm.app.tn.profile.LookupStore;
 import com.wm.app.tn.profile.LookupStoreException;
 import com.wm.app.tn.profile.ProfileStore;
 import com.wm.app.tn.profile.ProfileStoreException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * Represents either an internal or external Trading Networks partner profile ID.
@@ -149,15 +158,85 @@ public class ProfileID {
         if (this.isInternal()) {
             output = this;
         } else {
-            Integer typeID = LookupStore.getExternalIDType(this.getType());
-            if (typeID == null) throw new LookupStoreException("Trading Networks partner profile external ID type does not exist: " + this.getType());
+            output = CACHE.get(this);
+            if (output == null) {
+                Integer typeID = LookupStore.getExternalIDType(this.getType());
+                if (typeID == null)
+                    throw new LookupStoreException("Trading Networks partner profile external ID type does not exist: " + this.getType());
 
-            if (this.getValue() != null) {
-                String internalID = ProfileStore.getInternalID(this.getValue(), typeID);
-                if (internalID != null) output = new ProfileID(internalID);
+                if (this.getValue() != null) {
+                    String internalID = ProfileStore.getInternalID(this.getValue(), typeID);
+                    if (internalID != null) {
+                        output = new ProfileID(internalID);
+                        CACHE.put(this, output);
+                    }
+                }
             }
         }
 
         return output;
+    }
+
+    /**
+     * A local in-memory cache of all external identities and the internal identity they relate to.
+     */
+    private static volatile ConcurrentMap<ProfileID, ProfileID> CACHE = new ConcurrentHashMap<ProfileID, ProfileID>();
+    /**
+     * SQL statement used to seed the external identity cache.
+     */
+    private static final String SELECT_EXTERNAL_IDENTITIES_SQL = "SELECT A.PartnerID, C.Description, B.ExternalID FROM Partner A, PartnerID B, IDType C WHERE A.PartnerID = B.InternalID AND A.Deleted = ? AND B.IDType = C.Type";
+    /**
+     * The default timeout for database queries.
+     */
+    private static final int DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS = 30;
+
+    /**
+     * Seeds the external identity cache with all external identities known at this time.
+     */
+    public static void seed() throws SQLException {
+        Connection connection = null;
+        PreparedStatement statement = null;
+        ResultSet resultSet = null;
+
+        try {
+            connection = Datastore.getConnection();
+            statement = connection.prepareStatement(SELECT_EXTERNAL_IDENTITIES_SQL);
+            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
+            statement.clearParameters();
+
+            // do not include deleted partner profiles in the results
+            statement.setBoolean(1, false);
+
+            resultSet = statement.executeQuery();
+
+            CACHE.clear();
+
+            while(resultSet.next()) {
+                String internalID = resultSet.getString(1);
+                String externalIDType = resultSet.getString(2);
+                String externalID = resultSet.getString(3);
+                CACHE.put(new ProfileID(externalID, externalIDType), new ProfileID(internalID));
+            }
+
+            connection.commit();
+        } catch (SQLException ex) {
+            connection = Datastore.handleSQLException(connection, ex);
+            throw ex;
+        } finally {
+            SQLWrappers.close(resultSet);
+            SQLStatements.releaseStatement(statement);
+            Datastore.releaseConnection(connection);
+        }
+    }
+
+    /**
+     * Seed the external identity cache immediately.
+     */
+    static {
+        try {
+            seed();
+        } catch(SQLException ex) {
+            // ignore exception
+        }
     }
 }
