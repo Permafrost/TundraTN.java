@@ -33,7 +33,28 @@ public class ContinuousFailureDetector {
     /**
      * The current count of continuous failures.
      */
-    protected AtomicLong continuousFailureCount = new AtomicLong(0);
+    protected AtomicLong continuousFailureCount;
+    /**
+     * The continuous failure threshold.
+     */
+    protected long threshold;
+    /**
+     * Whether this detector is enabled.
+     */
+    protected boolean enabled;
+
+    /**
+     * Creates a new ContinuousFailureDetector.
+     *
+     * @param threshold The continuous failure threshold.
+     */
+    public ContinuousFailureDetector(long threshold) {
+        this.threshold = threshold;
+        this.enabled = this.threshold > 0;
+        if (enabled) {
+            this.continuousFailureCount = new AtomicLong(0);
+        }
+    }
 
     /**
      * Records when a task has completed.
@@ -41,21 +62,22 @@ public class ContinuousFailureDetector {
      * @param success   Whether the task succeeded or not.
      */
     public void didComplete(boolean success) {
-        if (success) {
-            continuousFailureCount.set(0);
-        } else {
-            continuousFailureCount.incrementAndGet();
+        if (enabled) {
+            if (success) {
+                continuousFailureCount.set(0);
+            } else {
+                continuousFailureCount.incrementAndGet();
+            }
         }
     }
 
     /**
      * Returns true if the count of continuous failures is equal to or greater than the given threshold.
      *
-     * @param threshold The threshold to measure the continuous failure count against.
      * @return          True if the count of continuous failures is equal to or greater than the given threshold.
      */
-    public boolean hasFailedContinuously(long threshold) {
-        return this.continuousFailureCount.get() >= threshold;
+    public boolean hasFailedContinuously() {
+        return enabled && this.continuousFailureCount.get() >= threshold;
     }
 }
 

@@ -174,58 +174,62 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
      * @throws Exception    If the service encounters an error.
      */
     public IData call() throws Exception {
-        long startTime = System.nanoTime();
-
         IData output = null;
-        Exception exception = null;
 
-        Thread owningThread = Thread.currentThread();
-        String owningThreadPrefix = owningThread.getName();
-        String jobLogString = GuaranteedJobHelper.toLogString(job);
-        boolean requiresCompletion = false;
+        // only execute the task if not in a continuous failure state
+        if (continuousFailureDetector == null || !continuousFailureDetector.hasFailedContinuously()) {
+            long startTime = System.nanoTime();
 
-        try {
-            GuaranteedJobHelper.setDelivering(job);
-            if (job.isDelivering()) {
-                requiresCompletion = true;
+            Exception exception = null;
 
-                BizDocEnvelope bizdoc = job.getBizDocEnvelope();
+            Thread owningThread = Thread.currentThread();
+            String owningThreadPrefix = owningThread.getName();
+            String jobLogString = GuaranteedJobHelper.toLogString(job);
+            boolean requiresCompletion = false;
 
-                owningThread.setName(MessageFormat.format("{0}: Task {1} PROCESSING {2}", owningThreadPrefix, jobLogString, DateTimeHelper.now("datetime")));
+            try {
+                GuaranteedJobHelper.setDelivering(job);
+                if (job.isDelivering()) {
+                    requiresCompletion = true;
 
-                if (bizdoc != null) {
-                    BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence);
-                }
+                    BizDocEnvelope bizdoc = job.getBizDocEnvelope();
 
-                GuaranteedJobHelper.log(job, EntryType.MESSAGE, "Processing", MessageFormat.format("Dequeued from {0} queue {1}", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service {0} attempting to process document", service.getFullName()));
+                    owningThread.setName(MessageFormat.format("{0}: Task {1} PROCESSING {2}", owningThreadPrefix, jobLogString, DateTimeHelper.now("datetime")));
 
-                IDataCursor cursor = pipeline.getCursor();
-                try {
-                    IDataHelper.put(cursor, "$task", job);
                     if (bizdoc != null) {
-                        IDataHelper.put(cursor, "bizdoc", BizDocEnvelopeHelper.normalize(bizdoc, true));
-                        IDataHelper.put(cursor, "sender", ProfileCache.getInstance().get(bizdoc.getSenderId()));
-                        IDataHelper.put(cursor, "receiver", ProfileCache.getInstance().get(bizdoc.getReceiverId()));
+                        BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence);
                     }
-                } finally {
-                    cursor.destroy();
+
+                    GuaranteedJobHelper.log(job, EntryType.MESSAGE, "Processing", MessageFormat.format("Dequeued from {0} queue {1}", queue.getQueueType(), queue.getQueueName()), MessageFormat.format("Service {0} attempting to process document", service.getFullName()));
+
+                    IDataCursor cursor = pipeline.getCursor();
+                    try {
+                        IDataHelper.put(cursor, "$task", job);
+                        if (bizdoc != null) {
+                            IDataHelper.put(cursor, "bizdoc", BizDocEnvelopeHelper.normalize(bizdoc, true));
+                            IDataHelper.put(cursor, "sender", ProfileCache.getInstance().get(bizdoc.getSenderId()));
+                            IDataHelper.put(cursor, "receiver", ProfileCache.getInstance().get(bizdoc.getReceiverId()));
+                        }
+                    } finally {
+                        cursor.destroy();
+                    }
+
+                    ServiceThread serviceThread = Service.doThreadInvoke(service, session, pipeline);
+                    output = serviceThread.getIData();
+
+                    owningThread.setName(MessageFormat.format("{0}: Task {1} COMPLETED {2}", owningThreadPrefix, jobLogString, DateTimeHelper.now("datetime")));
                 }
-
-                ServiceThread serviceThread = Service.doThreadInvoke(service, session, pipeline);
-                output = serviceThread.getIData();
-
-                owningThread.setName(MessageFormat.format("{0}: Task {1} COMPLETED {2}", owningThreadPrefix, jobLogString, DateTimeHelper.now("datetime")));
-            }
-        } catch (Exception ex) {
-            owningThread.setName(MessageFormat.format("{0}: Task {1} FAILED: {2} {3}", owningThreadPrefix, jobLogString, ExceptionHelper.getMessage(ex), DateTimeHelper.now("datetime")));
-            exception = ex;
-        } finally {
-            owningThread.setName(owningThreadPrefix);
-            if (requiresCompletion) {
-                setJobCompleted(output, exception, System.nanoTime() - startTime);
-            }
-            if (exception != null) {
-                throw exception;
+            } catch (Exception ex) {
+                owningThread.setName(MessageFormat.format("{0}: Task {1} FAILED: {2} {3}", owningThreadPrefix, jobLogString, ExceptionHelper.getMessage(ex), DateTimeHelper.now("datetime")));
+                exception = ex;
+            } finally {
+                owningThread.setName(owningThreadPrefix);
+                if (requiresCompletion) {
+                    setJobCompleted(output, exception, System.nanoTime() - startTime);
+                }
+                if (exception != null) {
+                    throw exception;
+                }
             }
         }
 

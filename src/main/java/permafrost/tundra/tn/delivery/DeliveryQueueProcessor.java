@@ -58,11 +58,6 @@ public class DeliveryQueueProcessor {
      */
     private static final long WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS = 5000L;
     /**
-     * The threshold of continuous task failure at which time the queue processing will exit, which defends against
-     * a queue with very many tasks and continuous failure overwhelming Integration Server.
-     */
-    private static final long TERMINATE_WITH_CONTINUOUS_FAILURE_THRESHOLD = 10L;
-    /**
      * The suffix used on worker thread names.
      */
     private static final String WORKER_THREAD_SUFFIX = ": Worker";
@@ -162,18 +157,19 @@ public class DeliveryQueueProcessor {
      * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
+     * @param errorThreshold    How many continuous errors the queue is allowed to encounter before terminating.
      * @throws IOException      If an I/O error is encountered.
      * @throws SQLException     If a database error is encountered.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public static void each(String queueName, String service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws IOException, SQLException, ServiceException {
+    public static void each(String queueName, String service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, long errorThreshold) throws IOException, SQLException, ServiceException {
         if (queueName == null) throw new NullPointerException("queueName must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
 
         DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
         if (queue == null) throw new ServiceException("Queue '" + queueName + "' does not exist");
 
-        each(queue, NSName.create(service), pipeline, age, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus);
+        each(queue, NSName.create(service), pipeline, age, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus, errorThreshold);
     }
 
     /**
@@ -195,15 +191,18 @@ public class DeliveryQueueProcessor {
      * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
+     * @param errorThreshold    How many continuous errors the queue is allowed to encounter before terminating.
      * @throws ServiceException If an error is encountered while processing jobs.
      * @throws SQLException     If an error is encountered with the database.
      */
-    public static void each(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus) throws ServiceException, SQLException {
+    public static void each(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, long errorThreshold) throws ServiceException, SQLException {
         if (isStarted && DeliveryQueueHelper.hasQueuedTasks(queue)) {
             // normalize concurrency
             if (concurrency <= 0) concurrency = 1;
             // normalize retryFactor
             if (retryFactor < 1.0f) retryFactor = 1.0f;
+            // normalize errorThreshold
+            if (errorThreshold <= 0) errorThreshold = 0;
 
             // only allow one supervisor thread at a time to process a given queue; if a new supervisor is started while
             // there is an existing supervisor, the new supervisor exits immediately
@@ -243,10 +242,10 @@ public class DeliveryQueueProcessor {
                         tasks = new PriorityQueue<CallableGuaranteedJob>();
                     }
 
-                    ContinuousFailureDetector continuousFailureDetector = new ContinuousFailureDetector();
+                    ContinuousFailureDetector continuousFailureDetector = new ContinuousFailureDetector(errorThreshold);
 
-                    // while not interrupted and (not invoked by TN or queue is enabled): process queued jobs
-                    while (!Thread.interrupted() && (!invokedByTradingNetworks || isProcessing)) {
+                    // while not interrupted and not failed continuously and (not invoked by TN or queue is enabled): process queued jobs
+                    while (!Thread.interrupted() && !continuousFailureDetector.hasFailedContinuously() && (!invokedByTradingNetworks || isProcessing)) {
                         try {
                             if (sleepDuration > 0L) Thread.sleep(sleepDuration);
 
@@ -258,7 +257,7 @@ public class DeliveryQueueProcessor {
                                 queueSize = ((ThreadPoolExecutor)executor).getQueue().size();
                             }
 
-                            if (queueSize == 0) {
+                            if (queueSize == 0 && !continuousFailureDetector.hasFailedContinuously()) {
                                 if (tasks.size() == 0) {
                                     List<GuaranteedJob> jobs = DeliveryQueueHelper.peek(queue, ordered, age);
                                     for (GuaranteedJob job : jobs) {
@@ -297,7 +296,7 @@ public class DeliveryQueueProcessor {
                             // refresh the delivery queue settings from the database, in case they have changed
                             if (invokedByTradingNetworks && System.currentTimeMillis() >= nextDeliveryQueueRefreshTime) {
                                 queue = DeliveryQueueHelper.refresh(queue);
-                                isProcessing = DeliveryQueueHelper.isProcessing(queue) && SchedulerHelper.status() == SchedulerStatus.STARTED && !continuousFailureDetector.hasFailedContinuously(TERMINATE_WITH_CONTINUOUS_FAILURE_THRESHOLD);
+                                isProcessing = DeliveryQueueHelper.isProcessing(queue) && SchedulerHelper.status() == SchedulerStatus.STARTED;
                                 nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS;
                             }
                         } catch (InterruptedException ex) {
