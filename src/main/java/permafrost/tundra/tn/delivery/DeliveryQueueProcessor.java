@@ -23,18 +23,19 @@ import java.sql.SQLException;
 import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Queue;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import javax.xml.datatype.Duration;
 
 /**
@@ -46,17 +47,17 @@ public class DeliveryQueueProcessor {
      */
     private static final String DELIVER_BATCH_SERVICE_NAME = "wm.tn.queuing:deliverBatch";
     /**
-     * The minimum wait between each poll of a delivery queue for more jobs.
+     * The default wait between each poll of a delivery queue for more jobs.
      */
-    private static final long MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 10L;
+    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS = 100L;
     /**
-     * The wait after a poll of an empty delivery queue until we poll again for more jobs.
+     * The default wait after a poll of an empty delivery queue until we poll again for more jobs.
      */
     private static final long WAIT_AFTER_EMPTY_DELIVERY_QUEUE_POLL_MILLISECONDS = 1000L;
     /**
-     * The wait between each refresh of a delivery queue settings from the database.
+     * The timeout used when waiting for tasks to complete while shutting down the executor.
      */
-    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS = 5000L;
+    private static final long EXECUTOR_SHUTDOWN_TIMEOUT_MILLISECONDS = 5 * 60 * 1000L;
     /**
      * The suffix used on worker thread names.
      */
@@ -224,16 +225,13 @@ public class DeliveryQueueProcessor {
                 Thread.currentThread().setName(threadName);
 
                 boolean invokedByTradingNetworks = invokedByTradingNetworks();
-                boolean isProcessing = DeliveryQueueHelper.isProcessing(queue);
 
                 Session session = Service.getSession();
                 ExecutorService executor = getExecutor(queue, concurrency, threadPriority, daemonize, InvokeState.getCurrentState(), parentContext);
 
-                long nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS, sleepDuration = 0L;
+                long sleepDuration = 0L;
 
                 try {
-                    boolean didPreviousPollProcessJob = false;
-
                     Queue<CallableGuaranteedJob> tasks;
                     if (concurrency > 1) {
                         tasks = new ArrayDeque<CallableGuaranteedJob>();
@@ -242,41 +240,70 @@ public class DeliveryQueueProcessor {
                         tasks = new PriorityQueue<CallableGuaranteedJob>();
                     }
 
+                    Map<String, Future<IData>> submittedTasks = ordered ? null : new HashMap<String, Future<IData>>();
                     ContinuousFailureDetector continuousFailureDetector = new ContinuousFailureDetector(errorThreshold);
+                    boolean queueHadTasks = false;
 
                     // while not interrupted and not failed continuously and (not invoked by TN or queue is enabled): process queued jobs
-                    while (!Thread.interrupted() && !continuousFailureDetector.hasFailedContinuously() && (!invokedByTradingNetworks || isProcessing)) {
+                    while (!Thread.interrupted() && !continuousFailureDetector.hasFailedContinuously() && (!invokedByTradingNetworks || shouldContinueProcessing(queue))) {
                         try {
                             if (sleepDuration > 0L) Thread.sleep(sleepDuration);
 
                             // set default sleep duration for when there are no pending jobs in queue or all threads are busy
-                            sleepDuration = MIN_WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS;
+                            sleepDuration = WAIT_BETWEEN_DELIVERY_QUEUE_POLLS_MILLISECONDS;
 
-                            int queueSize = 0;
+                            int queueSize = 0, activeCount = 0;
                             if (executor instanceof ThreadPoolExecutor) {
-                                queueSize = ((ThreadPoolExecutor)executor).getQueue().size();
+                                ThreadPoolExecutor threadPoolExecutor = (ThreadPoolExecutor)executor;
+                                queueSize = threadPoolExecutor.getQueue().size();
+                                activeCount = threadPoolExecutor.getActiveCount();
                             }
 
-                            if (queueSize == 0 && !continuousFailureDetector.hasFailedContinuously()) {
+                            if (activeCount < concurrency || queueSize < concurrency) {
                                 if (tasks.size() == 0) {
-                                    List<GuaranteedJob> jobs = DeliveryQueueHelper.peek(queue, ordered, age);
-                                    for (GuaranteedJob job : jobs) {
-                                        tasks.add(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, continuousFailureDetector));
+                                    if (ordered) {
+                                        // only dequeue another task when there are idle threads
+                                        if (activeCount < concurrency) {
+                                            GuaranteedJob job = DeliveryQueueHelper.pop(queue, true, age);
+                                            if (job != null) {
+                                                tasks.add(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, continuousFailureDetector));
+                                            }
+                                        }
+                                    } else {
+                                        for (Map.Entry<String, Future<IData>> entry : submittedTasks.entrySet()) {
+                                            if (entry.getValue().isDone()) {
+                                                submittedTasks.remove(entry.getKey());
+                                            }
+                                        }
+
+                                        List<GuaranteedJob> jobs = DeliveryQueueHelper.peek(queue, false, age);
+                                        for (GuaranteedJob job : jobs) {
+                                            if (!submittedTasks.containsKey(job.getJobId())) {
+                                                tasks.add(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, continuousFailureDetector));
+                                            }
+                                        }
                                     }
+
+                                    queueHadTasks = tasks.size() > 0;
                                 }
+
                                 if (tasks.size() > 0) {
                                     CallableGuaranteedJob task;
                                     while ((task = tasks.poll()) != null) {
-                                        executor.submit(task);
+                                        Future<IData> future = executor.submit(task);
+                                        if (!ordered) submittedTasks.put(task.getJobIdentity(), future);
                                         // when single-threaded, submit only the head task to the executor to be
                                         // processed, so that this thread can then check if any exit criteria is
                                         // met between tasks
                                         if (concurrency == 1) break;
                                     }
-                                    didPreviousPollProcessJob = true;
-                                } else {
-                                    // no pending jobs, and thread pool is idle
-                                    if (didPreviousPollProcessJob) {
+
+                                    // don't wait between task submissions when there are still tasks to be processed
+                                    if (ordered || tasks.size() > 0) sleepDuration = 0;
+                                } else if (activeCount == 0 && queueSize == 0) {
+                                    if (queueHadTasks) {
+                                        // poll again after a short timed wait, as if the queue had tasks previously
+                                        // then likely it will have more shortly
                                         sleepDuration = WAIT_AFTER_EMPTY_DELIVERY_QUEUE_POLL_MILLISECONDS;
                                     } else if (daemonize) {
                                         // calculate the next run time based on TN queue schedule so that we can sleep until that time
@@ -289,16 +316,11 @@ public class DeliveryQueueProcessor {
                                         // if not daemon and all threads have finished and there are no more jobs, then exit
                                         break;
                                     }
-                                    didPreviousPollProcessJob = false;
+                                    queueHadTasks = false;
                                 }
                             }
 
-                            // refresh the delivery queue settings from the database, in case they have changed
-                            if (invokedByTradingNetworks && System.currentTimeMillis() >= nextDeliveryQueueRefreshTime) {
-                                queue = DeliveryQueueHelper.refresh(queue);
-                                isProcessing = DeliveryQueueHelper.isProcessing(queue) && SchedulerHelper.status() == SchedulerStatus.STARTED;
-                                nextDeliveryQueueRefreshTime = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS;
-                            }
+                            queue = DeliveryQueueHelper.refresh(queue);
                         } catch (InterruptedException ex) {
                             // exit if thread is interrupted
                             break;
@@ -308,8 +330,7 @@ public class DeliveryQueueProcessor {
                     ExceptionHelper.raise(ex);
                 } finally {
                     try {
-                        // shutdown the supervisor and all worker threads
-                        executor.shutdownNow();
+                        shutdown(executor, ordered);
                     } finally {
                         // restore owning thread priority and name
                         Thread.currentThread().setPriority(previousThreadPriority);
@@ -320,6 +341,38 @@ public class DeliveryQueueProcessor {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Returns whether the given queue should continue processing based on queue status and task scheduler status.
+     *
+     * @param queue The delivery queue.
+     * @return      True if the tasks on the queue should continue to be processed, false if the queue is suspended
+     *              or disabled or the task scheduler is paused or stopped.
+     */
+    private static boolean shouldContinueProcessing(DeliveryQueue queue) {
+        return DeliveryQueueHelper.isProcessing(queue) && SchedulerHelper.status() == SchedulerStatus.STARTED;
+    }
+
+    /**
+     * Orderly shutdown of the given ExecutorService.
+     *
+     * @param executor  The ExecutorService to shutdown.
+     * @param ordered   Whether delivery queue jobs were being processed in job creation datetime order.
+     */
+    private static void shutdown(ExecutorService executor, boolean ordered) {
+        try {
+            if (!ordered && executor instanceof ThreadPoolExecutor) {
+                // discard any tasks not yet executing
+                ((ThreadPoolExecutor)executor).getQueue().clear();
+            }
+            executor.shutdown();
+            executor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_MILLISECONDS, TimeUnit.MILLISECONDS);
+            executor.shutdownNow();
+        } catch (InterruptedException ex) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 

@@ -67,7 +67,7 @@ public final class DeliveryQueueHelper {
     /**
      * SQL statement to shortcut checking for queued tasks.
      */
-    private static final String SELECT_QUEUES_WITH_QUEUED_TASKS_SQL = "SELECT DISTINCT QueueName FROM DeliveryJob WHERE JobStatus = 'QUEUED'";
+    private static final String SELECT_QUEUES_WITH_QUEUED_TASKS_SQL = "SELECT DISTINCT QueueName FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND TimeCreated <= ? AND TimeUpdated <= ?";
     /**
      * SQL statement to select head of a delivery queue in job creation datetime order.
      */
@@ -76,6 +76,10 @@ public final class DeliveryQueueHelper {
      * SQL statement to select head of a delivery queue in indeterminate order.
      */
     private static final String SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated <= ? AND TimeUpdated <= ? ORDER BY TimeCreated ASC";
+    /**
+     * SQL statement to return the count of queued jobs for a given queue.
+     */
+    private static final String SELECT_NEXT_DELIVERY_JOB_COUNT_SQL = "SELECT COUNT(*) FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated <= ? AND TimeUpdated <= ?";
     /**
      * The age a delivery job must be before it is eligible to be processed.
      */
@@ -332,6 +336,69 @@ public final class DeliveryQueueHelper {
     }
 
     /**
+     * Returns the number of queued jobs in the given delivery queue.
+     *
+     * @param queue         The delivery queue.
+     * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
+     * @return              The number of queued jobs in the queue.
+     * @throws SQLException If a database error occurs.
+     */
+    public static long size(DeliveryQueue queue, Duration age) throws SQLException {
+        return size(queue, age == null ? DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS : age.getTimeInMillis(new Date()));
+    }
+
+    /**
+     * Returns the number of queued jobs in the given delivery queue.
+     *
+     * @param queue         The delivery queue.
+     * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
+     * @return              The number of queued jobs in the queue.
+     * @throws SQLException If a database error occurs.
+     */
+    public static long size(DeliveryQueue queue, long age) throws SQLException {
+        if (queue == null) return 0L;
+        if (age < 0L) age = 0L;
+
+        long count = 0L;
+
+        Connection connection = null;
+        PreparedStatement statement = null;
+        ResultSet results = null;
+        List<GuaranteedJob> jobs = new ArrayList<GuaranteedJob>();
+
+        try {
+            connection = Datastore.getConnection();
+            statement = connection.prepareStatement(SELECT_NEXT_DELIVERY_JOB_COUNT_SQL);
+            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
+            statement.clearParameters();
+
+            int index = 0;
+            String queueName = queue.getQueueName();
+            SQLWrappers.setChoppedString(statement, ++index, queueName, "DeliveryQueue.QueueName");
+            Timestamp timestamp = new Timestamp(System.currentTimeMillis() - age);
+            SQLWrappers.setTimestamp(statement, ++index, timestamp);
+            SQLWrappers.setTimestamp(statement, ++index, timestamp);
+
+            results = statement.executeQuery();
+
+            while (results.next()) {
+                count = results.getLong(1);
+            }
+
+            connection.commit();
+        } catch (SQLException ex) {
+            connection = Datastore.handleSQLException(connection, ex);
+            throw ex;
+        } finally {
+            SQLWrappers.close(results);
+            SQLWrappers.close(statement);
+            Datastore.releaseConnection(connection);
+        }
+
+        return count;
+    }
+
+    /**
      * Dequeues the job at the head of the given delivery queue.
      *
      * @param queue         The delivery queue to dequeue the head job from.
@@ -425,6 +492,11 @@ public final class DeliveryQueueHelper {
                         statement = connection.prepareStatement(SELECT_QUEUES_WITH_QUEUED_TASKS_SQL);
                         statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
                         statement.clearParameters();
+
+                        int index = 0;
+                        Timestamp timestamp = new Timestamp(System.currentTimeMillis());
+                        SQLWrappers.setTimestamp(statement, ++index, timestamp);
+                        SQLWrappers.setTimestamp(statement, ++index, timestamp);
 
                         results = statement.executeQuery();
 

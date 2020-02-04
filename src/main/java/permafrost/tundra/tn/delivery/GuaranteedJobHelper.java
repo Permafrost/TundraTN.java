@@ -295,33 +295,40 @@ public final class GuaranteedJobHelper {
      * @param job               The job to be updated.
      * @throws SQLException     If a database error is encountered.
      */
-    protected static void setDelivering(GuaranteedJob job) throws SQLException {
-        if (job == null) return;
+    protected static boolean setDelivering(GuaranteedJob job) throws SQLException {
+        boolean isDelivering = false;
 
-        Connection connection = null;
-        PreparedStatement statement = null;
+        if (job != null) {
+            Connection connection = null;
+            PreparedStatement statement = null;
 
-        try {
-            connection = Datastore.getConnection();
+            try {
+                connection = Datastore.getConnection();
 
-            statement = SQLStatements.prepareStatement(connection, "deliver.job.update.delivering");
-            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
-            statement.clearParameters();
+                statement = SQLStatements.prepareStatement(connection, "deliver.job.update.delivering");
+                statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
+                statement.clearParameters();
 
-            SQLWrappers.setChoppedString(statement, 1, JobMgr.getJobMgr().getServerId(), "DeliveryJob.ServerID");
-            SQLWrappers.setCharString(statement, 2, job.getJobId());
+                SQLWrappers.setChoppedString(statement, 1, JobMgr.getJobMgr().getServerId(), "DeliveryJob.ServerID");
+                SQLWrappers.setCharString(statement, 2, job.getJobId());
 
-            int rowCount = statement.executeUpdate();
-            connection.commit();
+                int rowCount = statement.executeUpdate();
+                connection.commit();
 
-            if (rowCount == 1) job.delivering();
-        } catch (SQLException ex) {
-            connection = Datastore.handleSQLException(connection, ex);
-            throw ex;
-        } finally {
-            SQLStatements.releaseStatement(statement);
-            Datastore.releaseConnection(connection);
+                if (rowCount == 1) {
+                    isDelivering = true;
+                    job.delivering();
+                }
+            } catch (SQLException ex) {
+                connection = Datastore.handleSQLException(connection, ex);
+                throw ex;
+            } finally {
+                SQLStatements.releaseStatement(statement);
+                Datastore.releaseConnection(connection);
+            }
         }
+
+        return isDelivering;
     }
 
     /**

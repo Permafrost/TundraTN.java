@@ -127,6 +127,10 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
      * Used for detecting if a delivery queue has continuous failure and should terminate.
      */
     private ContinuousFailureDetector continuousFailureDetector;
+    /**
+     * Whether the job is already dequeued or not.
+     */
+    private boolean alreadyDequeued;
 
     /**
      * Creates a new CallableGuaranteedJob which when called invokes the given service against the given job.
@@ -160,11 +164,21 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
         this.statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
         this.exhaustedStatus = exhaustedStatus;
         this.continuousFailureDetector = continuousFailureDetector;
+        this.alreadyDequeued = job.isDelivering();
 
         BizDocEnvelope bizdoc = job.getBizDocEnvelope();
         if (bizdoc != null) {
             this.priority = new BizDocEnvelopePriority(bizdoc, 1, TimeUnit.DAYS);
         }
+    }
+
+    /**
+     * Returns this GuaranteedJob's identity.
+     *
+     * @return this GuaranteedJob's identity.
+     */
+    public String getJobIdentity() {
+        return job.getJobId();
     }
 
     /**
@@ -188,8 +202,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
             boolean requiresCompletion = false;
 
             try {
-                GuaranteedJobHelper.setDelivering(job);
-                if (job.isDelivering()) {
+                if (alreadyDequeued || GuaranteedJobHelper.setDelivering(job)) {
                     requiresCompletion = true;
 
                     BizDocEnvelope bizdoc = job.getBizDocEnvelope();
