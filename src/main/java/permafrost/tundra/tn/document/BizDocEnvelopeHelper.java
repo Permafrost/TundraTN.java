@@ -41,6 +41,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
+import com.wm.app.b2b.server.ContentInfo;
+import com.wm.app.b2b.server.InvokeState;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.BDRelationshipOperations;
 import com.wm.app.tn.db.BizDocStore;
@@ -1002,8 +1004,14 @@ public final class BizDocEnvelopeHelper {
             IData pipeline = IDataFactory.create();
             IDataCursor pipelineCursor = pipeline.getCursor();
 
-            if (parameters == null) parameters = IDataFactory.create();
+            parameters = IDataHelper.returnOrCreate(parameters);
             IDataCursor parameterCursor = parameters.getCursor();
+
+            // clear the content info from the invoke state as we don't want it to influence subsequent recognitions
+            // that occur after an initial receive
+            InvokeState invokeState = InvokeState.getCurrentState();
+            ContentInfo contentInfo = invokeState.getContentInfo();
+            invokeState.setContentInfo(null);
 
             try {
                 String defaultIdentity = null;
@@ -1074,7 +1082,7 @@ public final class BizDocEnvelopeHelper {
                         if (errors == null) {
                             contentType = MIMETypeHelper.of("text/xml");
                         } else {
-                            contentType = MIMETypeHelper.DEFAULT_MIME_TYPE;
+                            contentType = MIMETypeHelper.getDefault();
                         }
                         IDataHelper.put(parameterCursor, "$contentType", contentType.toString());
                     } else {
@@ -1085,10 +1093,9 @@ public final class BizDocEnvelopeHelper {
                         IDataHelper.put(parameterCursor, "$contentType", contentType.toString());
                     }
 
-                    if (bytes != null) inputStream = InputStreamHelper.normalize(bytes);
+                    if (contentEncoding != null) IDataHelper.put(parameterCursor, "$contentEncoding", contentEncoding.displayName());
 
-                    if (contentEncoding == null) contentEncoding = CharsetHelper.DEFAULT_CHARSET;
-                    IDataHelper.put(parameterCursor, "$contentEncoding", contentEncoding.displayName());
+                    if (bytes != null) inputStream = InputStreamHelper.normalize(bytes);
 
                     // invoke wm.tn.doc:handleLargeDoc so that large content is handled appropriately
                     IDataHelper.put(pipelineCursor, "inputStream", inputStream);
@@ -1113,13 +1120,13 @@ public final class BizDocEnvelopeHelper {
 
                     // invoke wm.tn.doc:recognize to recognize the content
                     if (!(content instanceof Node || content instanceof Reservation)) {
-                        InputStream contentStream = InputStreamHelper.normalize(content);
+                        InputStream contentStream = InputStreamHelper.normalize(content, contentEncoding);
                         MIMEClassification classification = MIMETypeHelper.classify(contentType, contentSchema);
                         if (classification == MIMEClassification.XML) {
                             IData scope = IDataFactory.create();
                             IDataCursor scopeCursor = scope.getCursor();
                             try {
-                                IDataHelper.put(scopeCursor, "$filestream", contentSchema);
+                                IDataHelper.put(scopeCursor, "$filestream", contentStream);
                                 IDataHelper.put(scopeCursor, "encoding", contentEncoding.displayName());
                                 IDataHelper.put(scopeCursor, "isXML", "true");
                                 scopeCursor.destroy();
@@ -1167,6 +1174,7 @@ public final class BizDocEnvelopeHelper {
             } finally {
                 pipelineCursor.destroy();
                 parameterCursor.destroy();
+                invokeState.setContentInfo(contentInfo);
             }
         }
 
@@ -1195,13 +1203,15 @@ public final class BizDocEnvelopeHelper {
         BizDocEnvelope bizdoc = null;
 
         if (content != null) {
-            if (parameters == null) parameters = IDataFactory.create();
+            parameters = IDataHelper.returnOrCreate(parameters);
             IDataCursor parameterCursor = parameters.getCursor();
 
             try {
-                if (contentType != null) IDataHelper.put(parameterCursor, "$contentType", contentType.toString());
+                contentEncoding = CharsetHelper.normalize(contentEncoding, contentType, true, IDataHelper.getOrDefault(parameterCursor, "$contentEncoding", Charset.class, CharsetHelper.DEFAULT_CHARSET));
+
+                if (contentType != null) IDataHelper.put(parameterCursor, "$contentType", contentType.toString(), false);
                 if (contentEncoding != null) IDataHelper.put(parameterCursor, "$contentEncoding", contentEncoding.displayName());
-                if (contentSchema != null) IDataHelper.put(parameterCursor, "$contentSchema", contentSchema);
+                IDataHelper.put(parameterCursor, "$contentSchema", contentSchema, false);
             } finally {
                 parameterCursor.destroy();
             }
@@ -1224,6 +1234,14 @@ public final class BizDocEnvelopeHelper {
         return bizdoc;
     }
 
+    /**
+     * Relates two BizDocEnvelopes to each other.
+     *
+     * @param source            The source BizDocEnvelope.
+     * @param target            The target BizDocEnvelope.
+     * @param relationship      The relationship between the BizDocEnvelopes.
+     * @throws ServiceException If an error occurs.
+     */
     public static void relate(BizDocEnvelope source, BizDocEnvelope target, String relationship) throws ServiceException {
         if (source == null || target == null) return;
         if (relationship == null) relationship = "Unknown";
