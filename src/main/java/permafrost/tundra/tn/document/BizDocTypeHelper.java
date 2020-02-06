@@ -118,6 +118,7 @@ public final class BizDocTypeHelper {
             if (declarations != null) {
                 IDataCursor cursor = null;
                 try {
+                    boolean nsAlreadyExists = false;
                     for (int i = 0; i < declarations.length; i++) {
                         if (declarations[i] != null && declarations[i].length > 1) {
                             String key = declarations[i][0];
@@ -125,8 +126,19 @@ public final class BizDocTypeHelper {
                             if (key != null && value != null) {
                                 if (namespace == null) namespace = IDataFactory.create();
                                 if (cursor == null) cursor = namespace.getCursor();
+                                if ("ns".equals(key)) nsAlreadyExists = true;
+                                if ("prefix0".equals(key) && !nsAlreadyExists) {
+                                    // By default Trading Networks uses the `prefix0` prefix to represent the default
+                                    // target namespace, whereas Integration Server uses the `ns` prefix.
+                                    // We will automatically add the `ns` prefix, unless its already been defined on the
+                                    // document type, with the same value as the `prefix0` prefix.
+                                    // Importantly, the `ns` prefix needs to precede the `prefix0` prefix in the
+                                    // resulting IData document's element insertion order, as the `WmPublic/pub.xml:*`
+                                    // services will use the first prefix in the document when parsing / serializing,
+                                    // and we want that to be the Integration Server default prefix `ns`.
+                                    IDataHelper.put(cursor, "ns", value);
+                                }
                                 IDataHelper.put(cursor, key, value);
-                                if ("prefix0".equals(key)) IDataHelper.put(cursor, "ns", value);
                             }
                         }
                     }
