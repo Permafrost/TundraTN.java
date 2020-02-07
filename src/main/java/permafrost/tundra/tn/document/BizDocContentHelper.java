@@ -31,6 +31,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.List;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
@@ -144,23 +145,36 @@ public final class BizDocContentHelper {
     public static void removeContentPart(BizDocEnvelope document, String partName) throws ServiceException {
         if (document == null || partName == null) return;
 
-        Connection connection = null;
-        PreparedStatement statement = null;
+        if (document.isPersisted()) {
+            Connection connection = null;
+            PreparedStatement statement = null;
 
-        try {
-            connection = Datastore.getConnection();
-            statement = connection.prepareStatement(DELETE_BIZDOC_CONTENT_SQL);
-            statement.clearParameters();
-            SQLWrappers.setCharString(statement, 1, document.getInternalId());
-            SQLWrappers.setCharString(statement, 2, partName);
-            statement.executeUpdate();
-            connection.commit();
-        } catch (SQLException ex) {
-            connection = Datastore.handleSQLException(connection, ex);
-            ExceptionHelper.raise(ex);
-        } finally {
-            SQLWrappers.close(statement);
-            Datastore.releaseConnection(connection);
+            try {
+                connection = Datastore.getConnection();
+                statement = connection.prepareStatement(DELETE_BIZDOC_CONTENT_SQL);
+                statement.clearParameters();
+                SQLWrappers.setCharString(statement, 1, document.getInternalId());
+                SQLWrappers.setCharString(statement, 2, partName);
+                statement.executeUpdate();
+                connection.commit();
+            } catch (SQLException ex) {
+                connection = Datastore.handleSQLException(connection, ex);
+                ExceptionHelper.raise(ex);
+            } finally {
+                SQLWrappers.close(statement);
+                Datastore.releaseConnection(connection);
+            }
+        }
+
+        BizDocContentPart[] originalContentParts = document.getContentParts();
+        if (originalContentParts != null && originalContentParts.length > 0) {
+            List<BizDocContentPart> newContentParts = new ArrayList<BizDocContentPart>(originalContentParts.length);
+            for (BizDocContentPart contentPart : originalContentParts) {
+                if (!partName.equals(contentPart.getPartName())) {
+                    newContentParts.add(contentPart);
+                }
+            }
+            document.setContentParts(newContentParts.toArray(new BizDocContentPart[0]));
         }
     }
 
