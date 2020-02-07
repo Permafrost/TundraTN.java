@@ -270,9 +270,10 @@ public class DeliveryQueueProcessor {
                                             }
                                         }
                                     } else {
-                                        for (Map.Entry<String, Future<IData>> entry : submittedTasks.entrySet()) {
-                                            if (entry.getValue().isDone()) {
-                                                submittedTasks.remove(entry.getKey());
+                                        Iterator<Map.Entry<String, Future<IData>>> iterator = submittedTasks.entrySet().iterator();
+                                        while (iterator.hasNext()) {
+                                            if (iterator.next().getValue().isDone()) {
+                                                iterator.remove();
                                             }
                                         }
 
