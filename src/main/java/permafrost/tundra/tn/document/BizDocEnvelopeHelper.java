@@ -55,13 +55,16 @@ import com.wm.app.tn.delivery.DeliveryJob;
 import com.wm.app.tn.delivery.DeliveryQueue;
 import com.wm.app.tn.delivery.DeliveryUtils;
 import com.wm.app.tn.delivery.GuaranteedJob;
+import com.wm.app.tn.doc.BizDocContentPart;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocErrorSet;
 import com.wm.app.tn.doc.BizDocType;
+import com.wm.app.tn.doc.UnknownDocType;
 import com.wm.app.tn.err.ActivityLogEntry;
 import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.app.tn.route.PreRoutingFlags;
 import com.wm.app.tn.route.RoutingRule;
+import com.wm.app.tn.util.Config;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
@@ -1009,9 +1012,9 @@ public final class BizDocEnvelopeHelper {
 
             // clear the content info from the invoke state as we don't want it to influence subsequent recognitions
             // that occur after an initial receive
-            InvokeState invokeState = InvokeState.getCurrentState();
-            ContentInfo contentInfo = invokeState.getContentInfo();
-            invokeState.setContentInfo(null);
+            InvokeState currentInvokeState = InvokeState.getCurrentState();
+            ContentInfo originalContentInfo = currentInvokeState.getContentInfo();
+            currentInvokeState.setContentInfo(null);
 
             try {
                 String defaultIdentity = null;
@@ -1093,9 +1096,16 @@ public final class BizDocEnvelopeHelper {
                         IDataHelper.put(parameterCursor, "$contentType", contentType.toString());
                     }
 
-                    if (contentEncoding != null) IDataHelper.put(parameterCursor, "$contentEncoding", contentEncoding.displayName());
+                    contentEncoding = CharsetHelper.normalize(contentEncoding, contentType, MIMETypeHelper.isText(contentType), null);
 
                     if (bytes != null) inputStream = InputStreamHelper.normalize(bytes);
+
+                    // provide the content type and encoding to handleLargeDoc via the current invoke state content info
+                    if (contentType != null) {
+                        ContentInfo contentInfo = new ContentInfo(contentType.toString());
+                        if (contentEncoding != null) contentInfo.setContentEncoding(contentEncoding.toString());
+                        currentInvokeState.setContentInfo(contentInfo);
+                    }
 
                     // invoke wm.tn.doc:handleLargeDoc so that large content is handled appropriately
                     IDataHelper.put(pipelineCursor, "inputStream", inputStream);
@@ -1118,10 +1128,17 @@ public final class BizDocEnvelopeHelper {
                     IDataHelper.remove(pipelineCursor, "content");
                     IDataHelper.remove(pipelineCursor, "jsonStream");
 
+                    MIMEClassification classification = MIMETypeHelper.classify(contentType, contentSchema);
+
+                    if (contentEncoding != null) IDataHelper.put(parameterCursor, "$contentEncoding", contentEncoding.displayName());
+                    if (contentType != null) {
+                        contentType.removeParameter("charset");
+                        IDataHelper.put(parameterCursor, "$contentType", contentType.toString());
+                    }
+
                     // invoke wm.tn.doc:recognize to recognize the content
                     if (!(content instanceof Node || content instanceof Reservation)) {
                         InputStream contentStream = InputStreamHelper.normalize(content, contentEncoding);
-                        MIMEClassification classification = MIMETypeHelper.classify(contentType, contentSchema);
                         if (classification == MIMEClassification.XML) {
                             IData scope = IDataFactory.create();
                             IDataCursor scopeCursor = scope.getCursor();
@@ -1153,17 +1170,54 @@ public final class BizDocEnvelopeHelper {
                     pipelineCursor = pipeline.getCursor();
                     bizdoc = IDataHelper.get(pipelineCursor, "bizdoc", BizDocEnvelope.class);
 
-                    // assign a new DocumentID if bizdoc doesn't have one already
-                    if (bizdoc != null && bizdoc.getDocumentId() == null) {
-                        if (defaultIdentity == null) {
-                            if ("ULID".equals(contentIdentity)) {
-                                defaultIdentity = ULID.generate();
-                            } else {
-                                defaultIdentity = UUIDHelper.generate();
+                    if (bizdoc != null) {
+                        // handle large document content correctly if wm.tn.doc:recognize did not
+                        int largeDocThreshold = Config.getLargeDocThreshold();
+                        if (largeDocThreshold > 0) {
+                            BizDocContentPart[] contentParts = bizdoc.getContentParts();
+                            if (contentParts != null) {
+                                for (BizDocContentPart contentPart : contentParts) {
+                                    if (contentPart != null) {
+                                        int length = contentPart.getLength();
+                                        if (!contentPart.isLargePart() && length > largeDocThreshold) {
+                                            InputStream contentPartStream = InputStreamHelper.normalize(contentPart.getContent());
+                                            if (contentPartStream != null) {
+                                                MimeType contentPartMimeType = MIMETypeHelper.normalize(MIMETypeHelper.of(contentPart.getMimeType()));
+                                                Charset contentPartEncoding = CharsetHelper.normalize(contentPartMimeType.getParameter("charset"));
+                                                contentPartMimeType.removeParameter("charset");
+                                                if (!MIMETypeHelper.isText(contentPartMimeType)) contentPartEncoding = null;
+
+                                                BizDocContentHelper.addContentPart(bizdoc, contentPart.getPartName(), contentPartMimeType.toString(), contentPartEncoding, contentPartStream, true);
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
-                        if (defaultIdentity != null) {
-                            bizdoc.setDocumentId(defaultIdentity);
+
+                        // if document was unknown, save the raw original content to a new content part
+                        if (bytes != null && bizdoc.getDocType() instanceof UnknownDocType) {
+                            BizDocContentPart bytesContentPart = BizDocContentHelper.getContentPart(bizdoc, "bytes");
+                            if (bytesContentPart != null) {
+                                String bytesContentPartType = bytesContentPart.getMimeType();
+                                if (contentType != null && "application/x-wmidatabin".equals(MIMETypeHelper.of(bytesContentPartType).getBaseType())) {
+                                    BizDocContentHelper.addContentPart(bizdoc, "content", contentType.toString(), contentEncoding, InputStreamHelper.normalize(bytes), true);
+                                }
+                            }
+                        }
+
+                        // assign a new DocumentID if bizdoc doesn't have one already
+                        if (bizdoc.getDocumentId() == null) {
+                            if (defaultIdentity == null) {
+                                if ("ULID".equals(contentIdentity)) {
+                                    defaultIdentity = ULID.generate();
+                                } else {
+                                    defaultIdentity = UUIDHelper.generate();
+                                }
+                            }
+                            if (defaultIdentity != null) {
+                                bizdoc.setDocumentId(defaultIdentity);
+                            }
                         }
                     }
                 }
@@ -1174,7 +1228,7 @@ public final class BizDocEnvelopeHelper {
             } finally {
                 pipelineCursor.destroy();
                 parameterCursor.destroy();
-                invokeState.setContentInfo(contentInfo);
+                currentInvokeState.setContentInfo(originalContentInfo);
             }
         }
 
@@ -1208,7 +1262,6 @@ public final class BizDocEnvelopeHelper {
 
             try {
                 contentEncoding = CharsetHelper.normalize(contentEncoding, contentType, true, IDataHelper.getOrDefault(parameterCursor, "$contentEncoding", Charset.class, CharsetHelper.DEFAULT_CHARSET));
-
                 if (contentType != null) IDataHelper.put(parameterCursor, "$contentType", contentType.toString(), false);
                 if (contentEncoding != null) IDataHelper.put(parameterCursor, "$contentEncoding", contentEncoding.displayName());
                 IDataHelper.put(parameterCursor, "$contentSchema", contentSchema, false);
