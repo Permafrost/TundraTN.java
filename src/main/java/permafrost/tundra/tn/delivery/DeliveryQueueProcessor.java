@@ -55,6 +55,10 @@ public class DeliveryQueueProcessor {
      */
     private static final long WAIT_AFTER_EMPTY_DELIVERY_QUEUE_POLL_MILLISECONDS = 1000L;
     /**
+     * How long to wait between delivery queue refreshes.
+     */
+    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS = 1000L;
+    /**
      * The timeout used when waiting for tasks to complete while shutting down the executor.
      */
     private static final long EXECUTOR_SHUTDOWN_TIMEOUT_MILLISECONDS = 5 * 60 * 1000L;
@@ -229,7 +233,7 @@ public class DeliveryQueueProcessor {
                 Session session = Service.getSession();
                 ExecutorService executor = getExecutor(queue, concurrency, threadPriority, daemonize, InvokeState.getCurrentState(), parentContext);
 
-                long sleepDuration = 0L;
+                long sleepDuration = 0L, nextDeliveryQueueRefresh = System.currentTimeMillis();
 
                 try {
                     Queue<CallableGuaranteedJob> tasks;
@@ -242,10 +246,10 @@ public class DeliveryQueueProcessor {
 
                     Map<String, Future<IData>> submittedTasks = ordered ? null : new HashMap<String, Future<IData>>();
                     ContinuousFailureDetector continuousFailureDetector = new ContinuousFailureDetector(errorThreshold);
-                    boolean queueHadTasks = false;
+                    boolean queueHadTasks = false, shouldContinueProcessing = true;
 
                     // while not interrupted and not failed continuously and (not invoked by TN or queue is enabled): process queued jobs
-                    while (!Thread.interrupted() && !continuousFailureDetector.hasFailedContinuously() && (!invokedByTradingNetworks || shouldContinueProcessing(queue))) {
+                    while (!Thread.interrupted() && !continuousFailureDetector.hasFailedContinuously() && (!invokedByTradingNetworks || shouldContinueProcessing)) {
                         try {
                             if (sleepDuration > 0L) Thread.sleep(sleepDuration);
 
@@ -321,7 +325,11 @@ public class DeliveryQueueProcessor {
                                 }
                             }
 
-                            queue = DeliveryQueueHelper.refresh(queue);
+                            if (invokedByTradingNetworks && nextDeliveryQueueRefresh < System.currentTimeMillis()) {
+                                queue = DeliveryQueueHelper.refresh(queue);
+                                shouldContinueProcessing = shouldContinueProcessing(queue);
+                                nextDeliveryQueueRefresh = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS;
+                            }
                         } catch (InterruptedException ex) {
                             // exit if thread is interrupted
                             break;
