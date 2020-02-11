@@ -281,11 +281,9 @@ public class DeliveryQueueProcessor {
                                             }
                                         }
 
-                                        List<GuaranteedJob> jobs = DeliveryQueueHelper.peek(queue, false, age);
+                                        List<GuaranteedJob> jobs = DeliveryQueueHelper.peek(queue, false, age, submittedTasks.keySet());
                                         for (GuaranteedJob job : jobs) {
-                                            if (!submittedTasks.containsKey(job.getJobId())) {
-                                                tasks.add(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, continuousFailureDetector));
-                                            }
+                                            tasks.add(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, continuousFailureDetector));
                                         }
                                     }
 

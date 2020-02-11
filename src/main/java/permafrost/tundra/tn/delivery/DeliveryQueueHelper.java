@@ -53,6 +53,7 @@ import java.sql.Timestamp;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
@@ -262,7 +263,21 @@ public final class DeliveryQueueHelper {
      * @throws SQLException If a database error occurs.
      */
     public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, Duration age) throws SQLException {
-        return peek(queue, ordered, age == null ? DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS : age.getTimeInMillis(new Date()));
+        return peek(queue, ordered, age, null);
+    }
+
+    /**
+     * Returns the head of the given delivery queue without dequeuing it.
+     *
+     * @param queue         The delivery queue whose head job is to be returned.
+     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
+     * @param age           The minimum age a job must be before it can be dequeued.
+     * @param ignoreIDs     An optional set of task identities that can be ignored even if still queued.
+     * @return              The job at the head of the given queue, or null if the queue is empty.
+     * @throws SQLException If a database error occurs.
+     */
+    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, Duration age, Set<String> ignoreIDs) throws SQLException {
+        return peek(queue, ordered, age == null ? DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS : age.getTimeInMillis(new Date()), ignoreIDs);
     }
 
     /**
@@ -275,7 +290,7 @@ public final class DeliveryQueueHelper {
      * @throws SQLException If a database error occurs.
      */
     public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
-        return peek(queue, ordered, age, InputOutputHelper.DEFAULT_BUFFER_SIZE);
+        return peek(queue, ordered, age, null);
     }
 
     /**
@@ -284,13 +299,29 @@ public final class DeliveryQueueHelper {
      * @param queue         The delivery queue whose head job is to be returned.
      * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
      * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
+     * @param ignoreIDs     An optional set of task identities that can be ignored even if still queued.
+     * @return              The job at the head of the given queue, or null if the queue is empty.
+     * @throws SQLException If a database error occurs.
+     */
+    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, long age, Set<String> ignoreIDs) throws SQLException {
+        return peek(queue, ordered, age, ignoreIDs, InputOutputHelper.DEFAULT_BUFFER_SIZE);
+    }
+
+    /**
+     * Returns the head of the given delivery queue without dequeuing it.
+     *
+     * @param queue         The delivery queue whose head job is to be returned.
+     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
+     * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
+     * @param ignoreIDs     An optional set of task identities that can be ignored even if still queued.
      * @param fetchSize     The maximum number of jobs to be returned in one call.
      * @return              The job at the head of the given queue, or null if the queue is empty.
      * @throws SQLException If a database error occurs.
      */
-    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, long age, int fetchSize) throws SQLException {
+    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, long age, Set<String> ignoreIDs, int fetchSize) throws SQLException {
         if (queue == null) return null;
         if (age < 0L) age = 0L;
+        if (ignoreIDs == null) ignoreIDs = Collections.emptySet();
 
         Connection connection = null;
         PreparedStatement statement = null;
@@ -318,8 +349,11 @@ public final class DeliveryQueueHelper {
             results = statement.executeQuery();
 
             while (results.next()) {
-                GuaranteedJob job = GuaranteedJobHelper.get(results.getString(1));
-                if (job != null) jobs.add(job);
+                String id = results.getString(1);
+                if (!ignoreIDs.contains(id)) {
+                    GuaranteedJob job = GuaranteedJobHelper.get(id);
+                    if (job != null) jobs.add(job);
+                }
             }
 
             connection.commit();
