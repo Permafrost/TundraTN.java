@@ -154,19 +154,35 @@ public final class BizDocEnvelopeHelper {
      * @throws DatastoreException   If a database error occurs.
      */
     public static BizDocEnvelope normalize(IData input, boolean includeContent) throws DatastoreException {
+        return normalize(input, includeContent, true);
+    }
+
+    /**
+     * Returns a full BizDocEnvelope, if given either a subset or full BizDocEnvelope as an IData document.
+     *
+     * @param input                 An IData document which could be a BizDocEnvelope, or could be a subset of a
+     *                              BizDocEnvelope that includes an InternalID key.
+     * @param includeContent        Whether to include all content parts with the returned BizDocEnvelope.
+     * @param raiseIfMissing        If true, throws an exception if the BizDocEnvelope cannot be found.
+     * @return                      The full BizDocEnvelope associated with the given IData document.
+     * @throws DatastoreException   If a database error occurs.
+     */
+    public static BizDocEnvelope normalize(IData input, boolean includeContent, boolean raiseIfMissing) throws DatastoreException {
         if (input == null) return null;
 
         BizDocEnvelope document;
+        String id = null;
 
         if (input instanceof BizDocEnvelope) {
             document = (BizDocEnvelope)input;
             if (includeContent && document.isPersisted() && document.getContentParts() == null) {
-                document = get(document.getInternalId(), includeContent);
+                id = document.getInternalId();
+                document = get(id, includeContent);
             }
         } else {
             IDataCursor cursor = input.getCursor();
             try {
-                String id = IDataHelper.get(cursor, "InternalID", String.class);
+                id = IDataHelper.get(cursor, "InternalID", String.class);
                 if (id == null) {
                     throw new IllegalArgumentException("InternalID is required");
                 } else {
@@ -177,7 +193,7 @@ public final class BizDocEnvelopeHelper {
             }
         }
 
-        if (document == null) throw new NullPointerException("bizdoc is unexpectedly null");
+        if (raiseIfMissing && document == null && id != null) throw new NullPointerException("bizdoc with InternalID " + id + " does not exist");
 
         return document;
     }
