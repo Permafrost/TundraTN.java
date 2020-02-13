@@ -201,7 +201,7 @@ public class DeliveryQueueProcessor {
      * @throws SQLException     If an error is encountered with the database.
      */
     public static void each(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, long errorThreshold) throws ServiceException, SQLException {
-        if (isStarted && DeliveryQueueHelper.hasQueuedTasks(queue)) {
+        if (isStarted && DeliveryQueueHelper.size(queue, ordered, age) > 0) {
             // normalize concurrency
             if (concurrency <= 0) concurrency = 1;
             // normalize retryFactor

@@ -57,18 +57,12 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
-import java.util.TreeSet;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.xml.datatype.Duration;
 
 /**
  * A collection of convenience methods for working with Trading Networks delivery queues.
  */
 public final class DeliveryQueueHelper {
-    /**
-     * SQL statement to shortcut checking for queued tasks.
-     */
-    private static final String SELECT_QUEUES_WITH_QUEUED_TASKS_SQL = "SELECT DISTINCT QueueName FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND TimeCreated <= ? AND TimeUpdated <= ?";
     /**
      * SQL statement to select head of a delivery queue in job creation datetime order.
      */
@@ -78,9 +72,13 @@ public final class DeliveryQueueHelper {
      */
     private static final String SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated <= ? AND TimeUpdated <= ? ORDER BY TimeCreated ASC";
     /**
-     * SQL statement to return the count of queued jobs for a given queue.
+     * SQL statement to return the count of ordered queued jobs for a given queue.
      */
-    private static final String SELECT_NEXT_DELIVERY_JOB_COUNT_SQL = "SELECT COUNT(*) FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated <= ? AND TimeUpdated <= ?";
+    private static final String SELECT_COUNT_QUEUED_JOBS_ORDERED_SQL = "SELECT COUNT(*) FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ?) AND TimeCreated <= ? AND TimeUpdated <= ?";
+    /**
+     * SQL statement to return the count of unordered queued jobs for a given queue.
+     */
+    private static final String SELECT_COUNT_QUEUED_JOBS_UNORDERED_SQL = "SELECT COUNT(*) FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated <= ? AND TimeUpdated <= ?";
     /**
      * The age a delivery job must be before it is eligible to be processed.
      */
@@ -370,69 +368,6 @@ public final class DeliveryQueueHelper {
     }
 
     /**
-     * Returns the number of queued jobs in the given delivery queue.
-     *
-     * @param queue         The delivery queue.
-     * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
-     * @return              The number of queued jobs in the queue.
-     * @throws SQLException If a database error occurs.
-     */
-    public static long size(DeliveryQueue queue, Duration age) throws SQLException {
-        return size(queue, age == null ? DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS : age.getTimeInMillis(new Date()));
-    }
-
-    /**
-     * Returns the number of queued jobs in the given delivery queue.
-     *
-     * @param queue         The delivery queue.
-     * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
-     * @return              The number of queued jobs in the queue.
-     * @throws SQLException If a database error occurs.
-     */
-    public static long size(DeliveryQueue queue, long age) throws SQLException {
-        if (queue == null) return 0L;
-        if (age < 0L) age = 0L;
-
-        long count = 0L;
-
-        Connection connection = null;
-        PreparedStatement statement = null;
-        ResultSet results = null;
-        List<GuaranteedJob> jobs = new ArrayList<GuaranteedJob>();
-
-        try {
-            connection = Datastore.getConnection();
-            statement = connection.prepareStatement(SELECT_NEXT_DELIVERY_JOB_COUNT_SQL);
-            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
-            statement.clearParameters();
-
-            int index = 0;
-            String queueName = queue.getQueueName();
-            SQLWrappers.setChoppedString(statement, ++index, queueName, "DeliveryQueue.QueueName");
-            Timestamp timestamp = new Timestamp(System.currentTimeMillis() - age);
-            SQLWrappers.setTimestamp(statement, ++index, timestamp);
-            SQLWrappers.setTimestamp(statement, ++index, timestamp);
-
-            results = statement.executeQuery();
-
-            while (results.next()) {
-                count = results.getLong(1);
-            }
-
-            connection.commit();
-        } catch (SQLException ex) {
-            connection = Datastore.handleSQLException(connection, ex);
-            throw ex;
-        } finally {
-            SQLWrappers.close(results);
-            SQLWrappers.close(statement);
-            Datastore.releaseConnection(connection);
-        }
-
-        return count;
-    }
-
-    /**
      * Dequeues the job at the head of the given delivery queue.
      *
      * @param queue         The delivery queue to dequeue the head job from.
@@ -480,89 +415,72 @@ public final class DeliveryQueueHelper {
     }
 
     /**
-     * Cache of queues with currently queued tasks awaiting execution.
-     */
-    private static volatile Set<String> hasQueuedTasksSet = new TreeSet<String>();
-    /**
-     * When the cache was last updated.
-     */
-    private static volatile long hasQueuedTasksModifiedTime = 0L;
-    /**
-     * Lock used to synchronize read and write access to cache.
-     */
-    private static final ReentrantReadWriteLock HAS_QUEUED_TASKS_LOCK = new ReentrantReadWriteLock();
-    /**
-     * Cache whether each queue has queued tasks for 0.5 seconds, which is half the minimum possible polling interval.
-     */
-    private static final long MAX_QUEUED_TASKS_CACHE_AGE = 500000000L;
-
-    /**
-     * Returns true if the given delivery queue currently has queued tasks awaiting execution.
+     * Returns the number of queued jobs in the given delivery queue.
      *
-     * @param queue         The delivery queue whose head job is to be returned.
-     * @return              True if the given queue currently has queued tasks awaiting execution.
+     * @param queue         The delivery queue.
+     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
+     * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
+     * @return              The number of queued jobs in the queue.
      * @throws SQLException If a database error occurs.
      */
-    public static boolean hasQueuedTasks(DeliveryQueue queue) throws SQLException {
-        if (queue == null) return false;
+    public static long size(DeliveryQueue queue, boolean ordered, Duration age) throws SQLException {
+        return size(queue, ordered, age == null ? DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS : age.getTimeInMillis(new Date()));
+    }
 
-        long currentTime = System.nanoTime();
+    /**
+     * Returns the number of queued jobs in the given delivery queue.
+     *
+     * @param queue         The delivery queue.
+     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
+     * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
+     * @return              The number of queued jobs in the queue.
+     * @throws SQLException If a database error occurs.
+     */
+    public static long size(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
+        long size = 0L;
 
-        HAS_QUEUED_TASKS_LOCK.readLock().lock();
-        if (currentTime - hasQueuedTasksModifiedTime > MAX_QUEUED_TASKS_CACHE_AGE) {
-            // must release read lock before acquiring write lock
-            HAS_QUEUED_TASKS_LOCK.readLock().unlock();
-            HAS_QUEUED_TASKS_LOCK.writeLock().lock();
+        if (queue != null) {
+            if (age < 0L) age = 0L;
+
+            Connection connection = null;
+            PreparedStatement statement = null;
+            ResultSet results = null;
 
             try {
-                // recheck state because another thread might have acquired write lock and changed state before we did
-                if (currentTime - hasQueuedTasksModifiedTime > MAX_QUEUED_TASKS_CACHE_AGE) {
-                    Connection connection = null;
-                    PreparedStatement statement = null;
-                    ResultSet results = null;
+                connection = Datastore.getConnection();
+                statement = connection.prepareStatement(ordered ? SELECT_COUNT_QUEUED_JOBS_ORDERED_SQL : SELECT_COUNT_QUEUED_JOBS_UNORDERED_SQL);
+                statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
+                statement.clearParameters();
 
-                    try {
-                        connection = Datastore.getConnection();
-                        statement = connection.prepareStatement(SELECT_QUEUES_WITH_QUEUED_TASKS_SQL);
-                        statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
-                        statement.clearParameters();
-
-                        int index = 0;
-                        Timestamp timestamp = new Timestamp(System.currentTimeMillis());
-                        SQLWrappers.setTimestamp(statement, ++index, timestamp);
-                        SQLWrappers.setTimestamp(statement, ++index, timestamp);
-
-                        results = statement.executeQuery();
-
-                        hasQueuedTasksSet.clear();
-                        while(results.next()) {
-                            hasQueuedTasksSet.add(results.getString(1));
-                        }
-
-                        connection.commit();
-
-                        hasQueuedTasksModifiedTime = System.nanoTime();
-                    } catch (SQLException ex) {
-                        connection = Datastore.handleSQLException(connection, ex);
-                        throw ex;
-                    } finally {
-                        SQLWrappers.close(results);
-                        SQLWrappers.close(statement);
-                        Datastore.releaseConnection(connection);
-                    }
+                int index = 0;
+                String queueName = queue.getQueueName();
+                SQLWrappers.setChoppedString(statement, ++index, queueName, "DeliveryQueue.QueueName");
+                if (ordered) {
+                    SQLWrappers.setChoppedString(statement, ++index, queueName, "DeliveryQueue.QueueName");
                 }
-                // downgrade by acquiring read lock before releasing write lock
-                HAS_QUEUED_TASKS_LOCK.readLock().lock();
+
+                Timestamp timestamp = new Timestamp(System.currentTimeMillis() - age);
+                SQLWrappers.setTimestamp(statement, ++index, timestamp);
+                SQLWrappers.setTimestamp(statement, ++index, timestamp);
+
+                results = statement.executeQuery();
+
+                if (results.next()) {
+                    size = results.getLong(1);
+                }
+
+                connection.commit();
+            } catch (SQLException ex) {
+                connection = Datastore.handleSQLException(connection, ex);
+                throw ex;
             } finally {
-                HAS_QUEUED_TASKS_LOCK.writeLock().unlock(); // unlock write, still hold read
+                SQLWrappers.close(results);
+                SQLWrappers.close(statement);
+                Datastore.releaseConnection(connection);
             }
         }
 
-        try {
-            return hasQueuedTasksSet.contains(queue.getQueueName());
-        } finally {
-            HAS_QUEUED_TASKS_LOCK.readLock().unlock();
-        }
+        return size;
     }
 
     /**
