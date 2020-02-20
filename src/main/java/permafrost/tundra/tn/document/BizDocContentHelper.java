@@ -145,7 +145,7 @@ public final class BizDocContentHelper {
     public static void removeContentPart(BizDocEnvelope document, String partName) throws ServiceException {
         if (document == null || partName == null) return;
 
-        if (document.isPersisted()) {
+        if (BizDocEnvelopeHelper.shouldPersistContent(document)) {
             Connection connection = null;
             PreparedStatement statement = null;
 
@@ -205,7 +205,7 @@ public final class BizDocContentHelper {
      * @param document  The BizDocEnvelope to log the current transport against.
      */
     public static void addTransportContentPart(BizDocEnvelope document, String contentPartName) throws ServiceException {
-        if (document != null) {
+        if (BizDocEnvelopeHelper.shouldPersistContent(document)) {
             String currentDateTime = DateTimeHelper.now("datetime");
 
             List<NSService> callStack = ServiceHelper.getCallStack();

@@ -230,7 +230,7 @@ public final class BizDocEnvelopeHelper {
      * @throws DatastoreException   If a database error occurs.
      */
     public static BizDocEnvelope refresh(BizDocEnvelope document) throws DatastoreException {
-        if (document == null) return null;
+        if (document == null || !document.isPersisted()) return document;
         return get(document.getInternalId());
     }
 
@@ -308,34 +308,38 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException If a database error occurs.
      */
     public static boolean isDuplicate(BizDocEnvelope document) throws ServiceException {
-        Connection connection = null;
-        PreparedStatement statement = null;
         boolean isDuplicate = false;
 
-        try {
-            StringBuilder key = new StringBuilder();
-            key.append(document.getDocType().getId());
-            key.append(document.getSenderId());
-            key.append(document.getReceiverId());
-            key.append(document.getDocumentId());
+        if (document != null) {
+            Connection connection = null;
+            PreparedStatement statement = null;
 
-            connection = Datastore.getConnection();
-
-            statement = SQLStatements.prepareStatement(connection, "bdunique.insert");
-            SQLWrappers.setCharString(statement, 1, document.getInternalId());
-            SQLWrappers.setChoppedString(statement, 2, key.toString(), "BizDocUniqueKeys.UniqueKey");
 
             try {
-                statement.executeUpdate();
+                StringBuilder key = new StringBuilder();
+                key.append(document.getDocType().getId());
+                key.append(document.getSenderId());
+                key.append(document.getReceiverId());
+                key.append(document.getDocumentId());
+
+                connection = Datastore.getConnection();
+
+                statement = SQLStatements.prepareStatement(connection, "bdunique.insert");
+                SQLWrappers.setCharString(statement, 1, document.getInternalId());
+                SQLWrappers.setChoppedString(statement, 2, key.toString(), "BizDocUniqueKeys.UniqueKey");
+
+                try {
+                    statement.executeUpdate();
+                } catch (SQLException ex) {
+                    isDuplicate = true;
+                }
             } catch (SQLException ex) {
-                isDuplicate = true;
+                connection = Datastore.handleSQLException(connection, ex);
+                ExceptionHelper.raise(ex);
+            } finally {
+                SQLStatements.releaseStatement(statement);
+                Datastore.releaseConnection(connection);
             }
-        } catch (SQLException ex) {
-            connection = Datastore.handleSQLException(connection, ex);
-            ExceptionHelper.raise(ex);
-        } finally {
-            SQLStatements.releaseStatement(statement);
-            Datastore.releaseConnection(connection);
         }
 
         return isDuplicate;
@@ -382,14 +386,22 @@ public final class BizDocEnvelopeHelper {
     public static boolean setStatus(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus, String userStatus, String previousUserStatus, boolean silence) throws ServiceException {
         if (bizdoc == null || silence) return false;
 
-        boolean result;
+        boolean result = false;
 
         if ("DONE".equals(userStatus) && hasErrors(bizdoc)) {
             userStatus = userStatus + " W/ ERRORS";
         }
 
         if (previousSystemStatus == null && previousUserStatus == null) {
-            result = BizDocStore.changeStatus(bizdoc.getInternalId(), systemStatus, userStatus);
+            if (bizdoc.isPersisted()) {
+                result = BizDocStore.changeStatus(bizdoc.getInternalId(), systemStatus, userStatus);
+            } else {
+                result = true;
+            }
+            if (result) {
+                if (systemStatus != null) bizdoc.setSystemStatus(systemStatus);
+                if (userStatus != null) bizdoc.setUserStatus(userStatus);
+            }
         } else if (systemStatus != null && userStatus != null) {
             result = setStatusForPrevious(bizdoc, systemStatus, previousSystemStatus, userStatus, previousUserStatus);
         } else if (systemStatus != null) {
@@ -398,7 +410,9 @@ public final class BizDocEnvelopeHelper {
             result = setUserStatusForPrevious(bizdoc, userStatus, previousUserStatus);
         }
 
-        if (result) ActivityLogHelper.log(EntryType.normalize("MESSAGE"), "General", "Status changed", getStatusMessage(systemStatus, userStatus), bizdoc);
+        if (result) {
+            ActivityLogHelper.log(EntryType.normalize("MESSAGE"), "General", "Status changed", getStatusMessage(systemStatus, userStatus), bizdoc);
+        }
 
         return result;
     }
@@ -433,11 +447,18 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException     If a database error is encountered.
      */
     private static boolean setStatusForPrevious(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus, String userStatus, String previousUserStatus) throws ServiceException {
-        boolean result = setStatusForPrevious(bizdoc.getInternalId(), systemStatus, previousSystemStatus, userStatus, previousUserStatus);
+        boolean result = false;
 
-        if (result) {
+        if (bizdoc.isPersisted()) {
+            result = setStatusForPrevious(bizdoc.getInternalId(), systemStatus, previousSystemStatus, userStatus, previousUserStatus);
+            if (result) {
+                bizdoc.setSystemStatus(systemStatus);
+                bizdoc.setUserStatus(userStatus);
+            }
+        } else if ((previousSystemStatus == null || previousSystemStatus.equals(bizdoc.getSystemStatus())) && (previousUserStatus == null || previousUserStatus.equals(bizdoc.getUserStatus()))) {
             bizdoc.setSystemStatus(systemStatus);
             bizdoc.setUserStatus(userStatus);
+            result = true;
         }
 
         return result;
@@ -504,8 +525,16 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException     If a database error is encountered.
      */
     public static boolean setSystemStatusForPrevious(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus) throws ServiceException {
-        boolean result = setSystemStatusForPrevious(bizdoc.getInternalId(), systemStatus, previousSystemStatus);
-        if (result) bizdoc.setSystemStatus(systemStatus);
+        boolean result = false;
+
+        if (bizdoc.isPersisted()) {
+            result = setSystemStatusForPrevious(bizdoc.getInternalId(), systemStatus, previousSystemStatus);
+            if (result) bizdoc.setSystemStatus(systemStatus);
+        } else if (previousSystemStatus == null || previousSystemStatus.equals(bizdoc.getSystemStatus())) {
+            bizdoc.setSystemStatus(systemStatus);
+            result = true;
+        }
+
         return result;
     }
 
@@ -564,8 +593,16 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException     If a database error is encountered.
      */
     public static boolean setUserStatusForPrevious(BizDocEnvelope bizdoc, String userStatus, String previousUserStatus) throws ServiceException {
-        boolean result = setUserStatusForPrevious(bizdoc.getInternalId(), userStatus, previousUserStatus);
-        if (result) bizdoc.setUserStatus(userStatus);
+        boolean result = false;
+
+        if (bizdoc.isPersisted()) {
+            result = setUserStatusForPrevious(bizdoc.getInternalId(), userStatus, previousUserStatus);
+            if (result) bizdoc.setUserStatus(userStatus);
+        } else if (previousUserStatus == null || previousUserStatus.equals(bizdoc.getUserStatus())) {
+            bizdoc.setUserStatus(userStatus);
+            result = true;
+        }
+
         return result;
     }
 
@@ -748,7 +785,7 @@ public final class BizDocEnvelopeHelper {
      * @throws DatastoreException   If a database error occurs.
      */
     public static ActivityLogEntry[] getErrors(IData document, IData messageClasses) throws DatastoreException {
-        return getErrors(normalize(document, false), getMessageClassesSet(messageClasses));
+        return getErrors(normalize(document, false, false), getMessageClassesSet(messageClasses));
     }
 
     /**
@@ -843,7 +880,7 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException If the given bizdoc has errors logged against it with any of the given message classes.
      */
     public static void raiseIfErrors(IData document, IData messageClasses) throws ServiceException {
-        raiseIfErrors(normalize(document, false), getMessageClassesSet(messageClasses));
+        raiseIfErrors(normalize(document, false, false), getMessageClassesSet(messageClasses));
     }
 
     /**
@@ -1482,6 +1519,50 @@ public final class BizDocEnvelopeHelper {
         }
 
         return preRoutingFlags;
+    }
+
+    /**
+     * Returns true if content parts are to be persisted to the database for the given BizDocEnvelope.
+     *
+     * @param document  The BizDocEnvelope object.
+     * @return          True if content parts are to be persisted to the database for the given BizDocEnvelope.
+     */
+    public static boolean shouldPersistContent(BizDocEnvelope document) {
+        return document != null && document.isPersisted() && PreRoutingFlags.isPersistContent(getPersistOption(document));
+    }
+
+    /**
+     * Returns true if attributes are to be persisted to the database for the given BizDocEnvelope.
+     *
+     * @param document  The BizDocEnvelope object.
+     * @return          True if attributes are to be persisted to the database for the given BizDocEnvelope.
+     */
+    public static boolean shouldPersistAttributes(BizDocEnvelope document) {
+        return document != null && document.isPersisted() && PreRoutingFlags.isPersistAttrib(getPersistOption(document));
+    }
+
+    /**
+     * Returns true if activity logs are to be persisted to the database for the given BizDocEnvelope.
+     *
+     * @param document  The BizDocEnvelope object.
+     * @return          True if activity logs are to be persisted to the database for the given BizDocEnvelope.
+     */
+    public static boolean shouldPersistActivityLog(BizDocEnvelope document) {
+        return document != null && document.isPersisted() && PreRoutingFlags.isPersistActLog(getPersistOption(document));
+    }
+
+    /**
+     * Returns the persist option for the given BizDocEnvelope.
+     *
+     * @param document  The BizDocEnvelope object.
+     * @return          The persist option for the given BizDocEnvelope.
+     */
+    private static String getPersistOption(BizDocEnvelope document) {
+        String persistOption = document.getPersistOption();
+        if (persistOption == null || persistOption.equals("")) {
+            persistOption = document.getDocType().getPreRoutingFlags().getPersistOption();
+        }
+        return persistOption;
     }
 
     /**

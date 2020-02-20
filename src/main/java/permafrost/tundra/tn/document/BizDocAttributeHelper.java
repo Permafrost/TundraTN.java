@@ -100,7 +100,7 @@ public final class BizDocAttributeHelper {
 
             set(bizdoc, attributes);
 
-            if (bizdoc.isPersisted()) BizDocStore.updateAttributes(bizdoc);
+            if (BizDocEnvelopeHelper.shouldPersistAttributes(bizdoc)) BizDocStore.updateAttributes(bizdoc);
         }
     }
 

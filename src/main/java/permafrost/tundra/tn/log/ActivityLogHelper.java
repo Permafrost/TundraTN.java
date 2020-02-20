@@ -29,7 +29,6 @@ import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.err.ActivityLogEntry;
 import com.wm.app.tn.err.SystemLog2;
-import com.wm.app.tn.route.PreRoutingFlags;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
@@ -45,6 +44,7 @@ import permafrost.tundra.server.ServiceHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.time.DurationHelper;
 import permafrost.tundra.time.DurationPattern;
+import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import java.io.IOException;
 import java.util.List;
 
@@ -135,7 +135,7 @@ public class ActivityLogHelper {
      * @param context        Optional document containing key values to be included in the log for context.
      */
     public static void log(EntryType entryType, String entryClass, String messageSummary, String messageDetail, BizDocEnvelope bizdoc, IData context) {
-        if (shouldLog(bizdoc)) {
+        if (bizdoc == null || BizDocEnvelopeHelper.shouldPersistActivityLog(bizdoc)) {
             entryType = EntryType.normalize(entryType);
 
             if (messageDetail == null) messageDetail = "";
@@ -164,30 +164,6 @@ public class ActivityLogHelper {
             }
             SystemLog2.dbLog(log);
         }
-    }
-
-    /**
-     * Returns whether ActivityLog entries should be logged against this BizDocEnvelope.
-     *
-     * @param document  The document to determine if logging should occur.
-     * @return          Whether logging should occur against this document.
-     */
-    private static boolean shouldLog(BizDocEnvelope document) {
-        boolean shouldLog = true;
-
-        if (document != null) {
-            if (document.isPersisted()) {
-                String persistOption = document.getPersistOption();
-                if (persistOption == null || persistOption.equals("")) {
-                    persistOption = document.getDocType().getPreRoutingFlags().getPersistOption();
-                }
-                shouldLog = PreRoutingFlags.isPersistActLog(persistOption);
-            } else {
-                shouldLog = false;
-            }
-        }
-
-        return shouldLog;
     }
 
     /**
