@@ -127,7 +127,7 @@ public final class BizDocAttributeHelper {
                     Object value = cursor.getValue();
                     if (value instanceof String) {
                         if (DOCUMENT_REFERENCE_PATTERN.matcher((String)value).find()) {
-                            IDataHelper.put(scope, "$document", BizDocContentHelper.parse(bizdoc, null, false, false));
+                            IDataHelper.put(scope, "$document", BizDocContentHelper.parse(bizdoc, null, false, false, null));
                             break;
                         }
                     }

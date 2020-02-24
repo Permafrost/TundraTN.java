@@ -352,10 +352,11 @@ public final class BizDocContentHelper {
      * @param partName          The optional name of the content part to be parsed.
      * @param validate          Whether the content should be validated against the schema.
      * @param log               Whether to log the duration of the parse against the BizDocEnvelope.
+     * @param pipeline          Optional pipeline containing other settings for the parser.
      * @return                  The parsed content.
      * @throws ServiceException If an error occurs retrieving or parsing the content.
      */
-    public static IData parse(BizDocEnvelope document, String partName, boolean validate, boolean log) throws ServiceException {
+    public static IData parse(BizDocEnvelope document, String partName, boolean validate, boolean log, IData pipeline) throws ServiceException {
         long startTime = System.nanoTime();
 
         IData parsedContent = null;
@@ -373,7 +374,7 @@ public final class BizDocContentHelper {
                     }
                     IData contentNamespace = BizDocEnvelopeHelper.getNamespaceDeclarations(document);
 
-                    ContentParser parser = new ContentParser(contentType, contentEncoding, contentSchema, contentNamespace, validate, null);
+                    ContentParser parser = new ContentParser(contentType, contentEncoding, contentSchema, contentNamespace, validate, pipeline);
 
                     parsedContent = parser.parse(content);
 
