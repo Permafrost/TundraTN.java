@@ -94,6 +94,7 @@ public class ProfileID {
      *
      * @return A hash code for this object.
      */
+    @Override
     public int hashCode() {
         String value = this.getValue();
         int hash = 0;

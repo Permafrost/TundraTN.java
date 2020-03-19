@@ -134,6 +134,7 @@ public class ActivityLogHelper {
      * @param bizdoc         Optional related bizdoc to log against.
      * @param context        Optional document containing key values to be included in the log for context.
      */
+    @SuppressWarnings("deprecation")
     public static void log(EntryType entryType, String entryClass, String messageSummary, String messageDetail, BizDocEnvelope bizdoc, IData context) {
         if (bizdoc == null || BizDocEnvelopeHelper.shouldPersistActivityLog(bizdoc)) {
             entryType = EntryType.normalize(entryType);
