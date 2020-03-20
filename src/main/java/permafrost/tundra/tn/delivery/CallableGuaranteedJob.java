@@ -74,11 +74,11 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
     /**
      * The number of retries when trying to complete a job.
      */
-    private static int MAX_RETRIES = 60;
+    private static final int MAX_RETRIES = 60;
     /**
      * How long to wait between each retry when trying to complete a job.
      */
-    private static long WAIT_BETWEEN_RETRIES_MILLISECONDS = 1000L;
+    private static final long WAIT_BETWEEN_RETRIES_MILLISECONDS = 1000L;
     /**
      * The job against which the service will be invoked.
      */
