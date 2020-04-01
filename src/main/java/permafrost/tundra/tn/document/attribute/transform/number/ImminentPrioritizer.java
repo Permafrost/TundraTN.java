@@ -36,7 +36,10 @@ import javax.xml.datatype.Duration;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Arrays;
 import java.util.Calendar;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -122,7 +125,8 @@ public class ImminentPrioritizer extends Transformer<Double> {
                 if (rangeMilliseconds > 0) {
                     BigDecimal ulp = priorityRange.divide(new BigDecimal(rangeMilliseconds), DEFAULT_RANGE_PRECISION, RoundingMode.HALF_UP);
                     if (values != null) {
-                        for (String value : values) {
+                        Set<String> valueSet = new TreeSet<String>(Arrays.asList(values));
+                        for (String value : valueSet) {
                             Calendar datetime = DateTimeHelper.parse(value, pattern);
                             if (datetime != null) {
                                 if (datetime.compareTo(startTime) >= 0 && datetime.compareTo(endTime) <= 0) {
