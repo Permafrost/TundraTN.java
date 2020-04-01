@@ -249,10 +249,14 @@ public final class GuaranteedJobHelper {
             BizDocEnvelope bizdoc = job.getBizDocEnvelope();
             ProfileSummary receiver = ProfileStore.getProfileSummary(bizdoc.getReceiverId());
 
-            if (retryLimit <= 0 && receiver.getDeliveryRetries() > 0) {
-                retryLimit = receiver.getDeliveryRetries();
-                retryFactor = receiver.getRetryFactor();
-                timeToWait = receiver.getDeliveryWait();
+            if (retryLimit < 0) {
+                if (receiver.getDeliveryRetries() > 0) {
+                    retryLimit = receiver.getDeliveryRetries();
+                    retryFactor = receiver.getRetryFactor();
+                    timeToWait = receiver.getDeliveryWait();
+                } else {
+                    retryLimit = 0;
+                }
             }
 
             if (taskRetryLimit != retryLimit || taskRetryFactor != retryFactor || taskTTW != timeToWait) {
