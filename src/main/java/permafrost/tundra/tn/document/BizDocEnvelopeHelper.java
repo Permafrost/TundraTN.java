@@ -36,6 +36,7 @@ import java.sql.SQLIntegrityConstraintViolationException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -68,6 +69,7 @@ import com.wm.app.tn.util.Config;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
+import com.wm.data.IDataUtil;
 import com.wm.util.tspace.Reservation;
 import org.w3c.dom.Node;
 import permafrost.tundra.content.ContentParser;
@@ -821,49 +823,127 @@ public final class BizDocEnvelopeHelper {
     }
 
     /**
-     * Returns true if the given BizDocEnvelope has any errors of the given message class.
+     * Returns the list of errors from the given BizDocEnvelope with the given message class.
      *
      * @param document              The BizDocEnvelope to check for errors.
      * @param messageClasses        The classes of error to check for.
      * @return                      True if the given BizDocEnvelope has errors of the given class.
-     * @throws DatastoreException   If a database error occurs.
+     * @throws DatastoreException   List of errors from the given BizDocEnvelope with the given message class.
      */
     public static ActivityLogEntry[] getErrors(BizDocEnvelope document, Set<String> messageClasses) throws DatastoreException {
-        ActivityLogEntry[] output = null;
+        return getErrors(document.getErrorSet(), messageClasses);
+    }
 
-        if (document != null) {
-            BizDocErrorSet errorSet = document.getErrorSet();
-            if (errorSet != null) {
-                int errorCount = errorSet.getErrorCount();
-                if (errorCount > 0) {
-                    List<ActivityLogEntry> errors = new ArrayList<ActivityLogEntry>(errorCount);
-                    if (messageClasses == null || messageClasses.size() == 0) {
-                        messageClasses = getMessageClasses(errorSet);
-                    }
+    /**
+     * Returns all error logs with the given message classes from the given BizDocErrorSet object.
+     *
+     * @param errorSet          The BizDocErrorSet object.
+     * @param messageClasses    The set of message classes.
+     * @return                  The list of errors from the given BizDocErrorSet object with the given message class, or
+     *                          null if there are no errors.
+     */
+    private static ActivityLogEntry[] getErrors(BizDocErrorSet errorSet, Set<String> messageClasses) {
+        if (errorSet == null) return null;
 
-                    if (messageClasses != null) {
-                        for (String messageClass : messageClasses) {
-                            ActivityLogEntry[] entries = errorSet.getErrors(messageClass);
-                            if (entries != null) {
-                                for (ActivityLogEntry entry : entries) {
-                                    if (entry != null) {
-                                        if (entry.getEntryType() == ActivityLogEntry.TYPE_ERROR) {
-                                            errors.add(entry);
-                                        }
-                                    }
-                                }
+        if (messageClasses == null || messageClasses.size() == 0) {
+            messageClasses = getMessageClasses(errorSet);
+        }
+
+        List<ActivityLogEntry> errors = Collections.emptyList();
+
+        int errorCount = getErrorCount(errorSet);
+        if (errorCount > 0) {
+            errors = new ArrayList<ActivityLogEntry>(errorCount);
+            IDataCursor cursor = errorSet.getCursor();
+            try {
+                for (String messageClass : messageClasses) {
+                    IData[] entries = IDataUtil.getIDataArray(cursor, messageClass);
+                    if (entries != null && entries.length > 0) {
+                        for (IData entry : entries) {
+                            if (isActivityLogError(entry)) {
+                                errors.add(toActivityLogEntry(entry));
                             }
                         }
                     }
-
-                    if (errors.size() > 0) {
-                        output = errors.toArray(new ActivityLogEntry[0]);
-                    }
                 }
+            } finally {
+                cursor.destroy();
             }
         }
 
-        return output;
+        return errors.size() == 0 ? null : errors.toArray(new ActivityLogEntry[0]);
+    }
+
+    /**
+     * Returns the number of errors in the given BizDocErrorSet object.
+     *
+     * @param errorSet  The BizDocErrorSet object.
+     * @return          The number of errors in the BizDocErrorSet object.
+     */
+    private static int getErrorCount(BizDocErrorSet errorSet) {
+        int errorCount = 0;
+
+        if (errorSet != null) {
+            IDataCursor cursor = errorSet.getCursor();
+            try {
+                while (cursor.next()) {
+                    Object value = cursor.getValue();
+                    if (value instanceof IData[]) {
+                        IData[] activityLogs = (IData[]) value;
+                        for (IData activityLog : activityLogs) {
+                            if (isActivityLogError(activityLog)) {
+                                errorCount++;
+                            }
+                        }
+                    }
+                }
+            } finally {
+                cursor.destroy();
+            }
+        }
+
+        return errorCount;
+    }
+
+    /**
+     * Returns true if the given activity log represents an error.
+     *
+     * @param activityLog   The activity log to check.
+     * @return              True if the given activity log is an error.
+     */
+    private static boolean isActivityLogError(IData activityLog) {
+        boolean isError = false;
+
+        if (activityLog != null) {
+            IDataCursor cursor = activityLog.getCursor();
+            try {
+                String entryType = IDataUtil.getString(cursor, "EntryType");
+                isError = Integer.toString(ActivityLogEntry.TYPE_ERROR).equals(entryType);
+            } finally {
+                cursor.destroy();
+            }
+        }
+
+        return isError;
+    }
+
+    /**
+     * Normalizes the given IData document as an ActivityLogEntry object.
+     *
+     * @param document  The IData document.
+     * @return          The given document as an ActivityLogEntry object.
+     */
+    private static ActivityLogEntry toActivityLogEntry(IData document) {
+        ActivityLogEntry entry;
+
+        if (document instanceof ActivityLogEntry) {
+            entry = (ActivityLogEntry)document;
+        } else {
+            entry = new ActivityLogEntry();
+            IDataHelper.mergeInto(entry, document);
+        }
+
+        return entry;
     }
 
     /**
