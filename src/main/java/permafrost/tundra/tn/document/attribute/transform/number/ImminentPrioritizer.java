@@ -24,18 +24,18 @@
 
 package permafrost.tundra.tn.document.attribute.transform.number;
 
+import com.wm.app.b2b.server.ServiceException;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.data.IDataYAMLParser;
+import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.time.DurationHelper;
 import permafrost.tundra.tn.document.attribute.transform.Transformer;
 import permafrost.tundra.tn.route.CallableRoute;
 import javax.xml.datatype.Duration;
 import java.io.IOException;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Set;
@@ -60,10 +60,6 @@ public class ImminentPrioritizer extends Transformer<Double> {
      */
     protected static final Duration DEFAULT_IMMINENT_RANGE_END = DurationHelper.parse("P7D");
     /**
-     * The number of decimal places to dedicate to the imminence component of the resulting priority.
-     */
-    protected static final int DEFAULT_RANGE_PRECISION = 16;
-    /**
      * Transforms the given Trading Networks extracted document attribute values.
      *
      * @param values    The extracted document attribute values to transform.
@@ -83,18 +79,11 @@ public class ImminentPrioritizer extends Transformer<Double> {
             try {
                 String pattern = IDataHelper.get(cursor, "pattern", String.class);
                 String range = IDataHelper.get(cursor, "range", String.class);
-                BigDecimal priorityFloor = IDataHelper.get(cursor, "priority", BigDecimal.class);
+                double priorityFloor = Math.floor(IDataHelper.getOrDefault(cursor, "priority", Double.class, CallableRoute.DEFAULT_MESSAGE_PRIORITY));
 
-                if (priorityFloor == null) {
-                    priorityFloor = new BigDecimal(CallableRoute.DEFAULT_MESSAGE_PRIORITY);
-                } else {
-                    priorityFloor = new BigDecimal(priorityFloor.toBigInteger()); // remove mantissa
-                }
-                priorityFloor = priorityFloor.setScale(DEFAULT_RANGE_PRECISION, RoundingMode.HALF_UP);
-                BigDecimal priorityCeiling = priorityFloor.add(BigDecimal.ONE).subtract(priorityFloor.ulp());
-                BigDecimal priorityRange = priorityCeiling.subtract(priorityFloor);
-
-                BigDecimal priority = priorityFloor;
+                double priorityRange = 1.0d;
+                double priorityCeiling = priorityFloor + priorityRange;
+                double priority = priorityFloor;
 
                 Duration rangeStart = null, rangeEnd = null;
                 if (range != null) {
@@ -122,35 +111,37 @@ public class ImminentPrioritizer extends Transformer<Double> {
                 Duration rangeDuration = DateTimeHelper.duration(startTime, endTime);
                 long rangeMilliseconds = rangeDuration.getTimeInMillis(now);
 
-                if (rangeMilliseconds > 0) {
-                    BigDecimal ulp = priorityRange.divide(new BigDecimal(rangeMilliseconds), DEFAULT_RANGE_PRECISION, RoundingMode.HALF_UP);
+                if (rangeMilliseconds > 0.0d) {
+                    double ulp = priorityRange / (rangeMilliseconds * 1.0d);
                     if (values != null) {
                         Set<String> valueSet = new TreeSet<String>(Arrays.asList(values));
                         for (String value : valueSet) {
                             Calendar datetime = DateTimeHelper.parse(value, pattern);
                             if (datetime != null) {
                                 if (datetime.compareTo(startTime) >= 0 && datetime.compareTo(endTime) <= 0) {
-                                    BigDecimal imminence = new BigDecimal(DateTimeHelper.duration(startTime, datetime).getTimeInMillis(now));
+                                    long imminence = DateTimeHelper.duration(startTime, datetime).getTimeInMillis(now);
 
-                                    BigDecimal newPriority;
+                                    double newPriority;
                                     if (ascending) {
-                                        newPriority = priorityCeiling.subtract(imminence.multiply(ulp));
+                                        newPriority = priorityCeiling - (imminence * ulp);
                                     } else {
-                                        newPriority = priorityFloor.add(imminence.multiply(ulp));
+                                        newPriority = priorityFloor + (imminence * ulp);
                                     }
 
-                                    if (newPriority.compareTo(priority) > 0) priority = newPriority;
+                                    if (newPriority > priority) priority = newPriority;
                                 }
                             }
                         }
                     }
                 }
-                output[0] = priority.doubleValue();
+                output[0] = Math.min(Math.max(priority, priorityFloor), priorityCeiling);
             } finally {
                 cursor.destroy();
             }
         } catch(IOException ex) {
-            throw new RuntimeException(ex);
+            ExceptionHelper.raiseUnchecked(ex);
+        } catch(ServiceException ex) {
+            ExceptionHelper.raiseUnchecked(ex);
         }
 
         return output;
