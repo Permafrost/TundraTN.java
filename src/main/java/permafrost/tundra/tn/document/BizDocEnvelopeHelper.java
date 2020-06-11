@@ -1551,7 +1551,6 @@ public final class BizDocEnvelopeHelper {
      */
     public static void persist(BizDocEnvelope document, RoutingRule rule, boolean transportLog, String transportLogPartName, boolean strict) throws ServiceException {
         if (document != null) {
-            if (transportLog) BizDocContentHelper.addTransportContentPart(document, transportLogPartName);
             PreRoutingFlags preRoutingFlags = getPreRoutingFlags(document, rule);
             document.setPersistOption(preRoutingFlags.getPersistOption());
 
@@ -1564,6 +1563,8 @@ public final class BizDocEnvelopeHelper {
             } finally {
                 cursor.destroy();
             }
+
+            if (transportLog) BizDocContentHelper.addTransportContentPart(document, transportLogPartName);
 
             if (strict) {
                 ActivityLogEntry[] errors = BizDocEnvelopeHelper.getErrors(document);
