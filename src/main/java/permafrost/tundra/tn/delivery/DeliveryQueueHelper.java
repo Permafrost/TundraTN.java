@@ -66,11 +66,11 @@ public final class DeliveryQueueHelper {
     /**
      * SQL statement to select head of a delivery queue in job creation datetime order.
      */
-    private static final String SELECT_NEXT_DELIVERY_JOB_ORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ?) AND TimeCreated <= ? AND TimeUpdated <= ?";
+    private static final String SELECT_NEXT_DELIVERY_JOB_ORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated = (SELECT MIN(TimeCreated) FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ?) AND TimeCreated <= ? AND TimeUpdated <= ? ORDER BY TimeCreated ASC, JobID ASC";
     /**
      * SQL statement to select head of a delivery queue in indeterminate order.
      */
-    private static final String SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated <= ? AND TimeUpdated <= ? ORDER BY TimeCreated ASC";
+    private static final String SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL = "SELECT JobID FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated <= ? AND TimeUpdated <= ? ORDER BY TimeCreated ASC, JobID ASC";
     /**
      * SQL statement to return the count of ordered queued jobs for a given queue.
      */
@@ -91,7 +91,6 @@ public final class DeliveryQueueHelper {
      * The default timeout for database queries.
      */
     private static final int DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS = 30;
-
     /**
      * Disallow instantiation of this class.
      */
@@ -244,51 +243,14 @@ public final class DeliveryQueueHelper {
      *
      * @param queue         The delivery queue whose head job is to be returned.
      * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
-     * @return              The job at the head of the given queue, or null if the queue is empty.
-     * @throws SQLException If a database error occurs.
-     */
-    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered) throws SQLException {
-        return peek(queue, ordered, null);
-    }
-
-    /**
-     * Returns the head of the given delivery queue without dequeuing it.
-     *
-     * @param queue         The delivery queue whose head job is to be returned.
-     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
-     * @param age           The minimum age a job must be before it can be dequeued.
-     * @return              The job at the head of the given queue, or null if the queue is empty.
-     * @throws SQLException If a database error occurs.
-     */
-    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, Duration age) throws SQLException {
-        return peek(queue, ordered, age, null);
-    }
-
-    /**
-     * Returns the head of the given delivery queue without dequeuing it.
-     *
-     * @param queue         The delivery queue whose head job is to be returned.
-     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
-     * @param age           The minimum age a job must be before it can be dequeued.
-     * @param ignoreIDs     An optional set of task identities that can be ignored even if still queued.
-     * @return              The job at the head of the given queue, or null if the queue is empty.
-     * @throws SQLException If a database error occurs.
-     */
-    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, Duration age, Set<String> ignoreIDs) throws SQLException {
-        return peek(queue, ordered, age == null ? DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS : age.getTimeInMillis(new Date()), ignoreIDs);
-    }
-
-    /**
-     * Returns the head of the given delivery queue without dequeuing it.
-     *
-     * @param queue         The delivery queue whose head job is to be returned.
-     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
      * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
+     * @param ignoreIDs     An optional set of task identities that can be ignored even if still queued.
+     * @param maxSize       The maximum number of jobs to be returned in one call.
      * @return              The job at the head of the given queue, or null if the queue is empty.
      * @throws SQLException If a database error occurs.
      */
-    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
-        return peek(queue, ordered, age, null);
+    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, Duration age, Set<String> ignoreIDs, int maxSize) throws SQLException {
+        return peek(queue, ordered, age == null ? DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS : age.getTimeInMillis(new Date()), ignoreIDs, maxSize);
     }
 
     /**
@@ -298,28 +260,15 @@ public final class DeliveryQueueHelper {
      * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
      * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
      * @param ignoreIDs     An optional set of task identities that can be ignored even if still queued.
+     * @param maxSize       The maximum number of jobs to be returned in one call.
      * @return              The job at the head of the given queue, or null if the queue is empty.
      * @throws SQLException If a database error occurs.
      */
-    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, long age, Set<String> ignoreIDs) throws SQLException {
-        return peek(queue, ordered, age, ignoreIDs, InputOutputHelper.DEFAULT_BUFFER_SIZE);
-    }
-
-    /**
-     * Returns the head of the given delivery queue without dequeuing it.
-     *
-     * @param queue         The delivery queue whose head job is to be returned.
-     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
-     * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
-     * @param ignoreIDs     An optional set of task identities that can be ignored even if still queued.
-     * @param fetchSize     The maximum number of jobs to be returned in one call.
-     * @return              The job at the head of the given queue, or null if the queue is empty.
-     * @throws SQLException If a database error occurs.
-     */
-    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, long age, Set<String> ignoreIDs, int fetchSize) throws SQLException {
+    public static List<GuaranteedJob> peek(DeliveryQueue queue, boolean ordered, long age, Set<String> ignoreIDs, int maxSize) throws SQLException {
         if (queue == null) return null;
         if (age < 0L) age = 0L;
         if (ignoreIDs == null) ignoreIDs = Collections.emptySet();
+        if (maxSize < 1) maxSize = 1;
 
         Connection connection = null;
         PreparedStatement statement = null;
@@ -331,7 +280,7 @@ public final class DeliveryQueueHelper {
             statement = connection.prepareStatement(ordered ? SELECT_NEXT_DELIVERY_JOB_ORDERED_SQL : SELECT_NEXT_DELIVERY_JOB_UNORDERED_SQL);
             statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
             statement.clearParameters();
-            statement.setFetchSize(fetchSize);
+            statement.setFetchSize(maxSize);
 
             int index = 0;
             String queueName = queue.getQueueName();
@@ -346,11 +295,13 @@ public final class DeliveryQueueHelper {
 
             results = statement.executeQuery();
 
-            while (results.next()) {
+            while (results.next() && jobs.size() < maxSize) {
                 String id = results.getString(1);
                 if (!ignoreIDs.contains(id)) {
                     GuaranteedJob job = GuaranteedJobHelper.get(id);
-                    if (job != null) jobs.add(job);
+                    if (job != null) {
+                        jobs.add(job);
+                    }
                 }
             }
 
@@ -403,7 +354,7 @@ public final class DeliveryQueueHelper {
      */
     public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
         List<GuaranteedJob> jobs;
-        while((jobs = peek(queue, ordered, age)).size() > 0) {
+        while((jobs = peek(queue, ordered, age, null, 1)).size() > 0) {
             for (GuaranteedJob job : jobs) {
                 GuaranteedJobHelper.setDelivering(job);
                 // multiple threads or processes may be competing for queued tasks, so we will only return the job at the

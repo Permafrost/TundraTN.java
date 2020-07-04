@@ -234,6 +234,7 @@ public class DeliveryQueueProcessor {
                 ExecutorService executor = getExecutor(queue, concurrency, threadPriority, daemonize, InvokeState.getCurrentState(), parentContext);
 
                 long sleepDuration = 0L, nextDeliveryQueueRefresh = System.currentTimeMillis();
+                int refillFactor = concurrency <= 8 ? 16 : concurrency * 2;
 
                 try {
                     Queue<CallableGuaranteedJob> tasks;
@@ -281,7 +282,7 @@ public class DeliveryQueueProcessor {
                                             }
                                         }
 
-                                        List<GuaranteedJob> jobs = DeliveryQueueHelper.peek(queue, false, age, submittedTasks.keySet());
+                                        List<GuaranteedJob> jobs = DeliveryQueueHelper.peek(queue, false, age, submittedTasks.keySet(), refillFactor);
                                         for (GuaranteedJob job : jobs) {
                                             tasks.add(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, continuousFailureDetector));
                                         }
