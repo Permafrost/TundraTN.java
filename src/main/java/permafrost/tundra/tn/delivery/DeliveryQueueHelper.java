@@ -38,7 +38,6 @@ import com.wm.data.IDataFactory;
 import com.wm.lang.ns.NSName;
 import com.wm.util.Masks;
 import permafrost.tundra.data.IDataHelper;
-import permafrost.tundra.io.InputOutputHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import java.io.IOException;
@@ -95,6 +94,85 @@ public final class DeliveryQueueHelper {
      * Disallow instantiation of this class.
      */
     private DeliveryQueueHelper() {}
+
+    /**
+     * Dequeues each task on the given Trading Networks delivery queue, and processes the task using the given service
+     * and input pipeline; if concurrency greater than 1, tasks will be processed by a thread pool whose size is equal
+     * to the desired concurrency, otherwise they will be processed on the current thread.
+     *
+     * @param queueName         The name of the delivery queue whose queued jobs are to be processed.
+     * @param service           The service to be invoked to process jobs on the given delivery queue.
+     * @param pipeline          The input pipeline used when invoking the given service.
+     * @param age               The minimum age a task must be before it is processed.
+     * @param concurrency       If greater than 1, this is the number of threads used to process jobs simultaneously.
+     * @param retryLimit        The number of retries this job should attempt.
+     * @param retryFactor       The factor used to extend the time to wait on each retry.
+     * @param timeToWait        The time to wait between each retry.
+     * @param threadPriority    The thread priority used when processing tasks.
+     * @param daemonize         If true, all threads will be marked as daemons and execution will not end until the JVM
+     *                          shuts down or the TN queue is disabled/suspended.
+     * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
+     * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
+     * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
+     * @param errorThreshold    How many continuous errors the queue is allowed to encounter before backing off.
+     * @throws IOException      If an I/O error is encountered.
+     * @throws SQLException     If a database error is encountered.
+     * @throws ServiceException If an error is encountered while processing jobs.
+     */
+    public static void each(String queueName, String service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, long errorThreshold) throws IOException, SQLException, ServiceException {
+        if (queueName == null) throw new NullPointerException("queueName must not be null");
+        if (service == null) throw new NullPointerException("service must not be null");
+
+        DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
+        if (queue == null) throw new ServiceException("Queue '" + queueName + "' does not exist");
+
+        each(queue, NSName.create(service), pipeline, age, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus, errorThreshold);
+    }
+
+    /**
+     * Dequeues each task on the given Trading Networks delivery queue, and processes the task using the given service
+     * and input pipeline; if concurrency greater than 1, tasks will be processed by a thread pool whose size is equal
+     * to the desired concurrency, otherwise they will be processed on the current thread.
+     *
+     * @param queue             The delivery queue whose queued jobs are to be processed.
+     * @param service           The service to be invoked to process jobs on the given delivery queue.
+     * @param pipeline          The input pipeline used when invoking the given service.
+     * @param age               The minimum age a task must be before it is processed.
+     * @param concurrency       If greater than 1, this is the number of threads used to process jobs simultaneously.
+     * @param retryLimit        The number of retries this job should attempt.
+     * @param retryFactor       The factor used to extend the time to wait on each retry.
+     * @param timeToWait        The time to wait between each retry.
+     * @param threadPriority    The thread priority used when processing tasks.
+     * @param daemonize         If true, all threads will be marked as daemons and execution will not end until the JVM
+     *                          shuts down or the TN queue is disabled/suspended.
+     * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
+     * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
+     * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
+     * @param errorThreshold    How many continuous errors the queue is allowed to encounter before backing off.
+     * @throws ServiceException If an error is encountered while processing jobs.
+     * @throws SQLException     If an error is encountered with the database.
+     */
+    public static void each(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, long errorThreshold) throws ServiceException, SQLException {
+        if (DeliveryQueueHelper.size(queue, ordered, age) > 0) {
+            String queueName = queue.getQueueName();
+            DeliveryQueueManager manager = DeliveryQueueManager.getInstance();
+            DeliveryQueueProcessor existingProcessor = manager.get(queueName);
+            if (existingProcessor == null) {
+                DeliveryQueueProcessor processor = new DeliveryQueueProcessor(queue, service, pipeline, age, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus, errorThreshold);
+                // only allow one processor at a time to process a given queue; if a new processor is started while
+                // there is an existing processor, the new processor exits immediately
+                if (manager.register(queueName, processor)) {
+                    try {
+                        processor.start();
+                        processor.process();
+                    } finally {
+                        manager.unregister(queueName, processor);
+                        processor.stop();
+                    }
+                }
+            }
+        }
+    }
 
     /**
      * Returns the Trading Networks delivery queue associated with the given name.

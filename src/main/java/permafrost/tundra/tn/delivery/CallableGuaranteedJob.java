@@ -163,7 +163,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
         this.suspend = suspend;
         this.statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
         this.exhaustedStatus = exhaustedStatus;
-        this.continuousFailureDetector = continuousFailureDetector;
+        this.continuousFailureDetector = continuousFailureDetector == null ? ContinuousFailureDetector.DEFAULT_DISABLED_DETECTOR : continuousFailureDetector;
         this.alreadyDequeued = job.isDelivering();
 
         BizDocEnvelope bizdoc = job.getBizDocEnvelope();
@@ -190,8 +190,11 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
     public IData call() throws Exception {
         IData output = null;
 
-        // only execute the task if not in a continuous failure state
-        if (continuousFailureDetector == null || !continuousFailureDetector.hasFailedContinuously()) {
+        // backoff if in a continues failure state
+        continuousFailureDetector.backoffIfRequired();
+
+        // only execute the task if we're still started after backoff
+        if (continuousFailureDetector.isStarted()) {
             long startTime = System.nanoTime();
 
             Exception exception = null;
@@ -262,7 +265,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
         boolean success = exception == null;
         int retry = 1;
 
-        if (continuousFailureDetector != null) continuousFailureDetector.didComplete(success);
+        continuousFailureDetector.didComplete(success);
 
         while(true) {
             try {
