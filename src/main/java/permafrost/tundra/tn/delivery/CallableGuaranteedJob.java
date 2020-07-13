@@ -151,6 +151,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
         if (job == null) throw new NullPointerException("job must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
         if (retryFactor < 1.0f) throw new IllegalArgumentException("retryFactor must not be less than one");
+        if (continuousFailureDetector == null) throw new NullPointerException("continuousFailureDetector must not be null");
 
         this.queue = queue;
         this.job = job;
@@ -163,7 +164,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
         this.suspend = suspend;
         this.statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
         this.exhaustedStatus = exhaustedStatus;
-        this.continuousFailureDetector = continuousFailureDetector == null ? ContinuousFailureDetector.DEFAULT_DISABLED_DETECTOR : continuousFailureDetector;
+        this.continuousFailureDetector = continuousFailureDetector;
         this.alreadyDequeued = job.isDelivering();
 
         BizDocEnvelope bizdoc = job.getBizDocEnvelope();

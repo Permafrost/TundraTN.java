@@ -39,14 +39,10 @@ import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.Startable;
 import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.lang.ThreadHelper;
-import permafrost.tundra.server.SchedulerHelper;
-import permafrost.tundra.server.SchedulerStatus;
 import permafrost.tundra.server.ServerThreadPoolExecutor;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.util.concurrent.DirectExecutorService;
 import javax.xml.datatype.Duration;
-import java.io.IOException;
-import java.sql.SQLException;
 import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.Calendar;
@@ -79,10 +75,6 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
      * The default wait after a poll of an empty delivery queue until we poll again for more jobs.
      */
     private static final long WAIT_AFTER_EMPTY_DELIVERY_QUEUE_POLL_MILLISECONDS = 1000L;
-    /**
-     * How long to wait between delivery queue refreshes.
-     */
-    private static final long WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS = 1000L;
     /**
      * The timeout used when waiting for tasks to complete while shutting down the executor.
      */
@@ -255,7 +247,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
 
                 continuousFailureDetector.start();
 
-                long sleepDuration = 0L, nextDeliveryQueueRefresh = System.currentTimeMillis();
+                long sleepDuration = 0L;
 
                 Queue<CallableGuaranteedJob> tasks;
                 if (concurrency > 1) {
@@ -266,10 +258,10 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
                 }
 
                 Map<String, Future<IData>> submittedTasks = ordered ? null : new HashMap<String, Future<IData>>();
-                boolean queueHadTasks = false, shouldContinueProcessing = true, hadContinuousFailure = false;
+                boolean queueHadTasks = false, hadContinuousFailure = false;
 
                 // while started and not interrupted and not failed continuously and (not invoked by TN or queue is enabled): process queued jobs
-                while (started && !Thread.interrupted() && (!invokedByTradingNetworks || shouldContinueProcessing)) {
+                while (started && !Thread.interrupted()) {
                     try {
                         if (sleepDuration > 0L) Thread.sleep(sleepDuration);
 
@@ -319,8 +311,6 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
                                         tasks.add(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, continuousFailureDetector));
                                     }
                                 }
-
-                                queueHadTasks = tasks.size() > 0;
                             }
 
                             if (tasks.size() > 0) {
@@ -333,6 +323,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
                                     // met between tasks
                                     if (concurrency == 1) break;
                                 }
+                                queueHadTasks = true;
 
                                 // don't wait between task submissions when there are still tasks to be processed
                                 if (ordered || tasks.size() > 0) sleepDuration = 0;
@@ -355,11 +346,6 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
                                 queueHadTasks = false;
                             }
                         }
-
-                        if (invokedByTradingNetworks && nextDeliveryQueueRefresh < System.currentTimeMillis()) {
-                            shouldContinueProcessing = shouldContinueProcessing();
-                            nextDeliveryQueueRefresh = System.currentTimeMillis() + WAIT_BETWEEN_DELIVERY_QUEUE_REFRESH_MILLISECONDS;
-                        }
                     } catch (InterruptedException ex) {
                         // exit if thread is interrupted
                         break;
@@ -373,6 +359,24 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
                 processingThread.setName(previousThreadName);
             }
         }
+    }
+
+    /**
+     * Returns the delivery queue this processor is processing.
+     *
+     * @return The delivery queue this processor is processing.
+     */
+    public DeliveryQueue getDeliveryQueue() {
+        return queue;
+    }
+
+    /**
+     * Returns true if this processor was invoked by Trading Networks versus invoked manually.
+     *
+     * @return true if this processor was invoked by Trading Networks versus invoked manually.
+     */
+    public boolean isInvokedByTradingNetworks() {
+        return invokedByTradingNetworks;
     }
 
     /**
@@ -404,6 +408,9 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
     public synchronized void stop() {
         if (started) {
             started = false;
+            if (processingThread != null) {
+                processingThread.interrupt();
+            }
             shutdown();
             executorService = null;
         }
@@ -439,16 +446,6 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
     }
 
     /**
-     * Returns whether the given queue should continue processing based on queue status and task scheduler status.
-     *
-     * @return      True if the tasks on the queue should continue to be processed, false if the queue is suspended
-     *              or disabled or the task scheduler is paused or stopped.
-     */
-    private boolean shouldContinueProcessing() throws IOException, SQLException {
-        return DeliveryQueueHelper.isProcessing(DeliveryQueueHelper.refresh(queue)) && SchedulerHelper.status() == SchedulerStatus.STARTED;
-    }
-
-    /**
      * Returns an executor appropriate for the level of desired concurrency.
      *
      * @return               An executor appropriate for the level of desired concurrency.
@@ -476,9 +473,9 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
         String datetime = DateTimeHelper.now("datetime");
 
         if (parentContext == null) {
-            output = MessageFormat.format("TundraTN/Queue {0} {1}", queueName, datetime);
+            output = MessageFormat.format("TundraTN/Queue Processor {0} {1}", queueName, datetime);
         } else {
-            output = MessageFormat.format("TundraTN/Queue {0} {1} {2}", queueName, parentContext, datetime);
+            output = MessageFormat.format("TundraTN/Queue Processor {0} {1} {2}", queueName, parentContext, datetime);
         }
 
         return output;

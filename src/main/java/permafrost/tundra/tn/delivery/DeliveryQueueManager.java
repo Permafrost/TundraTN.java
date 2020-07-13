@@ -24,12 +24,36 @@
 
 package permafrost.tundra.tn.delivery;
 
+import com.wm.app.b2b.server.InvokeState;
+import com.wm.app.b2b.server.ServerAPI;
+import com.wm.app.tn.delivery.DeliveryQueue;
 import permafrost.tundra.lang.StartableManager;
+import permafrost.tundra.server.SchedulerHelper;
+import permafrost.tundra.server.SchedulerStatus;
+import permafrost.tundra.server.ServerThreadFactory;
+import java.io.IOException;
+import java.sql.SQLException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * DeliveryQueue processing manager.
  */
 public class DeliveryQueueManager extends StartableManager<String, DeliveryQueueProcessor> {
+    /**
+     * How long to wait between each check for delivery queue status changes.
+     */
+    private static final long DEFAULT_STATUS_CHECK_SCHEDULE_MILLISECONDS = 5 * 1000L;
+    /**
+     * How often to clean up completed deferred routes from the cache.
+     */
+    protected static final long DEFAULT_RESTART_SCHEDULE_MILLISECONDS = 60 * 60 * 1000L;
+    /**
+     * The timeout used when waiting for tasks to complete while shutting down the executor.
+     */
+    private static final long SCHEDULER_SHUTDOWN_TIMEOUT_MILLISECONDS = 5 * 1000L;
+
     /**
      * Initialization on demand holder idiom.
      */
@@ -47,5 +71,76 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
      */
     public static DeliveryQueueManager getInstance() {
         return Holder.INSTANCE;
+    }
+
+    /**
+     * The scheduler used to periodically check for queues being suspended so it can automatically stop the related
+     * task processor.
+     */
+    private ScheduledExecutorService scheduler;
+
+    /**
+     * Starts all objects managed by this manager.
+     */
+    @Override
+    public synchronized void start() {
+        startup();
+        super.start();
+    }
+
+    /**
+     * Starts up the scheduled supervisor thread.
+     */
+    private synchronized void startup() {
+        scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Queue Supervisor", InvokeState.getCurrentState()));
+        // shutdown any processors for queues that have been suspended or disabled or if the Integration Server task
+        // scheduler has been paused
+        scheduler.scheduleWithFixedDelay(new Runnable() {
+            public void run() {
+                if (REGISTRY.size() > 0) {
+                    boolean isSchedulerStarted = SchedulerHelper.status() == SchedulerStatus.STARTED;
+                    for (DeliveryQueueProcessor processor : REGISTRY.values()) {
+                        try {
+                            if (processor.isInvokedByTradingNetworks() && (!isSchedulerStarted || !DeliveryQueueHelper.isProcessing(DeliveryQueueHelper.refresh(processor.getDeliveryQueue())))) {
+                                processor.stop();
+                            }
+                        } catch (Throwable ex) {
+                            ServerAPI.logError(ex);
+                        }
+                    }
+                }
+            }
+        }, DEFAULT_STATUS_CHECK_SCHEDULE_MILLISECONDS, DEFAULT_STATUS_CHECK_SCHEDULE_MILLISECONDS, TimeUnit.MILLISECONDS);
+
+        // restart the scheduler regularly as a safety measure
+        scheduler.scheduleWithFixedDelay(new Runnable() {
+            public void run() {
+                shutdown();
+                startup();
+            }
+        }, DEFAULT_RESTART_SCHEDULE_MILLISECONDS, DEFAULT_RESTART_SCHEDULE_MILLISECONDS, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Stops all objects managed by this manager.
+     */
+    @Override
+    public synchronized void stop() {
+        shutdown();
+        super.stop();
+    }
+
+    /**
+     * Shuts down the scheduled supervisor thread.
+     */
+    private synchronized void shutdown() {
+        try {
+            scheduler.shutdown();
+            scheduler.awaitTermination(SCHEDULER_SHUTDOWN_TIMEOUT_MILLISECONDS, TimeUnit.MILLISECONDS);
+            scheduler.shutdownNow();
+        } catch (InterruptedException ex) {
+            scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }

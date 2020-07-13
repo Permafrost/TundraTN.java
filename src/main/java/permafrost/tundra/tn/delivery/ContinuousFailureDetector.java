@@ -33,13 +33,13 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class ContinuousFailureDetector implements Startable {
     /**
-     * Singleton instance used when no detector is required.
+     * The default maximum possible backoff wait.
      */
-    public static final ContinuousFailureDetector DEFAULT_DISABLED_DETECTOR = new ContinuousFailureDetector(0, 0);
+    private static final long DEFAULT_BACKOFF_WAIT_MAXIMUM_MILLISECONDS = 5L * 60L * 1000L;
     /**
-     * The maximum possible backoff wait.
+     * The default amount the backoff wait time is incremented by on every task try.
      */
-    public static final long DEFAULT_MAX_BACKOFF_WAIT_IN_MILLISECONDS = 5L * 60L * 1000L;
+    private static final long DEFAULT_BACKOFF_WAIT_INCREMENT_MILLISECONDS = 10 * 1000L;
     /**
      * The lock used by this detector to serialize threads when backing off processing.
      */
@@ -57,13 +57,13 @@ public class ContinuousFailureDetector implements Startable {
      */
     protected final AtomicLong totalFailureCount = new AtomicLong(0);
     /**
-     * The current count of threads being backed off.
-     */
-    protected final AtomicLong currentBackingOffCount = new AtomicLong(0);
-    /**
      * The current count of continuous failures.
      */
     protected final AtomicLong currentContinuousFailureCount = new AtomicLong(0);
+    /**
+     * The current count of threads being backed off.
+     */
+    protected volatile long currentBackingOffCount = 0;
     /**
      * The continuous failure threshold.
      */
@@ -85,7 +85,7 @@ public class ContinuousFailureDetector implements Startable {
      */
     public ContinuousFailureDetector(long threshold, long maxBackoffWaitTime) {
         this.threshold = threshold;
-        this.maxBackoffWaitTime = maxBackoffWaitTime < 1 ? DEFAULT_MAX_BACKOFF_WAIT_IN_MILLISECONDS : maxBackoffWaitTime;
+        this.maxBackoffWaitTime = maxBackoffWaitTime <= 0 ? DEFAULT_BACKOFF_WAIT_MAXIMUM_MILLISECONDS : maxBackoffWaitTime;
     }
 
     /**
@@ -96,14 +96,15 @@ public class ContinuousFailureDetector implements Startable {
     public void didComplete(boolean success) {
         if (started) {
             if (success) {
-                totalSuccessCount.incrementAndGet();
                 currentContinuousFailureCount.set(0);
                 synchronized(backoffWaitLock) {
+                    currentBackingOffCount = 0;
                     backoffWaitLock.notifyAll();
                 }
+                totalSuccessCount.incrementAndGet();
             } else {
-                totalFailureCount.incrementAndGet();
                 currentContinuousFailureCount.incrementAndGet();
+                totalFailureCount.incrementAndGet();
             }
         }
     }
@@ -132,7 +133,7 @@ public class ContinuousFailureDetector implements Startable {
      * @return The current number tasks backing off.
      */
     public long getCurrentBackingOffCount() {
-        return currentBackingOffCount.get();
+        return currentBackingOffCount;
     }
 
     /**
@@ -199,21 +200,17 @@ public class ContinuousFailureDetector implements Startable {
      */
     public void backoffIfRequired() {
         if (isBackingOff()) {
-            currentBackingOffCount.incrementAndGet();
             synchronized(backoffSynchronizationLock) {
                 if (isBackingOff()) {
                     synchronized(backoffWaitLock) {
                         try {
-                            // calculate the wait in increments of 10 seconds up to a maximum allowed wait
-                            long wait = Math.min((currentContinuousFailureCount.get() - threshold) * 10 * 1000L, maxBackoffWaitTime);
-                            TimeUnit.MILLISECONDS.timedWait(backoffWaitLock, wait);
+                            TimeUnit.MILLISECONDS.timedWait(backoffWaitLock, Math.min(++currentBackingOffCount * DEFAULT_BACKOFF_WAIT_INCREMENT_MILLISECONDS, maxBackoffWaitTime));
                         } catch (InterruptedException ex) {
                             Thread.currentThread().interrupt();
                         }
                     }
                 }
             }
-            currentBackingOffCount.decrementAndGet();
         }
     }
 }
