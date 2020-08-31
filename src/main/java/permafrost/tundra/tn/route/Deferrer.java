@@ -32,6 +32,7 @@ import com.wm.app.tn.db.Datastore;
 import com.wm.app.tn.db.SQLStatements;
 import com.wm.app.tn.db.SQLWrappers;
 import com.wm.app.tn.doc.BizDocEnvelope;
+import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.app.tn.route.RoutingRule;
 import com.wm.data.IData;
 import com.wm.data.IDataFactory;
@@ -42,6 +43,7 @@ import permafrost.tundra.server.SchedulerStatus;
 import permafrost.tundra.server.ServerThreadFactory;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
+import permafrost.tundra.tn.profile.ProfileHelper;
 import permafrost.tundra.util.concurrent.BoundedPriorityBlockingQueue;
 import permafrost.tundra.util.concurrent.PrioritizedThreadPoolExecutor;
 import java.sql.Connection;
@@ -567,7 +569,7 @@ public class Deferrer implements Startable {
 
                     if (BizDocEnvelopeHelper.setUserStatusForPrevious(bizdoc, BIZDOC_USER_STATUS_ROUTING, BIZDOC_USER_STATUS_DEFERRED)) {
                         // status was able to be changed, so we have a "lock" on the bizdoc and can now route it
-                        currentThread.setName(MessageFormat.format("{0}: BizDoc {1} PROCESSING {2}", currentThreadName, BizDocEnvelopeHelper.toLogString(bizdoc), DateTimeHelper.now("datetime")));
+                        currentThread.setName(MessageFormat.format("{0}: {1}, Started={2} PROCESSING", currentThreadName, toThreadSuffix(bizdoc), DateTimeHelper.now("datetime")));
                         output = super.call();
                     } else {
                         // status was not able to be changed, therefore another server or process has already processed this bizdoc
@@ -581,6 +583,26 @@ public class Deferrer implements Startable {
                 output = IDataFactory.create();
             }
 
+            return output;
+        }
+
+        /**
+         * Returns a string that can be used for logging the given bizdoc.
+         *
+         * @param bizdoc    The bizdoc to be logged.
+         * @return          A string representing the given bizdoc.
+         */
+        private static String toThreadSuffix(BizDocEnvelope bizdoc) {
+            String output = "";
+            if (bizdoc != null) {
+                try {
+                    ProfileSummary sender = ProfileHelper.getProfileSummary(bizdoc.getSenderId());
+                    ProfileSummary receiver = ProfileHelper.getProfileSummary(bizdoc.getReceiverId());
+                    output = MessageFormat.format("BizDoc/InternalID={0}, BizDoc/DocumentID={1}, BizDoc/DocTimestamp={2}, BizDoc/DocType/TypeName={3}, BizDoc/Sender={4}, BizDoc/Receiver={5}", bizdoc.getInternalId(), bizdoc.getDocumentId(), DateTimeHelper.emit(bizdoc.getTimestamp(), "datetime"), bizdoc.getDocType().getName(), sender.getDisplayName(), receiver.getDisplayName());
+                } catch (ServiceException ex) {
+                    // do nothing
+                }
+            }
             return output;
         }
     }

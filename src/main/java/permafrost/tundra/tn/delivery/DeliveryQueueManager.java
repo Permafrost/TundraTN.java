@@ -26,13 +26,10 @@ package permafrost.tundra.tn.delivery;
 
 import com.wm.app.b2b.server.InvokeState;
 import com.wm.app.b2b.server.ServerAPI;
-import com.wm.app.tn.delivery.DeliveryQueue;
 import permafrost.tundra.lang.StartableManager;
 import permafrost.tundra.server.SchedulerHelper;
 import permafrost.tundra.server.SchedulerStatus;
 import permafrost.tundra.server.ServerThreadFactory;
-import java.io.IOException;
-import java.sql.SQLException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;

@@ -38,10 +38,14 @@ import com.wm.app.tn.profile.ProfileStoreException;
 import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
+import com.wm.data.IDataFactory;
 import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
+import permafrost.tundra.tn.document.BizDocTypeHelper;
 import permafrost.tundra.tn.log.ActivityLogHelper;
 import permafrost.tundra.tn.log.EntryType;
+import permafrost.tundra.tn.profile.ProfileHelper;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -406,21 +410,25 @@ public final class GuaranteedJobHelper {
     }
 
     /**
-     * Returns a string that can be used to log the given job.
+     * Returns a summary of the given object, suitable for logging.
      *
-     * @param job   The job to be logged.
-     * @return      A string representing the given job.
+     * @param object    The object to summarize.
+     * @return          The summary of the object.
      */
-    public static String toLogString(GuaranteedJob job) {
-        String output;
-
-        BizDocEnvelope bizdoc = job.getBizDocEnvelope();
-        if (bizdoc == null) {
-            output = MessageFormat.format("'{'ID={0}'}'", job.getJobId());
-        } else {
-            output = MessageFormat.format("'{'ID={0}, BizDoc={1}'}'", job.getJobId(), BizDocEnvelopeHelper.toLogString(bizdoc));
+    public static IData summarize(GuaranteedJob object) {
+        IData summary = null;
+        if (object != null) {
+            summary = IDataFactory.create();
+            IDataCursor cursor = summary.getCursor();
+            try {
+                IDataHelper.put(cursor, "TaskID", object.getJobId());
+                IDataHelper.put(cursor, "TimeCreated", DateTimeHelper.format(object.getTimeCreated(), "datetime"));
+                IDataHelper.put(cursor, "QueueName", object.getQueueName());
+                IDataHelper.put(cursor, "Document", BizDocEnvelopeHelper.summarize(object.getBizDocEnvelope()), false);
+            } finally {
+                cursor.destroy();
+            }
         }
-
-        return output;
+        return summary;
     }
 }

@@ -37,6 +37,7 @@ repositories {
 
 dependencies {
     api("javax.activation:javax.activation-api:1.2.0")
+    api("log4j:log4j:1.2.17")
     api(files("libs/wm-isclient.jar", "libs/wm-isserver.jar", "libs/tncore.jar", "/libs/Tundra.jar", "../Tundra.java/build/libs/Tundra.jar"))
 
     testImplementation("junit:junit:4.13")

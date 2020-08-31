@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.Vector;
 import com.wm.app.b2b.server.ServiceException;
+import com.wm.app.tn.doc.BizDocType;
 import com.wm.app.tn.profile.Corporation;
 import com.wm.app.tn.profile.ExtendedProfileField;
 import com.wm.app.tn.profile.ID;
@@ -430,5 +431,68 @@ public final class ProfileHelper {
         }
 
         return output;
+    }
+
+    /**
+     * Returns a summary of the given object, suitable for logging.
+     *
+     * @param profileID The ID of the object to summarize.
+     * @return          The summary of the object.
+     */
+    public static IData summarize(String profileID) {
+        IData summary = null;
+        try {
+            summary = summarize(ProfileStore.getProfileSummary(profileID));
+        } catch(ProfileStoreException ex) {
+            ExceptionHelper.raiseUnchecked(ex);
+        }
+        return summary;
+    }
+
+    /**
+     * Returns a summary of the given object, suitable for logging.
+     *
+     * @param object    The object to summarize.
+     * @return          The summary of the object.
+     */
+    public static IData summarize(Profile object) {
+        IData summary = null;
+        if (object != null) {
+            summary = IDataFactory.create();
+            IDataCursor cursor = summary.getCursor();
+            try {
+                Corporation corporation = object.getCorporation();
+                if (corporation != null) {
+                    IDataHelper.put(cursor, "PartnerID", corporation.getPartnerID());
+                    IDataHelper.put(cursor, "CorporationName", corporation.getCorporationName(), false);
+                    IDataHelper.put(cursor, "OrgUnitName", corporation.getOrgUnitName(), false);
+                }
+            } finally {
+                cursor.destroy();
+            }
+        }
+        return summary;
+    }
+
+    /**
+     * Returns a summary of the given object, suitable for logging.
+     *
+     * @param object    The object to summarize.
+     * @return          The summary of the object.
+     */
+    public static IData summarize(ProfileSummary object) {
+        IData summary = null;
+        if (object != null) {
+            summary = IDataFactory.create();
+            IDataCursor cursor = summary.getCursor();
+            try {
+                IDataHelper.put(cursor, "PartnerID", object.getProfileID());
+                IDataHelper.put(cursor, "CorporationName", object.getCorporationName(), false);
+                IDataHelper.put(cursor, "OrgUnitName", object.getOrgUnitName(), false);
+            } finally {
+                cursor.destroy();
+            }
+        }
+        return summary;
     }
 }

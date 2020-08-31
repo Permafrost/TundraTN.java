@@ -24,28 +24,29 @@
 
 package permafrost.tundra.tn.delivery;
 
-import com.wm.app.b2b.server.InvokeState;
 import com.wm.app.b2b.server.Service;
+import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.b2b.server.ServiceThread;
 import com.wm.app.b2b.server.Session;
-import com.wm.app.b2b.server.User;
 import com.wm.app.b2b.server.ns.Namespace;
 import com.wm.app.tn.delivery.DeliveryJob;
 import com.wm.app.tn.delivery.DeliveryQueue;
 import com.wm.app.tn.delivery.GuaranteedJob;
 import com.wm.app.tn.delivery.QueuingUtils;
 import com.wm.app.tn.doc.BizDocEnvelope;
+import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.lang.ns.NSName;
 import com.wm.lang.ns.NSService;
+import org.apache.log4j.Level;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ExceptionHelper;
-import permafrost.tundra.lang.IterableHelper;
 import permafrost.tundra.lang.StringHelper;
-import permafrost.tundra.server.ServerLogger;
+import permafrost.tundra.server.ServerLogStatement;
 import permafrost.tundra.server.ServiceHelper;
+import permafrost.tundra.server.UserHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.time.DurationHelper;
 import permafrost.tundra.time.DurationPattern;
@@ -53,6 +54,8 @@ import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopePriority;
 import permafrost.tundra.tn.log.EntryType;
 import permafrost.tundra.tn.profile.ProfileCache;
+import permafrost.tundra.tn.profile.ProfileHelper;
+import permafrost.tundra.tn.server.ServerLogHelper;
 import permafrost.tundra.util.concurrent.AbstractPrioritizedCallable;
 import java.text.MessageFormat;
 import java.util.List;
@@ -63,6 +66,10 @@ import javax.xml.datatype.Duration;
  * Callable for invoking a given service against a given job.
  */
 public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
+    /**
+     * The default logging level used when logging.
+     */
+    private static final Level DEFAULT_LOG_LEVEL = Level.INFO;
     /**
      * The bizdoc user status to use when a job is dequeued.
      */
@@ -197,12 +204,13 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
         // only execute the task if we're still started after backoff
         if (continuousFailureDetector.isStarted()) {
             long startTime = System.nanoTime();
+            String startDateTime = DateTimeHelper.now("datetime");
 
             Exception exception = null;
 
             Thread owningThread = Thread.currentThread();
             String owningThreadPrefix = owningThread.getName();
-            String jobLogString = GuaranteedJobHelper.toLogString(job);
+            String threadNameSuffix = MessageFormat.format("{0}, Started={1}", toThreadNameSuffix(job), startDateTime);
             boolean requiresCompletion = false;
 
             try {
@@ -211,7 +219,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
 
                     BizDocEnvelope bizdoc = job.getBizDocEnvelope();
 
-                    owningThread.setName(MessageFormat.format("{0}: Task {1} PROCESSING {2}", owningThreadPrefix, jobLogString, DateTimeHelper.now("datetime")));
+                    owningThread.setName(MessageFormat.format("{0}: {1} PROCESSING", owningThreadPrefix, threadNameSuffix));
 
                     if (bizdoc != null) {
                         BizDocEnvelopeHelper.setStatus(job.getBizDocEnvelope(), null, DEQUEUED_USER_STATUS, statusSilence);
@@ -234,10 +242,10 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
                     ServiceThread serviceThread = Service.doThreadInvoke(service, session, pipeline);
                     output = serviceThread.getIData();
 
-                    owningThread.setName(MessageFormat.format("{0}: Task {1} COMPLETED {2}", owningThreadPrefix, jobLogString, DateTimeHelper.now("datetime")));
+                    owningThread.setName(MessageFormat.format("{0}: {1}, Ended={2} COMPLETED", owningThreadPrefix, threadNameSuffix, DateTimeHelper.now("datetime")));
                 }
             } catch (Exception ex) {
-                owningThread.setName(MessageFormat.format("{0}: Task {1} FAILED: {2} {3}", owningThreadPrefix, jobLogString, ExceptionHelper.getMessage(ex), DateTimeHelper.now("datetime")));
+                owningThread.setName(MessageFormat.format("{0}: Task {1}, Ended={2} FAILED: {3}", owningThreadPrefix, threadNameSuffix, DateTimeHelper.now("datetime"), ExceptionHelper.getMessage(ex)));
                 exception = ex;
             } finally {
                 owningThread.setName(owningThreadPrefix);
@@ -314,15 +322,30 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
 
         List<NSService> stack = ServiceHelper.getCallStack();
         stack.add((NSService)Namespace.current().getNode(service));
+        String message = MessageFormat.format("{0} -- {1} processed queued task {2} {3}", ServerLogStatement.getFunction(UserHelper.getCurrentName(), stack, false), queue.getQueueName(), DurationHelper.format(duration, DurationPattern.NANOSECONDS, DurationPattern.XML_MILLISECONDS), success ? "COMPLETED" : "FAILED: " + ExceptionHelper.getMessage(exception));
+        ServerLogHelper.log(CallableGuaranteedJob.class.getName(), DEFAULT_LOG_LEVEL, message, GuaranteedJobHelper.summarize(job), false);
+    }
 
-        User currentUser = InvokeState.getCurrentState().getUser();
-        String functionPrefix;
-        if (currentUser == null) {
-            functionPrefix = "";
-        } else {
-            functionPrefix = currentUser.getName() + " -- ";
+    /**
+     * Returns a string that can be used to log the given job.
+     *
+     * @param job   The job to be logged.
+     * @return      A string representing the given job.
+     */
+    private static String toThreadNameSuffix(GuaranteedJob job) {
+        String output = MessageFormat.format("TaskID={0}, TaskCreated={1}", job.getJobId(), DateTimeHelper.format(job.getTimeCreated(), "datetime"));
+
+        BizDocEnvelope bizdoc = job.getBizDocEnvelope();
+        if (bizdoc != null) {
+            try {
+                ProfileSummary sender = ProfileHelper.getProfileSummary(bizdoc.getSenderId());
+                ProfileSummary receiver = ProfileHelper.getProfileSummary(bizdoc.getReceiverId());
+                output = MessageFormat.format("{6}, BizDoc/InternalID={0}, BizDoc/DocumentID={1}, BizDoc/DocTimestamp={2}, BizDoc/DocType/TypeName={3}, BizDoc/Sender={4}, BizDoc/Receiver={5}", bizdoc.getInternalId(), bizdoc.getDocumentId(), DateTimeHelper.emit(bizdoc.getTimestamp(), "datetime"), bizdoc.getDocType().getName(), sender.getDisplayName(), receiver.getDisplayName(), output);
+            } catch(ServiceException ex) {
+                // do nothing
+            }
         }
 
-        ServerLogger.info(functionPrefix + IterableHelper.join(stack, " → "),"{0} queue processed task {1} -- {2} -- {3}", queue.getQueueName(), GuaranteedJobHelper.toLogString(job), success ? "COMPLETED" : "FAILED: " + ExceptionHelper.getMessage(exception), DurationHelper.format(duration, DurationPattern.NANOSECONDS, DurationPattern.XML));
+        return output;
     }
 }

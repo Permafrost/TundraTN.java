@@ -25,6 +25,7 @@
 package permafrost.tundra.tn.document;
 
 import com.wm.app.tn.db.BizDocTypeStore;
+import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocType;
 import com.wm.app.tn.doc.FFDocType;
 import com.wm.app.tn.doc.XMLDocType;
@@ -33,6 +34,8 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.lang.ns.NSName;
 import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.time.DateTimeHelper;
+import permafrost.tundra.tn.profile.ProfileHelper;
 
 /**
  * A collection of convenience methods for working with Trading Networks BizDocType objects.
@@ -175,5 +178,26 @@ public final class BizDocTypeHelper {
         }
 
         return output;
+    }
+
+    /**
+     * Returns a summary of the given object, suitable for logging.
+     *
+     * @param object    The object to summarize.
+     * @return          The summary of the object.
+     */
+    public static IData summarize(BizDocType object) {
+        IData summary = null;
+        if (object != null) {
+            summary = IDataFactory.create();
+            IDataCursor cursor = summary.getCursor();
+            try {
+                IDataHelper.put(cursor, "TypeID", object.getId());
+                IDataHelper.put(cursor, "TypeName", object.getName());
+            } finally {
+                cursor.destroy();
+            }
+        }
+        return summary;
     }
 }

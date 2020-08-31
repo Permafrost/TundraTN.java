@@ -1102,23 +1102,28 @@ public final class BizDocEnvelopeHelper {
     }
 
     /**
-     * Returns a string that can be used for logging the given bizdoc.
+     * Returns a summary of the given object, suitable for logging.
      *
-     * @param bizdoc    The bizdoc to be logged.
-     * @return          A string representing the given bizdoc.
+     * @param object    The object to summarize.
+     * @return          The summary of the object.
      */
-    public static String toLogString(BizDocEnvelope bizdoc) {
-        String output = "";
-        if (bizdoc != null) {
+    public static IData summarize(BizDocEnvelope object) {
+        IData summary = null;
+        if (object != null) {
+            summary = IDataFactory.create();
+            IDataCursor cursor = summary.getCursor();
             try {
-                ProfileSummary sender = ProfileHelper.getProfileSummary(bizdoc.getSenderId());
-                ProfileSummary receiver = ProfileHelper.getProfileSummary(bizdoc.getReceiverId());
-                output = MessageFormat.format("'{'ID={0}, Time={1}, Type={2}, Sender={3}, Receiver={4}, DocumentID={5}'}'", bizdoc.getInternalId(), DateTimeHelper.emit(bizdoc.getTimestamp(), "datetime"), bizdoc.getDocType().getName(), sender.getDisplayName(), receiver.getDisplayName(), bizdoc.getDocumentId());
-            } catch (ServiceException ex) {
-                // do nothing
+                IDataHelper.put(cursor, "InternalID", object.getInternalId());
+                IDataHelper.put(cursor, "DocumentID", object.getDocumentId(), false);
+                IDataHelper.put(cursor, "DocTimestamp", DateTimeHelper.emit(object.getTimestamp(), "datetime"), false);
+                IDataHelper.put(cursor, "DocType", BizDocTypeHelper.summarize(object.getDocType()), false);
+                IDataHelper.put(cursor, "Sender", ProfileHelper.summarize(object.getSenderId()), false);
+                IDataHelper.put(cursor, "Receiver", ProfileHelper.summarize(object.getReceiverId()), false);
+            } finally {
+                cursor.destroy();
             }
         }
-        return output;
+        return summary;
     }
 
     /**

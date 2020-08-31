@@ -24,11 +24,9 @@
 
 package permafrost.tundra.tn.route;
 
-import com.wm.app.b2b.server.InvokeState;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.b2b.server.ServiceThread;
-import com.wm.app.b2b.server.User;
 import com.wm.app.b2b.server.ns.Namespace;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.route.RoutingException;
@@ -39,14 +37,17 @@ import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.lang.ns.NSService;
+import org.apache.log4j.Level;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ExceptionHelper;
-import permafrost.tundra.lang.IterableHelper;
-import permafrost.tundra.server.ServerLogger;
+import permafrost.tundra.lang.StringHelper;
+import permafrost.tundra.server.ServerLogStatement;
 import permafrost.tundra.server.ServiceHelper;
+import permafrost.tundra.server.UserHelper;
 import permafrost.tundra.time.DurationHelper;
 import permafrost.tundra.time.DurationPattern;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
+import permafrost.tundra.tn.server.ServerLogHelper;
 import permafrost.tundra.tn.util.TNFixedDataHelper;
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -56,6 +57,11 @@ import java.util.List;
  * Collection of convenience methods for working with routing rules.
  */
 public class RoutingRuleHelper {
+    /**
+     * The default logging level used when logging.
+     */
+    private static final Level DEFAULT_LOG_LEVEL = Level.INFO;
+
     /**
      * Disallow instantiation of this class.
      */
@@ -337,6 +343,11 @@ public class RoutingRuleHelper {
     }
 
     /**
+     * The maximum supported length for the OriginalSenderID and OriginalReceiverID fields in a BizDocEnvelope.
+     */
+    private static final int ORIGINAL_SENDER_RECEIVER_ID_LENGTH = 140;
+
+    /**
      * Routes the given bizdoc using the given rule.
      *
      * @param rule              The rule to use to process the bizdoc.
@@ -352,6 +363,17 @@ public class RoutingRuleHelper {
         IData pipeline = IDataFactory.create();
 
         if (isRoutable(parameters)) {
+            // work around issue where persist fails if the OriginalSenderID or OriginalReceiverID exceeds the relevant
+            // database table column size by truncating to that size
+            String originalSenderID = bizdoc.getOriginalSenderId();
+            if (originalSenderID != null && originalSenderID.length() > ORIGINAL_SENDER_RECEIVER_ID_LENGTH) {
+                bizdoc.setOriginalSenderId(StringHelper.truncate(originalSenderID, ORIGINAL_SENDER_RECEIVER_ID_LENGTH));
+            }
+            String originalReceiverID = bizdoc.getOriginalReceiverId();
+            if (originalReceiverID != null && originalReceiverID.length() > ORIGINAL_SENDER_RECEIVER_ID_LENGTH) {
+                bizdoc.setOriginalReceiverId(StringHelper.truncate(originalReceiverID, ORIGINAL_SENDER_RECEIVER_ID_LENGTH));
+            }
+
             IDataCursor cursor = pipeline.getCursor();
             try {
                 cursor.insertAfter("rule", rule instanceof ImmutableRoutingRule ? rule : new ImmutableRoutingRule(rule));
@@ -425,25 +447,50 @@ public class RoutingRuleHelper {
     private static void log(RoutingRule rule, BizDocEnvelope bizdoc, long duration, Throwable exception) {
         List<NSService> stack = ServiceHelper.getCallStack();
         stack.add(WM_TN_ROUTE_ROUTE);
-
-        User currentUser = InvokeState.getCurrentState().getUser();
-        String functionPrefix;
-        if (currentUser == null) {
-            functionPrefix = "";
-        } else {
-            functionPrefix = currentUser.getName() + " -- ";
-        }
-
-        ServerLogger.info(functionPrefix + IterableHelper.join(stack, " → "),"routed document {0} with rule {1} -- {2} -- {3}", BizDocEnvelopeHelper.toLogString(bizdoc), toLogString(rule), exception == null ? "COMPLETED" : "FAILED: " + ExceptionHelper.getMessage(exception), DurationHelper.format(duration, DurationPattern.NANOSECONDS, DurationPattern.XML));
+        String message = MessageFormat.format("{0} -- routed document {1} {2}", ServerLogStatement.getFunction(UserHelper.getCurrentName(), stack, false), DurationHelper.format(duration, DurationPattern.NANOSECONDS, DurationPattern.XML_MILLISECONDS), exception == null ? "COMPLETED" : "FAILED: " + ExceptionHelper.getMessage(exception));
+        ServerLogHelper.log(RoutingRuleHelper.class.getName(), DEFAULT_LOG_LEVEL, message, summarize(rule, bizdoc), false);
     }
 
     /**
-     * Returns a string for logging for the given routing rule.
+     * Returns a summary of the given route, suitable for logging.
      *
-     * @param rule  The routing rule to log.
-     * @return      A string representing the routing rule.
+     * @param rule      The rule to summarize.
+     * @param bizdoc    The bizdoc to summarize.
+     * @return          The summary of the route.
      */
-    private static String toLogString(RoutingRule rule) {
-        return MessageFormat.format("'{'ID={0}, Name={1}'}'", rule.getID(), rule.getName());
+    private static IData summarize(RoutingRule rule, BizDocEnvelope bizdoc) {
+        IData summary = null;
+        if (rule != null && bizdoc != null) {
+            summary = IDataFactory.create();
+            IDataCursor cursor = summary.getCursor();
+            try {
+                IDataHelper.put(cursor, "Rule", summarize(rule), false);
+                IDataHelper.put(cursor, "Document", BizDocEnvelopeHelper.summarize(bizdoc), false);
+            } finally {
+                cursor.destroy();
+            }
+        }
+        return summary;
+    }
+
+    /**
+     * Returns a summary of the given object, suitable for logging.
+     *
+     * @param object    The object to summarize.
+     * @return          The summary of the route.
+     */
+    private static IData summarize(RoutingRule object) {
+        IData summary = null;
+        if (object != null) {
+            summary = IDataFactory.create();
+            IDataCursor cursor = summary.getCursor();
+            try {
+                IDataHelper.put(cursor, "RuleID", object.getID());
+                IDataHelper.put(cursor, "RuleName", object.getName(), false);
+            } finally {
+                cursor.destroy();
+            }
+        }
+        return summary;
     }
 }
