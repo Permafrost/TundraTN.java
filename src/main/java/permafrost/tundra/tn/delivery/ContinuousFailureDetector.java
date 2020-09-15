@@ -25,6 +25,9 @@
 package permafrost.tundra.tn.delivery;
 
 import permafrost.tundra.lang.Startable;
+import permafrost.tundra.time.DateTimeHelper;
+import permafrost.tundra.time.DurationHelper;
+import java.text.MessageFormat;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -36,10 +39,6 @@ public class ContinuousFailureDetector implements Startable {
      * The default maximum possible backoff wait.
      */
     private static final long DEFAULT_BACKOFF_WAIT_MAXIMUM_MILLISECONDS = 5L * 60L * 1000L;
-    /**
-     * The default amount the backoff wait time is incremented by on every task try.
-     */
-    private static final long DEFAULT_BACKOFF_WAIT_INCREMENT_MILLISECONDS = 10 * 1000L;
     /**
      * The lock used by this detector to serialize threads when backing off processing.
      */
@@ -63,7 +62,11 @@ public class ContinuousFailureDetector implements Startable {
     /**
      * The current count of threads being backed off.
      */
-    protected volatile long currentBackingOffCount = 0;
+    protected volatile long currentBackoffCount = 0;
+    /**
+     * The maximum backing off count to calculate a backoff duration for.
+     */
+    protected final long maxBackoffCount;
     /**
      * The continuous failure threshold.
      */
@@ -86,6 +89,38 @@ public class ContinuousFailureDetector implements Startable {
     public ContinuousFailureDetector(long threshold, long maxBackoffWaitTime) {
         this.threshold = threshold;
         this.maxBackoffWaitTime = maxBackoffWaitTime <= 0 ? DEFAULT_BACKOFF_WAIT_MAXIMUM_MILLISECONDS : maxBackoffWaitTime;
+
+        long maxBackingOffCount = 0;
+        while(calculateRawBackoffWait(maxBackingOffCount) < this.maxBackoffWaitTime) {
+            maxBackingOffCount++;
+        }
+        this.maxBackoffCount = maxBackingOffCount - 1;
+    }
+
+    /**
+     * Returns the backoff wait in milliseconds for the given backoff count.
+     *
+     * @param backoffCount  The backoff count.
+     * @return              The backoff wait in milliseconds to use for this count.
+     */
+    private static long calculateRawBackoffWait(long backoffCount) {
+        return ((long)Math.pow(2, backoffCount)) * 1000L;
+    }
+
+    /**
+     * Returns the backoff wait in milliseconds up to the maximum wait for the given backoff count.
+     *
+     * @param backoffCount  The backoff count.
+     * @return              The backoff wait in milliseconds to use for this count.
+     */
+    protected long calculateBackoffWait(long backoffCount) {
+        long backoffWait;
+        if (backoffCount > maxBackoffCount) {
+            backoffWait = maxBackoffWaitTime;
+        } else {
+            backoffWait = calculateRawBackoffWait(backoffCount);
+        }
+        return backoffWait;
     }
 
     /**
@@ -98,7 +133,7 @@ public class ContinuousFailureDetector implements Startable {
             if (success) {
                 currentContinuousFailureCount.set(0);
                 synchronized(backoffWaitLock) {
-                    currentBackingOffCount = 0;
+                    currentBackoffCount = 0;
                     backoffWaitLock.notifyAll();
                 }
                 totalSuccessCount.incrementAndGet();
@@ -132,8 +167,8 @@ public class ContinuousFailureDetector implements Startable {
      *
      * @return The current number tasks backing off.
      */
-    public long getCurrentBackingOffCount() {
-        return currentBackingOffCount;
+    public long getCurrentBackoffCount() {
+        return currentBackoffCount;
     }
 
     /**
@@ -196,17 +231,24 @@ public class ContinuousFailureDetector implements Startable {
 
     /**
      * Sleeps the current thread if continuous failure was detected for a variable time based on the number of errors
-     * detected up to 1 minute.
+     * detected up to the configured maximum.
      */
     public void backoffIfRequired() {
         if (isBackingOff()) {
             synchronized(backoffSynchronizationLock) {
                 if (isBackingOff()) {
                     synchronized(backoffWaitLock) {
+                        Thread currentThread = Thread.currentThread();
+                        String currentThreadName = currentThread.getName();
                         try {
-                            TimeUnit.MILLISECONDS.timedWait(backoffWaitLock, Math.min(++currentBackingOffCount * DEFAULT_BACKOFF_WAIT_INCREMENT_MILLISECONDS, maxBackoffWaitTime));
+                            long backoffWait = calculateBackoffWait(currentBackoffCount);
+                            currentThread.setName(MessageFormat.format("{0} (continuous task failure detected, queue processing backing off: continuous failure count = {1}, backoff wait (ms) = {2}, next retry = {3})", currentThreadName, currentBackoffCount, backoffWait, DateTimeHelper.emit(DateTimeHelper.later(DurationHelper.parse(backoffWait)))));
+                            TimeUnit.MILLISECONDS.timedWait(backoffWaitLock, backoffWait);
                         } catch (InterruptedException ex) {
                             Thread.currentThread().interrupt();
+                        } finally {
+                            currentBackoffCount++;
+                            currentThread.setName(currentThreadName);
                         }
                     }
                 }

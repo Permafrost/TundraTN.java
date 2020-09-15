@@ -542,14 +542,14 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
 
             long totalSuccessCount = continuousFailureDetector.getTotalSuccessCount();
             long totalFailureCount = continuousFailureDetector.getTotalFailureCount();
-            long currentBackingOffCount = continuousFailureDetector.getCurrentBackingOffCount();
+            long currentBackoffCount = continuousFailureDetector.getCurrentBackoffCount();
             long currentContinuousFailureCount = continuousFailureDetector.getCurrentContinuousFailureCount();
 
             document.put("task.total.count", totalSuccessCount + totalFailureCount);
             document.put("task.success.count", totalSuccessCount);
             document.put("task.failure.count", totalFailureCount);
             document.put("task.failure.continuous.count", currentContinuousFailureCount);
-            document.put("task.backoff.count", currentBackingOffCount);
+            document.put("task.backoff.count", currentBackoffCount);
         } catch(ServiceException ex) {
             ExceptionHelper.raiseUnchecked(ex);
         }
