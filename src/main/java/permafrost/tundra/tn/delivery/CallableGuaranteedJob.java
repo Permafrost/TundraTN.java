@@ -239,8 +239,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
                         cursor.destroy();
                     }
 
-                    ServiceThread serviceThread = Service.doThreadInvoke(service, session, pipeline);
-                    output = serviceThread.getIData();
+                    output = Service.doInvoke(service, session, pipeline);
 
                     owningThread.setName(MessageFormat.format("{0}: {1}, Ended={2} COMPLETED", owningThreadPrefix, threadNameSuffix, DateTimeHelper.now("datetime")));
                 }

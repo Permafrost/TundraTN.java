@@ -380,9 +380,7 @@ public class RoutingRuleHelper {
                 cursor.insertAfter("bizdoc", bizdoc);
                 if (parameters != null) cursor.insertAfter("TN_parms", parameters);
 
-                ServiceThread serviceThread = Service.doThreadInvoke("wm.tn.route", "route", pipeline);
-
-                pipeline = serviceThread.getIData();
+                pipeline = Service.doInvoke("wm.tn.route", "route", pipeline);
             } catch(Exception ex) {
                 exception = ex;
                 ExceptionHelper.raise(ex);
