@@ -80,14 +80,6 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
      */
     private static final long EXECUTOR_SHUTDOWN_TIMEOUT_MILLISECONDS = 5 * 60 * 1000L;
     /**
-     * The suffix used on worker thread names.
-     */
-    private static final String WORKER_THREAD_SUFFIX = ": Worker";
-    /**
-     * The suffix used on supervisor thread names.
-     */
-    private static final String SUPERVISOR_THREAD_SUFFIX = ": Supervisor";
-    /**
      * The factor used to determine task queue refill size when refilling the queue.
      */
     public static final int DEFAULT_QUEUE_REFILL_SIZE_FACTOR = 32;
@@ -473,9 +465,9 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
         String datetime = DateTimeHelper.now("datetime");
 
         if (parentContext == null) {
-            output = MessageFormat.format("TundraTN/Queue Processor {0} {1}", queueName, datetime);
+            output = MessageFormat.format("TundraTN/Queue Worker {0} {1}", queueName, datetime);
         } else {
-            output = MessageFormat.format("TundraTN/Queue Processor {0} {1} {2}", queueName, parentContext, datetime);
+            output = MessageFormat.format("TundraTN/Queue Worker {0} {1} {2}", queueName, parentContext, datetime);
         }
 
         return output;
@@ -487,7 +479,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
      * @return the thread name to use for the supervising thread.
      */
     private String getSupervisorName() {
-        return getThreadPrefix() + (concurrency > 1 ? SUPERVISOR_THREAD_SUFFIX : WORKER_THREAD_SUFFIX);
+        return getThreadPrefix() + (concurrency > 1 ? ": Producer" : ": ");
     }
 
     /**
@@ -496,7 +488,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
      * @return the thread name to use for the worker threads
      */
     private String getWorkerName() {
-        return getThreadPrefix() + WORKER_THREAD_SUFFIX;
+        return getThreadPrefix() + ": Consumer ";
     }
 
     /**

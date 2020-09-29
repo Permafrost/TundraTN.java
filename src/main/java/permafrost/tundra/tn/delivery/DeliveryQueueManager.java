@@ -89,7 +89,7 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
      * Starts up the scheduled supervisor thread.
      */
     private synchronized void startup() {
-        scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Queue Supervisor", InvokeState.getCurrentState()));
+        scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Queue Manager", InvokeState.getCurrentState()));
         // shutdown any processors for queues that have been suspended or disabled or if the Integration Server task
         // scheduler has been paused
         scheduler.scheduleWithFixedDelay(new Runnable() {

@@ -391,7 +391,7 @@ public class Deferrer implements Startable {
             executor = new PrioritizedThreadPoolExecutor(concurrency, concurrency, DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS, TimeUnit.MILLISECONDS, new BoundedPriorityBlockingQueue<Runnable>(capacity), threadFactory, new ThreadPoolExecutor.AbortPolicy());
             executor.allowCoreThreadTimeOut(true);
 
-            scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Route Seeder", InvokeState.getCurrentState()));
+            scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Route Manager", InvokeState.getCurrentState()));
 
             // schedule seeding
             scheduler.scheduleWithFixedDelay(new Runnable() {
