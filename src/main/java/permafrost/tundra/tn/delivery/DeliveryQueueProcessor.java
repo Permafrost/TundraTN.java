@@ -479,7 +479,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
      * @return the thread name to use for the supervising thread.
      */
     private String getSupervisorName() {
-        return getThreadPrefix() + (concurrency > 1 ? ": Producer" : ": ");
+        return getThreadPrefix() + (concurrency > 1 ? " Producer" : "");
     }
 
     /**
@@ -488,7 +488,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
      * @return the thread name to use for the worker threads
      */
     private String getWorkerName() {
-        return getThreadPrefix() + ": Consumer ";
+        return getThreadPrefix() + " Consumer";
     }
 
     /**
