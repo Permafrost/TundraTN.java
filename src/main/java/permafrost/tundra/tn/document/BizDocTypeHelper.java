@@ -137,8 +137,9 @@ public final class BizDocTypeHelper {
             if (declarations != null) {
                 IDataCursor cursor = null;
                 try {
-                    String defaultNamespacePrefixIS = getDefaultNamespacePrefix(type);
-                    boolean defaultNamespacePrefixISAlreadyExists = false;
+                    String declaredNamespacePrefixIS = getDeclaredNamespacePrefix(type);
+                    boolean declaredNamespacePrefixISAlreadyExists = false;
+                    boolean defaultNamespacePrefixISAlreadyExists = DEFAULT_NAMESPACE_PREFIX_IS.equals(declaredNamespacePrefixIS);
                     for (String[] declaration : declarations) {
                         if (declaration != null && declaration.length > 1) {
                             String key = declaration[0];
@@ -146,8 +147,9 @@ public final class BizDocTypeHelper {
                             if (key != null && value != null) {
                                 if (namespace == null) namespace = IDataFactory.create();
                                 if (cursor == null) cursor = namespace.getCursor();
-                                if (defaultNamespacePrefixIS.equals(key)) defaultNamespacePrefixISAlreadyExists = true;
-                                if (DEFAULT_NAMESPACE_PREFIX_TN.equals(key) && !defaultNamespacePrefixISAlreadyExists) {
+                                if (declaredNamespacePrefixIS.equals(key)) declaredNamespacePrefixISAlreadyExists = true;
+                                if (DEFAULT_NAMESPACE_PREFIX_IS.equals(key)) defaultNamespacePrefixISAlreadyExists = true;
+                                if (DEFAULT_NAMESPACE_PREFIX_TN.equals(key)) {
                                     // Trading Networks uses the `prefix0` prefix to represent the default target
                                     // namespace. When importing an XML schema, Integration Server uses the `ns` prefix
                                     // by default, however the prefix can be customised at import time to an arbitrary
@@ -160,7 +162,12 @@ public final class BizDocTypeHelper {
                                     // in the resulting IData document's element insertion order, as the
                                     // `WmPublic/pub.xml:*` services will use the first prefix in the document when
                                     // parsing / serializing, and we want that to be the Integration Server prefix.
-                                    IDataHelper.put(cursor, defaultNamespacePrefixIS, value);
+                                    if (!declaredNamespacePrefixISAlreadyExists) {
+                                        IDataHelper.put(cursor, declaredNamespacePrefixIS, value);
+                                    }
+                                    if (!defaultNamespacePrefixISAlreadyExists) {
+                                        IDataHelper.put(cursor, DEFAULT_NAMESPACE_PREFIX_IS, value);
+                                    }
                                 }
                                 IDataHelper.put(cursor, key, value);
                             }
@@ -181,8 +188,8 @@ public final class BizDocTypeHelper {
      * @param docType   The document type.
      * @return          The prefix to use for the default namespace.
      */
-    private static String getDefaultNamespacePrefix(BizDocType docType) {
-        return getDefaultNamespacePrefix(docType instanceof XMLDocType ? ((XMLDocType)docType).getRecordBlueprint() : null);
+    private static String getDeclaredNamespacePrefix(BizDocType docType) {
+        return getDeclaredNamespacePrefix(docType instanceof XMLDocType ? ((XMLDocType)docType).getRecordBlueprint() : null);
     }
 
     /**
@@ -191,8 +198,8 @@ public final class BizDocTypeHelper {
      * @param nodeName  The document reference representing the XML structure.
      * @return          The prefix to use for the default namespace.
      */
-    private static String getDefaultNamespacePrefix(NSName nodeName) {
-        return getDefaultNamespacePrefix(nodeName == null ? null : Namespace.current().getNode(nodeName));
+    private static String getDeclaredNamespacePrefix(NSName nodeName) {
+        return getDeclaredNamespacePrefix(nodeName == null ? null : Namespace.current().getNode(nodeName));
     }
 
     /**
@@ -201,8 +208,8 @@ public final class BizDocTypeHelper {
      * @param node      The document reference representing the XML structure.
      * @return          The prefix to use for the default namespace.
      */
-    private static String getDefaultNamespacePrefix(NSNode node) {
-        return getDefaultNamespacePrefix(node instanceof NSRecord ? (NSRecord)node : null);
+    private static String getDeclaredNamespacePrefix(NSNode node) {
+        return getDeclaredNamespacePrefix(node instanceof NSRecord ? (NSRecord)node : null);
     }
 
     /**
@@ -211,7 +218,7 @@ public final class BizDocTypeHelper {
      * @param record    The document reference representing the XML structure.
      * @return          The prefix to use for the default namespace.
      */
-    private static String getDefaultNamespacePrefix(NSRecord record) {
+    private static String getDeclaredNamespacePrefix(NSRecord record) {
         String prefix = DEFAULT_NAMESPACE_PREFIX_IS;
         if (record != null) {
             NSField[] fields = record.getFields();
