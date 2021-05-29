@@ -114,7 +114,7 @@ public final class BizDocContentHelper {
         MimeType mimeType = MIMETypeHelper.normalize(MIMETypeHelper.of(contentType));
         final String charsetParameterName = "charset";
         if (charset != null) {
-            mimeType.setParameter(charsetParameterName, charset.displayName());
+            mimeType.setParameter(charsetParameterName, charset.name());
         } else if (mimeType.getParameter(charsetParameterName) == null && MIMETypeHelper.isText(mimeType)) {
             mimeType.setParameter(charsetParameterName, CharsetHelper.DEFAULT_CHARSET_NAME);
         }
@@ -250,7 +250,30 @@ public final class BizDocContentHelper {
             contentType = contentPart.getMimeType();
         }
 
-        return contentType == null ? MIMETypeHelper.DEFAULT_MIME_TYPE_STRING : contentType;
+        return normalizeContentType(contentType);
+    }
+
+    /**
+     * Normalizes the given MIME content type, if given null the default content type is returned, otherwise if the
+     * given content type contains the Trading Networks default charset parameter of "UTF8", it is updated to have
+     * the correct value of "UTF-8".
+     *
+     * @param contentType   The content type whose charset parameter is to be normalized.
+     * @return              The content type with normalized charset parameter.
+     */
+    public static String normalizeContentType(String contentType) {
+        if (contentType == null) {
+            contentType = MIMETypeHelper.DEFAULT_MIME_TYPE_STRING;
+        } else {
+            final String charsetParameterName = "charset";
+            MimeType mimeType = MIMETypeHelper.of(contentType);
+            String charsetParameter = mimeType.getParameter(charsetParameterName);
+            if ("UTF8".equals(charsetParameter)) {
+                mimeType.setParameter(charsetParameterName, "UTF-8");
+            }
+            contentType = mimeType.toString();
+        }
+        return contentType;
     }
 
     /**

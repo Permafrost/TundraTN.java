@@ -1241,7 +1241,7 @@ public final class BizDocEnvelopeHelper {
                     // provide the content type and encoding to handleLargeDoc via the current invoke state content info
                     if (contentType != null) {
                         ContentInfo contentInfo = new ContentInfo(contentType.toString());
-                        if (contentEncoding != null) contentInfo.setContentEncoding(contentEncoding.toString());
+                        if (contentEncoding != null) contentInfo.setContentEncoding(contentEncoding.name());
                         currentInvokeState.setContentInfo(contentInfo);
                     }
 
@@ -1268,7 +1268,7 @@ public final class BizDocEnvelopeHelper {
 
                     MIMEClassification classification = MIMETypeHelper.classify(contentType, contentSchema);
 
-                    if (contentEncoding != null) IDataHelper.put(parameterCursor, "$contentEncoding", contentEncoding.displayName());
+                    if (contentEncoding != null) IDataHelper.put(parameterCursor, "$contentEncoding", contentEncoding.name());
                     if (contentType != null) {
                         contentType.removeParameter("charset");
                         IDataHelper.put(parameterCursor, "$contentType", contentType.toString());
@@ -1309,11 +1309,16 @@ public final class BizDocEnvelopeHelper {
                     bizdoc = IDataHelper.get(pipelineCursor, "bizdoc", BizDocEnvelope.class);
 
                     if (bizdoc != null) {
-                        // handle large document content correctly if wm.tn.doc:recognize did not
-                        int largeDocThreshold = Config.getLargeDocThreshold();
-                        if (largeDocThreshold > 0) {
-                            BizDocContentPart[] contentParts = bizdoc.getContentParts();
-                            if (contentParts != null) {
+                        BizDocContentPart[] contentParts = bizdoc.getContentParts();
+                        if (contentParts != null) {
+                            // normalize content type on each content part
+                            for (BizDocContentPart contentPart : contentParts) {
+                                contentPart.setMimeType(BizDocContentHelper.normalizeContentType(contentPart.getMimeType()));
+                            }
+
+                            // handle large document content correctly if wm.tn.doc:recognize did not
+                            int largeDocThreshold = Config.getLargeDocThreshold();
+                            if (largeDocThreshold > 0) {
                                 for (BizDocContentPart contentPart : contentParts) {
                                     if (contentPart != null) {
                                         int length = contentPart.getLength();
@@ -1323,7 +1328,8 @@ public final class BizDocEnvelopeHelper {
                                                 MimeType contentPartMimeType = MIMETypeHelper.normalize(MIMETypeHelper.of(contentPart.getMimeType()));
                                                 Charset contentPartEncoding = CharsetHelper.normalize(contentPartMimeType.getParameter("charset"));
                                                 contentPartMimeType.removeParameter("charset");
-                                                if (!MIMETypeHelper.isText(contentPartMimeType)) contentPartEncoding = null;
+                                                if (!MIMETypeHelper.isText(contentPartMimeType))
+                                                    contentPartEncoding = null;
 
                                                 BizDocContentHelper.addContentPart(bizdoc, contentPart.getPartName(), contentPartMimeType.toString(), contentPartEncoding, contentPartStream, true);
                                             }
