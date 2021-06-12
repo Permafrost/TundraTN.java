@@ -35,6 +35,7 @@ import java.util.Vector;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.doc.BizDocType;
 import com.wm.app.tn.profile.Corporation;
+import com.wm.app.tn.profile.Destination;
 import com.wm.app.tn.profile.ExtendedProfileField;
 import com.wm.app.tn.profile.ID;
 import com.wm.app.tn.profile.LookupStore;
@@ -494,5 +495,137 @@ public final class ProfileHelper {
             }
         }
         return summary;
+    }
+
+    /**
+     * Returns the partnerID from the given profile.
+     *
+     * @param profile   The profile whose partnerID is to be returned.
+     * @return          The partnerID from the given profile, if it exists.
+     */
+    private static String getPartnerID(IData profile) {
+        String partnerID = null;
+        if (profile != null) {
+            IDataCursor cursor = profile.getCursor();
+            try {
+                partnerID = IDataHelper.get(cursor, "ProfileID", String.class);
+                if (partnerID == null) {
+                    IData corporate = IDataHelper.get(cursor, "Corporate", IData.class);
+                    if (corporate != null) {
+                        IDataCursor corporateCursor = corporate.getCursor();
+                        try {
+                            partnerID = IDataHelper.get(corporateCursor, "PartnerID", String.class);
+                        } finally {
+                            corporateCursor.destroy();
+                        }
+                    }
+                }
+            } finally {
+                cursor.destroy();
+            }
+        }
+        return partnerID;
+    }
+
+    /**
+     * Normalizes the given IData document, if it is already a Profile it is
+     * returned, otherwise it is queried for a PartnerID to the Profile related
+     * to that PartnerID is returned.
+     *
+     * @param profileDocument   The Profile as an IData document.
+     * @param raiseIfMissing    If true and no profile is found an exception will be thrown.
+     * @return                  The normalized Profile.
+     * @throws ServiceException If an error occurs.
+     */
+    public static Profile normalize(IData profileDocument, boolean raiseIfMissing) throws ServiceException {
+        Profile profile = null;
+        String partnerID = null;
+
+        if (profileDocument instanceof Profile) {
+            profile = (Profile)profileDocument;
+        } else if (profileDocument != null) {
+            partnerID = getPartnerID(profileDocument);
+            if (partnerID != null) {
+                profile = get(partnerID);
+            }
+        }
+
+        if (profile == null && raiseIfMissing) {
+            throw new ServiceException("No Trading Networks partner profile exists for specified ID: " + partnerID);
+        }
+
+        return profile;
+    }
+
+    private static final String PREFERRED_PROTOCOL = "Preferred Protocol";
+    private static final String RECEIVERS_PREFERRED_PROTOCOL = "Receiver's Preferred Protocol";
+
+    /**
+     * Returns the Destination from the given profile with the given name.
+     *
+     * @param profile           The profile whose destination is to be returned.
+     * @param destinationName   The name of the destination to be returned.
+     * @return                  The Destination with the given name, or null.
+     */
+    public static IData getDestination(IData profile, String destinationName) throws ServiceException {
+        IData destination = null;
+        if (profile != null && destinationName != null) {
+            destinationName = destinationName.trim();
+            if (destinationName.equals(RECEIVERS_PREFERRED_PROTOCOL)) {
+                destinationName = PREFERRED_PROTOCOL;
+            }
+
+            String partnerID = getPartnerID(profile);
+            if (partnerID != null) {
+                profile = ProfileCache.getInstance().get(partnerID);
+                if (profile != null) {
+                    IDataCursor cursor = profile.getCursor();
+                    try {
+                        IData deliveryMethods = IDataHelper.get(cursor, "DeliveryMethods", IData.class);
+                        if (deliveryMethods != null) {
+                            IDataCursor deliveryMethodsCursor = deliveryMethods.getCursor();
+                            try {
+                                destination = IDataHelper.get(deliveryMethodsCursor, destinationName, IData.class);
+                            } finally {
+                                deliveryMethodsCursor.destroy();
+                            }
+                        }
+                    } finally {
+                        cursor.destroy();
+                    }
+                }
+            }
+        }
+
+        return destination;
+    }
+
+    /**
+     * Returns the Destination from the given Profile with the given name.
+     *
+     * @param profile           The Profile whose destination is to be returned.
+     * @param destinationName   The name of the destination to be returned.
+     * @return                  The Destination with the given name, or null.
+     */
+    public static Destination getDestination(Profile profile, String destinationName) {
+        Destination destination = null;
+        if (profile != null && destinationName != null) {
+            destinationName = destinationName.trim();
+            if (destinationName.equals(PREFERRED_PROTOCOL) || destinationName.equals(RECEIVERS_PREFERRED_PROTOCOL)) {
+                destination = profile.getPreferredDestination();
+            } else {
+                Enumeration enumeration = profile.getDestinations();
+                if (enumeration != null) {
+                    while (enumeration.hasMoreElements()) {
+                        Destination profileDestination = (Destination)enumeration.nextElement();
+                        if (destinationName.equals(DestinationHelper.getName(profileDestination).trim())) {
+                            destination = profileDestination;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        return destination;
     }
 }

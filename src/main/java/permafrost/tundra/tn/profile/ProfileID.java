@@ -181,7 +181,7 @@ public class ProfileID {
     /**
      * A local in-memory cache of all external identities and the internal identity they relate to.
      */
-    private static volatile ConcurrentMap<ProfileID, ProfileID> CACHE = new ConcurrentHashMap<ProfileID, ProfileID>();
+    private static final ConcurrentMap<ProfileID, ProfileID> CACHE = new ConcurrentHashMap<ProfileID, ProfileID>();
     /**
      * SQL statement used to seed the external identity cache.
      */
@@ -230,9 +230,7 @@ public class ProfileID {
         }
     }
 
-    /**
-     * Seed the external identity cache immediately.
-     */
+    // seed the external identity cache immediately
     static {
         try {
             seed();
