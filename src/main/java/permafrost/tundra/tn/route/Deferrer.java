@@ -207,20 +207,13 @@ public class Deferrer implements Startable {
 
         try {
             result = executor.submit(route);
-            return result;
         } catch(Throwable ex) {
-            result = new FutureTask<IData>(route);
+            // if we failed to submit route to executor for any reason, then run it directly on the current thread
+            FutureTask<IData> task = new FutureTask<IData>(route);
+            result = task;
+            task.run();
         } finally {
             pendingRoutes.putIfAbsent(route.getIdentity(), result);
-        }
-
-        // if we failed to submit route to executor, then run it directly here
-        try {
-            result.get();
-        } catch(InterruptedException ex) {
-            // do nothing
-        } catch(ExecutionException ex) {
-            // do nothing
         }
 
         return result;
