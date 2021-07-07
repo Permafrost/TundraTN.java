@@ -38,6 +38,8 @@ import permafrost.tundra.data.transform.string.Trimmer;
 import permafrost.tundra.flow.variable.SubstitutionHelper;
 import permafrost.tundra.lang.ObjectHelper;
 import permafrost.tundra.server.SystemHelper;
+import permafrost.tundra.time.DateTimeHelper;
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.util.Calendar;
 import java.util.Date;
@@ -165,6 +167,12 @@ public final class BizDocAttributeHelper {
     }
 
     /**
+     * The datetime patterns used to attempt to parse strings when setting the value of attributes of type DATETIME
+     * or DATETIME LIST.
+     */
+    private static final String[] DEFAULT_DATETIME_PATTERNS = new String[] { "datetime.jdbc", "datetime", "date", "time", "time.jdbc" };
+
+    /**
      * Updates the given BizDocEnvelope with the given attribute key and value.
      *
      * @param bizdoc    The BizDocEnvelope to set the given attribute on.
@@ -173,6 +181,47 @@ public final class BizDocAttributeHelper {
      */
     public static void set(BizDocEnvelope bizdoc, String key, Object value) {
         if (bizdoc != null && key != null) {
+            BizDocAttribute attribute = BizDocAttributeStore.getByName(key, false);
+            if (attribute != null) {
+                if (attribute.isDate()) {
+                    if (value instanceof String) {
+                        value = new Timestamp(DateTimeHelper.parse((String)value, DEFAULT_DATETIME_PATTERNS).getTimeInMillis());
+                    }
+                } else if (attribute.isDateList()) {
+                    if (value instanceof String) {
+                        value = new String[]{(String)value};
+                    }
+                    if (value instanceof String[]) {
+                        String[] inputArray = (String[])value;
+                        Timestamp[] outputArray = new Timestamp[inputArray.length];
+                        for (int i = 0; i < inputArray.length; i++) {
+                            if (inputArray[i] != null) {
+                                outputArray[i] = new Timestamp(DateTimeHelper.parse(inputArray[i], DEFAULT_DATETIME_PATTERNS).getTimeInMillis());
+                            }
+                        }
+                        value = outputArray;
+                    }
+                } else if (attribute.isNumeric()) {
+                    if (value instanceof String) {
+                        value = new BigDecimal((String)value).doubleValue();
+                    }
+                } else if (attribute.isNumberList()) {
+                    if (value instanceof String) {
+                        value = new String[]{(String)value};
+                    }
+                    if (value instanceof String[]) {
+                        String[] inputArray = (String[])value;
+                        Double[] outputArray = new Double[inputArray.length];
+                        for (int i = 0; i < inputArray.length; i++) {
+                            if (inputArray[i] != null) {
+                                outputArray[i] = new BigDecimal(inputArray[i]).doubleValue();
+                            }
+                        }
+                        value = outputArray;
+                    }
+                }
+            }
+
             if (value instanceof String) {
                 bizdoc.setStringValue(key, (String)value);
             } else if (value instanceof Double) {
