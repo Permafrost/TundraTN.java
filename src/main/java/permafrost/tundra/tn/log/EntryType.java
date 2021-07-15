@@ -34,7 +34,7 @@ public enum EntryType {
     /**
      * The entry type's value used when logging to the Trading Network's Activity Log.
      */
-    private int value;
+    private final int value;
 
     /**
      * Constructs a new EntryType.

@@ -26,7 +26,6 @@ package permafrost.tundra.tn.delivery;
 
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
-import com.wm.app.b2b.server.ServiceThread;
 import com.wm.app.b2b.server.Session;
 import com.wm.app.b2b.server.ns.Namespace;
 import com.wm.app.tn.delivery.DeliveryJob;
@@ -40,10 +39,11 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.lang.ns.NSName;
 import com.wm.lang.ns.NSService;
-import org.apache.log4j.Level;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.StringHelper;
+import permafrost.tundra.server.ServerLogHelper;
+import permafrost.tundra.server.ServerLogLevel;
 import permafrost.tundra.server.ServerLogStatement;
 import permafrost.tundra.server.ServiceHelper;
 import permafrost.tundra.server.UserHelper;
@@ -55,7 +55,6 @@ import permafrost.tundra.tn.document.BizDocEnvelopePriority;
 import permafrost.tundra.tn.log.EntryType;
 import permafrost.tundra.tn.profile.ProfileCache;
 import permafrost.tundra.tn.profile.ProfileHelper;
-import permafrost.tundra.tn.server.ServerLogHelper;
 import permafrost.tundra.util.concurrent.AbstractPrioritizedCallable;
 import java.text.MessageFormat;
 import java.util.List;
@@ -69,7 +68,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
     /**
      * The default logging level used when logging.
      */
-    private static final Level DEFAULT_LOG_LEVEL = Level.INFO;
+    private static final ServerLogLevel DEFAULT_LOG_LEVEL = ServerLogLevel.INFO;
     /**
      * The bizdoc user status to use when a job is dequeued.
      */
