@@ -1562,6 +1562,8 @@ public final class BizDocEnvelopeHelper {
      */
     public static void persist(BizDocEnvelope document, RoutingRule rule, boolean transportLog, String transportLogPartName, boolean strict) throws ServiceException {
         if (document != null) {
+            BizDocAttributeHelper.normalize(document);
+
             PreRoutingFlags preRoutingFlags = getPreRoutingFlags(document, rule);
             document.setPersistOption(preRoutingFlags.getPersistOption());
 

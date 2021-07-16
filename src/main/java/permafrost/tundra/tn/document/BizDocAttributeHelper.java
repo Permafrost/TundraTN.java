@@ -148,6 +148,30 @@ public final class BizDocAttributeHelper {
     }
 
     /**
+     * The index of the attributes element in a BizDocEnvelope.
+     */
+    private static final int BIZDOC_ATTRIBUTES_INDEX = 11;
+
+    /**
+     * Normalizes the attributes in the given BizDocEnvelope, by removing any
+     * attributes that do not exist or are not active, and by reformatting any
+     * datetime or number attributes to be the expected format for Trading
+     * Networks.
+     *
+     * @param bizdoc    The bizdoc whose attributes are to be normalized.
+     */
+    public static void normalize(BizDocEnvelope bizdoc) {
+        if (bizdoc != null) {
+            IData attributes = bizdoc.getAttributes();
+            if (IDataHelper.size(attributes) > 0) {
+                // clear out the existing attributes
+                bizdoc.set(BIZDOC_ATTRIBUTES_INDEX, IDataFactory.create());
+                set(bizdoc, sanitize(attributes));
+            }
+        }
+    }
+
+    /**
      * Updates the given BizDocEnvelope with the given attributes.
      *
      * @param bizdoc        The BizDocEnvelope to set the given attributes on.
@@ -170,7 +194,7 @@ public final class BizDocAttributeHelper {
      * The datetime patterns used to attempt to parse strings when setting the value of attributes of type DATETIME
      * or DATETIME LIST.
      */
-    private static final String[] DEFAULT_DATETIME_PATTERNS = new String[] { "datetime.jdbc", "datetime", "date", "time", "time.jdbc" };
+    private static final String[] DEFAULT_DATETIME_PATTERNS = new String[] { "datetime.jdbc", "milliseconds", "datetime", "date", "time", "time.jdbc" };
 
     /**
      * Updates the given BizDocEnvelope with the given attribute key and value.
@@ -185,7 +209,7 @@ public final class BizDocAttributeHelper {
             if (attribute != null) {
                 if (attribute.isDate()) {
                     if (value instanceof String) {
-                        value = new Timestamp(DateTimeHelper.parse((String)value, DEFAULT_DATETIME_PATTERNS).getTimeInMillis());
+                        value = DateTimeHelper.format((String)value, DEFAULT_DATETIME_PATTERNS, "datetime.jdbc");
                     }
                 } else if (attribute.isDateList()) {
                     if (value instanceof String) {
@@ -193,10 +217,10 @@ public final class BizDocAttributeHelper {
                     }
                     if (value instanceof String[]) {
                         String[] inputArray = (String[])value;
-                        Timestamp[] outputArray = new Timestamp[inputArray.length];
+                        String[] outputArray = new String[inputArray.length];
                         for (int i = 0; i < inputArray.length; i++) {
                             if (inputArray[i] != null) {
-                                outputArray[i] = new Timestamp(DateTimeHelper.parse(inputArray[i], DEFAULT_DATETIME_PATTERNS).getTimeInMillis());
+                                outputArray[i] = DateTimeHelper.format(inputArray[i], DEFAULT_DATETIME_PATTERNS, "datetime.jdbc");
                             }
                         }
                         value = outputArray;
