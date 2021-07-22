@@ -1311,11 +1311,6 @@ public final class BizDocEnvelopeHelper {
                     if (bizdoc != null) {
                         BizDocContentPart[] contentParts = bizdoc.getContentParts();
                         if (contentParts != null) {
-                            // normalize content type on each content part
-                            for (BizDocContentPart contentPart : contentParts) {
-                                contentPart.setMimeType(BizDocContentHelper.normalizeContentType(contentPart.getMimeType()));
-                            }
-
                             // handle large document content correctly if wm.tn.doc:recognize did not
                             int largeDocThreshold = Config.getLargeDocThreshold();
                             if (largeDocThreshold > 0) {
@@ -1491,9 +1486,52 @@ public final class BizDocEnvelopeHelper {
     public static void route(BizDocEnvelope document, boolean transportLog, String transportLogPartName, IData parameters, boolean strict) throws ServiceException {
         if (document != null) {
             applyParameters(document, parameters);
+            normalizeContentType(document);
             RoutingRule rule = RoutingRuleHelper.match(document, parameters, true);
             persist(document, rule, transportLog, transportLogPartName, strict);
             RoutingRuleHelper.execute(rule, document, parameters);
+        }
+    }
+
+    /**
+     * Normalizes the each of the given BizDocEnvelope's BizDocContentPart's MIME content type: if null the default
+     * content type is returned, otherwise if the content type contains the Trading Networks default charset parameter
+     * of "UTF8", it is updated to have the correct value of "UTF-8".
+     *
+     * @param document              The BizDocEnvelope with content parts whose content types are to be normalized.
+     */
+    private static void normalizeContentType(BizDocEnvelope document) {
+        if (document != null) {
+            normalizeContentType(document.getContentParts());
+        }
+    }
+
+    /**
+     * Normalizes the each of the given BizDocEnvelope's BizDocContentPart's MIME content type: if null the default
+     * content type is returned, otherwise if the content type contains the Trading Networks default charset parameter
+     * of "UTF8", it is updated to have the correct value of "UTF-8".
+     *
+     * @param contentParts      The BizDocContentPart[] containing content parts whose content type is to be normalized.
+     */
+    private static void normalizeContentType(BizDocContentPart[] contentParts) {
+        if (contentParts != null) {
+            // normalize content type on each content part
+            for (BizDocContentPart contentPart : contentParts) {
+                normalizeContentType(contentPart);
+            }
+        }
+    }
+
+    /**
+     * Normalizes the the given BizDocContentPart's MIME content type: if null the default content type is returned,
+     * otherwise if the content type contains the Trading Networks default charset parameter of "UTF8", it is updated to
+     * have the correct value of "UTF-8".
+     *
+     * @param contentPart       The BizDocContentPart whose content type is to be normalized.
+     */
+    private static void normalizeContentType(BizDocContentPart contentPart) {
+        if (contentPart != null) {
+           contentPart.setMimeType(BizDocContentHelper.normalizeContentType(contentPart.getMimeType()));
         }
     }
 
