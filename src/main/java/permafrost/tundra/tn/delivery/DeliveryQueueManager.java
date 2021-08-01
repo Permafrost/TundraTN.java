@@ -77,6 +77,41 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
     private ScheduledExecutorService scheduler;
 
     /**
+     * Registers the given queue processor against the queue with the given name.
+     *
+     * @param queueName         The name of the queue.
+     * @param queueProcessor    The processor for the queue with the given name.
+     * @return                  If the processor was registered.
+     */
+    @Override
+    public boolean register(String queueName, DeliveryQueueProcessor queueProcessor) {
+        return super.register(queueName, queueProcessor);
+    }
+
+    /**
+     * Unregisters the given queue processor from the queue with the given name.
+     *
+     * @param queueName         The name of the queue.
+     * @param queueProcessor    The processor currently registered for the queue with the given name.
+     * @return                  True if the processor was unregistered.
+     */
+    @Override
+    public boolean unregister(String queueName, DeliveryQueueProcessor queueProcessor) {
+        return super.unregister(queueName, queueProcessor);
+    }
+
+    /**
+     * Returns the queue processor registered against the queue with the given name.
+     *
+     * @param queueName         The name of the queue.
+     * @return                  The queue processor registered against the queue with the given name, if any.
+     */
+    @Override
+    public DeliveryQueueProcessor get(String queueName) {
+        return super.get(queueName);
+    }
+
+    /**
      * Starts all objects managed by this manager.
      */
     @Override
