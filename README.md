@@ -3,9 +3,6 @@
 This is the pure Java layer that underlies [TundraTN], a package of
 cool services for [webMethods Trading Networks] 7.1 and higher.
 
-Please peruse the [API Documentation] for details on the classes and
-methods provided by [TundraTN.java].
-
 ## Related
 
 See [Tundra] and [TundraTN], packages of cool services for
