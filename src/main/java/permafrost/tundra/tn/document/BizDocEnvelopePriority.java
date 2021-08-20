@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class BizDocEnvelopePriority extends SequencePriority {
     /**
-     * The create datetime to the nearest minute for the bizdoc being routed.
+     * The create datetime for the bizdoc being routed, rounded to the specified time unit.
      */
     protected long createDateTime;
     /**

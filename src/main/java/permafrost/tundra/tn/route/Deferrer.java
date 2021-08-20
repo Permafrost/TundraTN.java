@@ -191,6 +191,9 @@ public class Deferrer implements Startable {
      * Defers the given bizdoc to be routed by a dedicated thread pool.
      *
      * @param bizdoc            The bizdoc to be deferred.
+     * @param rule              The processing rule used to route the bizdoc.
+     * @param parameters        The Trading Networks routing parameters.
+     * @return                  The results of routing the bizdoc as a Future object.
      * @throws ServiceException If an error occurs.
      */
     public Future<IData> defer(BizDocEnvelope bizdoc, RoutingRule rule, IData parameters) throws ServiceException {
@@ -201,6 +204,7 @@ public class Deferrer implements Startable {
      * Defers the given route to be executed by a dedicated thread pool.
      *
      * @param route             The route to be deferred.
+     * @return                  The results of routing the bizdoc as a Future object.
      */
     public Future<IData> defer(CallableDeferredRoute route) {
         Future<IData> result = null;

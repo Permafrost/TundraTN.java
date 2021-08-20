@@ -230,6 +230,7 @@ public class RoutingRuleHelper {
      *
      * @param bizdoc            The bizdoc to be processed.
      * @param parameters        The TN_parms routing hints to use.
+     * @param useActivityLog    Whether the rule selection should be logged in the activity log against the bizdoc.
      * @return                  The selected processing rule.
      * @throws ServiceException If an error occurs.
      */
