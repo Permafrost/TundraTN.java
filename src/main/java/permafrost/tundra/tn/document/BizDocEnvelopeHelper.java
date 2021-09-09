@@ -1133,16 +1133,21 @@ public final class BizDocEnvelopeHelper {
      * @param contentIdentity   The type of identity to be assigned to the resulting BizDocEnvelope if required.
      * @param contentNamespace  The XML namespace prefixes and URIs used when serializing content if it is specified as an IData.
      * @param parameters        The TN_parms routing hints used when recognizing the content.
+     * @param pipeline          Optional pipeline containing arbitrarily specified input variables.
      * @return                  A BizDocEnvelope representing the given content ready for routing to Trading Networks.
      * @throws ServiceException If a recognition error occurs.
      */
-    public static BizDocEnvelope recognize(Object content, String contentIdentity, IData contentNamespace, IData parameters) throws ServiceException {
+    public static BizDocEnvelope recognize(Object content, String contentIdentity, IData contentNamespace, IData parameters, IData pipeline) throws ServiceException {
         BizDocEnvelope bizdoc = null;
 
         if (content != null) {
             InputStream inputStream;
 
-            IData pipeline = IDataFactory.create();
+            if (pipeline == null) {
+                pipeline = IDataFactory.create();
+            } else {
+                pipeline = IDataHelper.duplicate(pipeline);
+            }
             IDataCursor pipelineCursor = pipeline.getCursor();
 
             parameters = IDataHelper.returnOrCreate(parameters);
@@ -1169,7 +1174,7 @@ public final class BizDocEnvelopeHelper {
                     inputStream = NodeHelper.emit((Node)content, contentEncoding);
                 } else if (content instanceof IData) {
                     // serialize IData document to an InputStream using the specified schema
-                    ContentParser parser = new ContentParser(contentType, contentEncoding, contentSchema, contentNamespace, false, null);
+                    ContentParser parser = new ContentParser(contentType, contentEncoding, contentSchema, contentNamespace, false, pipeline);
                     inputStream = parser.emit((IData)content);
                     contentEncoding = parser.getCharset();
                 } else if (ObjectHelper.instance(content, "com.sap.conn.idoc.IDocDocumentList")) {
@@ -1186,7 +1191,7 @@ public final class BizDocEnvelopeHelper {
                         scopeCursor = scope.getCursor();
                         IData document = IDataHelper.get(scopeCursor, "document", IData.class);
 
-                        ContentParser parser = new ContentParser(contentType, contentEncoding, contentSchema, contentNamespace, false, null);
+                        ContentParser parser = new ContentParser(contentType, contentEncoding, contentSchema, contentNamespace, false, pipeline);
                         inputStream = parser.emit(document);
                         contentEncoding = parser.getCharset();
                     } finally {
@@ -1408,7 +1413,7 @@ public final class BizDocEnvelopeHelper {
                 parameterCursor.destroy();
             }
 
-            bizdoc = recognize(content, contentIdentity, contentNamespace, parameters);
+            bizdoc = recognize(content, contentIdentity, contentNamespace, parameters, pipeline);
 
             if (bizdoc != null) {
                 try {
