@@ -62,7 +62,6 @@ import com.wm.app.tn.doc.BizDocErrorSet;
 import com.wm.app.tn.doc.BizDocType;
 import com.wm.app.tn.doc.UnknownDocType;
 import com.wm.app.tn.err.ActivityLogEntry;
-import com.wm.app.tn.profile.ProfileSummary;
 import com.wm.app.tn.route.PreRoutingFlags;
 import com.wm.app.tn.route.RoutingRule;
 import com.wm.app.tn.util.Config;
@@ -1147,6 +1146,11 @@ public final class BizDocEnvelopeHelper {
                 pipeline = IDataFactory.create();
             } else {
                 pipeline = IDataHelper.duplicate(pipeline);
+                // work around issue with wm.tn.doc:recognize throwing a java.lang.ClassCastException when attempting to
+                // recognize an XML document while the pipeline contains a $document variable whose value is NOT an
+                // instance of the class org.w3c.dom.Node by removing all $document variables from the pipeline before
+                // calling wm.tn.doc:recognize
+                IDataHelper.removeAll(pipeline, "$document");
             }
             IDataCursor pipelineCursor = pipeline.getCursor();
 
