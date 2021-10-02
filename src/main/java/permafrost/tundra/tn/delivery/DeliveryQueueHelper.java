@@ -40,6 +40,7 @@ import com.wm.util.Masks;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
+import javax.xml.datatype.Duration;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
@@ -56,7 +57,8 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
-import javax.xml.datatype.Duration;
+import java.util.TreeSet;
+import java.util.regex.Pattern;
 
 /**
  * A collection of convenience methods for working with Trading Networks delivery queues.
@@ -79,6 +81,14 @@ public final class DeliveryQueueHelper {
      */
     private static final String SELECT_COUNT_QUEUED_JOBS_UNORDERED_SQL = "SELECT COUNT(*) FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated <= ? AND TimeUpdated <= ?";
     /**
+     * SQL statement to return which queues currently have pending QUEUED jobs.
+     */
+    private static final String SELECT_QUEUES_WITH_QUEUED_TASKS_SQL = "SELECT DISTINCT A.QueueName FROM DeliveryQueue A, DeliveryJob B WHERE A.QueueName = B.QueueName AND A.QueueState = 'enabled' AND B.JobStatus = 'QUEUED' AND B.TimeCreated <= ? AND B.TimeUpdated <= ?";
+    /**
+     * SQL statement to return the count of queues which are enabled.
+     */
+    private static final String SELECT_COUNT_ENABLED_QUEUES_SQL = "SELECT COUNT(*) AS EnabledCount FROM DeliveryQueue WHERE QueueState = 'enabled'";
+    /**
      * The age a delivery job must be before it is eligible to be processed.
      */
     private static final long DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS = 0L;
@@ -91,88 +101,13 @@ public final class DeliveryQueueHelper {
      */
     private static final int DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS = 30;
     /**
+     * The default maximum delivery interval.
+     */
+    private static final long DEFAULT_DELIVERY_INTERVAL_MAXIMUM = 60L * 1000L;
+    /**
      * Disallow instantiation of this class.
      */
     private DeliveryQueueHelper() {}
-
-    /**
-     * Dequeues each task on the given Trading Networks delivery queue, and processes the task using the given service
-     * and input pipeline; if concurrency greater than 1, tasks will be processed by a thread pool whose size is equal
-     * to the desired concurrency, otherwise they will be processed on the current thread.
-     *
-     * @param queueName         The name of the delivery queue whose queued jobs are to be processed.
-     * @param service           The service to be invoked to process jobs on the given delivery queue.
-     * @param pipeline          The input pipeline used when invoking the given service.
-     * @param age               The minimum age a task must be before it is processed.
-     * @param concurrency       If greater than 1, this is the number of threads used to process jobs simultaneously.
-     * @param retryLimit        The number of retries this job should attempt.
-     * @param retryFactor       The factor used to extend the time to wait on each retry.
-     * @param timeToWait        The time to wait between each retry.
-     * @param threadPriority    The thread priority used when processing tasks.
-     * @param daemonize         If true, all threads will be marked as daemons and execution will not end until the JVM
-     *                          shuts down or the TN queue is disabled/suspended.
-     * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
-     * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
-     * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
-     * @param errorThreshold    How many continuous errors the queue is allowed to encounter before backing off.
-     * @throws IOException      If an I/O error is encountered.
-     * @throws SQLException     If a database error is encountered.
-     * @throws ServiceException If an error is encountered while processing jobs.
-     */
-    public static void each(String queueName, String service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, long errorThreshold) throws IOException, SQLException, ServiceException {
-        if (queueName == null) throw new NullPointerException("queueName must not be null");
-        if (service == null) throw new NullPointerException("service must not be null");
-
-        DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
-        if (queue == null) throw new ServiceException("Queue '" + queueName + "' does not exist");
-
-        each(queue, NSName.create(service), pipeline, age, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus, errorThreshold);
-    }
-
-    /**
-     * Dequeues each task on the given Trading Networks delivery queue, and processes the task using the given service
-     * and input pipeline; if concurrency greater than 1, tasks will be processed by a thread pool whose size is equal
-     * to the desired concurrency, otherwise they will be processed on the current thread.
-     *
-     * @param queue             The delivery queue whose queued jobs are to be processed.
-     * @param service           The service to be invoked to process jobs on the given delivery queue.
-     * @param pipeline          The input pipeline used when invoking the given service.
-     * @param age               The minimum age a task must be before it is processed.
-     * @param concurrency       If greater than 1, this is the number of threads used to process jobs simultaneously.
-     * @param retryLimit        The number of retries this job should attempt.
-     * @param retryFactor       The factor used to extend the time to wait on each retry.
-     * @param timeToWait        The time to wait between each retry.
-     * @param threadPriority    The thread priority used when processing tasks.
-     * @param daemonize         If true, all threads will be marked as daemons and execution will not end until the JVM
-     *                          shuts down or the TN queue is disabled/suspended.
-     * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
-     * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
-     * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
-     * @param errorThreshold    How many continuous errors the queue is allowed to encounter before backing off.
-     * @throws ServiceException If an error is encountered while processing jobs.
-     * @throws SQLException     If an error is encountered with the database.
-     */
-    public static void each(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, long errorThreshold) throws ServiceException, SQLException {
-        if (DeliveryQueueHelper.size(queue, ordered, age) > 0) {
-            String queueName = queue.getQueueName();
-            DeliveryQueueManager manager = DeliveryQueueManager.getInstance();
-            DeliveryQueueProcessor existingProcessor = manager.get(queueName);
-            if (existingProcessor == null) {
-                DeliveryQueueProcessor processor = new DeliveryQueueProcessor(queue, service, pipeline, age, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus, errorThreshold);
-                // only allow one processor at a time to process a given queue; if a new processor is started while
-                // there is an existing processor, the new processor exits immediately
-                if (manager.register(queueName, processor)) {
-                    try {
-                        processor.start();
-                        processor.process();
-                    } finally {
-                        manager.unregister(queueName, processor);
-                        processor.stop();
-                    }
-                }
-            }
-        }
-    }
 
     /**
      * Returns the Trading Networks delivery queue associated with the given name.
@@ -453,22 +388,35 @@ public final class DeliveryQueueHelper {
      * @throws SQLException If a database error occurs.
      */
     public static long size(DeliveryQueue queue, boolean ordered, Duration age) throws SQLException {
-        return size(queue, ordered, age == null ? DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS : age.getTimeInMillis(new Date()));
+        return size(queue == null ? null : queue.getQueueName(), ordered, age);
     }
 
     /**
      * Returns the number of queued jobs in the given delivery queue.
      *
-     * @param queue         The delivery queue.
+     * @param queueName     The delivery queue name.
      * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
      * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
      * @return              The number of queued jobs in the queue.
      * @throws SQLException If a database error occurs.
      */
-    public static long size(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
+    public static long size(String queueName, boolean ordered, Duration age) throws SQLException {
+        return size(queueName, ordered, age == null ? DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS : age.getTimeInMillis(new Date()));
+    }
+
+    /**
+     * Returns the number of queued jobs in the given delivery queue.
+     *
+     * @param queueName     The delivery queue name.
+     * @param ordered       Whether jobs should be dequeued in strict creation datetime first in first out (FIFO) order.
+     * @param age           The minimum age in milliseconds a job must be before it can be dequeued.
+     * @return              The number of queued jobs in the queue.
+     * @throws SQLException If a database error occurs.
+     */
+    public static long size(String queueName, boolean ordered, long age) throws SQLException {
         long size = 0L;
 
-        if (queue != null) {
+        if (queueName != null) {
             if (age < 0L) age = 0L;
 
             Connection connection = null;
@@ -482,7 +430,6 @@ public final class DeliveryQueueHelper {
                 statement.clearParameters();
 
                 int index = 0;
-                String queueName = queue.getQueueName();
                 SQLWrappers.setChoppedString(statement, ++index, queueName, "DeliveryQueue.QueueName");
                 if (ordered) {
                     SQLWrappers.setChoppedString(statement, ++index, queueName, "DeliveryQueue.QueueName");
@@ -513,9 +460,166 @@ public final class DeliveryQueueHelper {
     }
 
     /**
+     * Returns the set of queue names that currently have pending QUEUED jobs.
+     *
+     * @return              The set of queue names that currently have pending QUEUED jobs.
+     * @throws SQLException If a database error occurs.
+     */
+    public static Set<String> getPendingQueues() throws SQLException {
+        Connection connection = null;
+        PreparedStatement statement = null;
+        ResultSet results = null;
+        Set<String> queues = Collections.emptySet();
+
+        try {
+            connection = Datastore.getConnection();
+            statement = connection.prepareStatement(SELECT_QUEUES_WITH_QUEUED_TASKS_SQL);
+            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
+            statement.clearParameters();
+
+            int index = 0;
+            Timestamp timestamp = new Timestamp(System.currentTimeMillis() - DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS);
+            SQLWrappers.setTimestamp(statement, ++index, timestamp);
+            SQLWrappers.setTimestamp(statement, ++index, timestamp);
+
+            results = statement.executeQuery();
+
+            boolean setCreated = false;
+
+            while(results.next()) {
+                if (!setCreated) {
+                    queues = new TreeSet<String>();
+                    setCreated = true;
+                }
+                queues.add(results.getString(1));
+            }
+
+            connection.commit();
+        } catch (SQLException ex) {
+            connection = Datastore.handleSQLException(connection, ex);
+            throw ex;
+        } finally {
+            SQLWrappers.close(results);
+            SQLWrappers.close(statement);
+            Datastore.releaseConnection(connection);
+        }
+
+        return queues;
+    }
+
+    /**
+     * Returns the count of delivery queues that are currently enabled.
+     *
+     * @return              The count of delivery queues that are currently enabled.
+     * @throws SQLException If a database error occurs.
+     */
+    public static long getEnabledQueueCount() throws SQLException {
+        Connection connection = null;
+        PreparedStatement statement = null;
+        ResultSet results = null;
+        long count = 0;
+
+        try {
+            connection = Datastore.getConnection();
+            statement = connection.prepareStatement(SELECT_COUNT_ENABLED_QUEUES_SQL);
+            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
+            statement.clearParameters();
+
+            results = statement.executeQuery();
+
+            while(results.next()) {
+                count = results.getLong(1);
+            }
+
+            connection.commit();
+        } catch (SQLException ex) {
+            connection = Datastore.handleSQLException(connection, ex);
+            throw ex;
+        } finally {
+            SQLWrappers.close(results);
+            SQLWrappers.close(statement);
+            Datastore.releaseConnection(connection);
+        }
+
+        return count;
+    }
+
+    /**
+     * Returns true if there are queues whose delivery service matches the given pattern.
+     *
+     * @param servicePattern    The pattern to be matched.
+     * @param enabledOnly       Whether to only consider enabled queues.
+     * @return                  True if there is at least one queue whose delivery service matches the given pattern.
+     * @throws IOException      If an IO error occurs.
+     * @throws SQLException     If a SQL error occurs.
+     */
+    public static boolean hasQueuesProcessedByService(Pattern servicePattern, boolean enabledOnly) throws IOException, SQLException {
+        boolean hasQueuesProcessedByService = false;
+        if (servicePattern != null) {
+            DeliveryQueue[] queues = list();
+            if (queues != null) {
+                for (DeliveryQueue queue : queues) {
+                    if (queue != null && (!enabledOnly || queue.isEnabled())) {
+                        DeliverySchedule schedule = queue.getSchedule();
+                        if (schedule != null) {
+                            String service = schedule.getService();
+                            if (service != null && servicePattern.matcher(service).matches()) {
+                                hasQueuesProcessedByService = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return hasQueuesProcessedByService;
+    }
+
+    /**
      * Parser for the datetimes to be parsed in a DeliverySchedule object.
      */
     private static final String DELIVERY_SCHEDULE_DATETIME_PATTERN = "yyyy/MM/ddHH:mm:ss";
+
+    /**
+     * Returns the minimum delivery interval used by all the currently registered delivery queues.
+     *
+     * @param servicePattern    Optional regular expression for matching specific delivery services.
+     * @return                  The minimum delivery interval used by all the currently registered delivery queues.
+     * @throws IOException      If an IO error occurs.
+     * @throws ParseException   If a datetime parsing error occurs.
+     * @throws SQLException     If a SQL error occurs.
+     */
+    public static long getMinimumDeliveryInterval(Pattern servicePattern) throws IOException, ParseException, SQLException {
+        long minimumDeliveryInterval = DEFAULT_DELIVERY_INTERVAL_MAXIMUM;
+
+        DeliveryQueue[] queues = list();
+        if (queues != null) {
+            for (DeliveryQueue queue : queues) {
+                if (queue != null) {
+                    DeliverySchedule schedule = queue.getSchedule();
+                    if (schedule != null && DeliverySchedule.TYPE_REPEATING.equals(schedule.getType())) {
+                        String deliveryService = schedule.getService();
+                        if (servicePattern == null || (deliveryService != null && servicePattern.matcher(deliveryService).matches())) {
+                            long end = Long.MAX_VALUE;
+                            String endDate = schedule.getEndDate(), endTime = schedule.getEndTime();
+                            if (endDate != null && endTime != null) {
+                                end = new SimpleDateFormat(DELIVERY_SCHEDULE_DATETIME_PATTERN).parse(endDate + endTime).getTime();
+                            }
+
+                            if (System.currentTimeMillis() < end) {
+                                long interval = Long.parseLong(schedule.getInterval()) * 1000L;
+                                if (interval < minimumDeliveryInterval) {
+                                    minimumDeliveryInterval = interval;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return minimumDeliveryInterval;
+    }
 
     /**
      * Returns the time in milliseconds of the next scheduled run of the given delivery queue.
@@ -538,9 +642,9 @@ public final class DeliveryQueueHelper {
 
             boolean noOverlap = BooleanHelper.parse(schedule.getNoOverlap());
 
-            if (type.equals(DeliverySchedule.TYPE_REPEATING)) {
+            if (DeliverySchedule.TYPE_REPEATING.equals(type)) {
                 next = getRepeatingNextRun(Long.parseLong(schedule.getInterval()) * 1000L, noOverlap, start, end);
-            } else if (type.equals(DeliverySchedule.TYPE_COMPLEX)) {
+            } else if (DeliverySchedule.TYPE_COMPLEX.equals(type)) {
                 next = getComplexNextRun(Masks.buildLongMask(schedule.getMinutes()), Masks.buildIntMask(schedule.getHours()),
                         Masks.buildIntMask(schedule.getDaysOfMonth()), Masks.buildIntMask(schedule.getDaysOfWeek()),
                         Masks.buildIntMask(schedule.getMonths()), noOverlap, start, end);
@@ -613,7 +717,7 @@ public final class DeliveryQueueHelper {
     /**
      * Returns the next time a simple repeating task with the given parameters should run.
      *
-     * @param interval      The repeat interval.
+     * @param interval      The repeat interval in milliseconds.
      * @param runFromEnd    Whether tasks should not be overlapped.
      * @param start         The start time of the task.
      * @param end           The end time of the task.
