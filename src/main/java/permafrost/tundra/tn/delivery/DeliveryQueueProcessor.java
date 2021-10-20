@@ -39,6 +39,7 @@ import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.Startable;
 import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.lang.ThreadHelper;
+import permafrost.tundra.server.ServerThread;
 import permafrost.tundra.server.ServerThreadPoolExecutor;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.util.concurrent.DirectExecutorService;
@@ -46,6 +47,7 @@ import javax.xml.datatype.Duration;
 import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -249,7 +251,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
                     tasks = new PriorityQueue<CallableGuaranteedJob>();
                 }
 
-                Map<String, Future<IData>> submittedTasks = ordered ? null : new HashMap<String, Future<IData>>();
+                Map<String, Future<IData>> submittedTasks = new HashMap<String, Future<IData>>();
                 boolean queueHadTasks = false, hadContinuousFailure = false;
 
                 // while started and not interrupted and not failed continuously and (not invoked by TN or queue is enabled): process queued jobs
@@ -282,25 +284,35 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
 
                         if (activeCount < concurrency || queueSize < refillLevel) {
                             if (tasks.size() == 0) {
+                                List<GuaranteedJob> pendingTasks = null;
+
+                                // remove any finished tasks from the list of submitted tasks
+                                Iterator<Map.Entry<String, Future<IData>>> iterator = submittedTasks.entrySet().iterator();
+                                while (iterator.hasNext()) {
+                                    if (iterator.next().getValue().isDone()) {
+                                        iterator.remove();
+                                    }
+                                }
+
                                 if (ordered) {
                                     // only dequeue another task when there are idle threads
                                     if (activeCount < concurrency) {
                                         GuaranteedJob job = DeliveryQueueHelper.pop(queue, true, age);
                                         if (job != null) {
-                                            tasks.add(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, continuousFailureDetector));
+                                            pendingTasks = Collections.singletonList(job);
                                         }
                                     }
                                 } else {
-                                    Iterator<Map.Entry<String, Future<IData>>> iterator = submittedTasks.entrySet().iterator();
-                                    while (iterator.hasNext()) {
-                                        if (iterator.next().getValue().isDone()) {
-                                            iterator.remove();
-                                        }
-                                    }
+                                    pendingTasks = DeliveryQueueHelper.peek(queue, false, age, submittedTasks.keySet(), refillSize - queueSize);
+                                }
 
-                                    List<GuaranteedJob> jobs = DeliveryQueueHelper.peek(queue, false, age, submittedTasks.keySet(), refillSize - queueSize);
-                                    for (GuaranteedJob job : jobs) {
-                                        tasks.add(new CallableGuaranteedJob(queue, job, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, continuousFailureDetector));
+                                if (pendingTasks != null && pendingTasks.size() > 0) {
+                                    for (GuaranteedJob pendingTask : pendingTasks) {
+                                        tasks.add(new CallableGuaranteedJob(queue, pendingTask, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, continuousFailureDetector));
+                                    }
+                                    // refresh thread startTime whenever new tasks are added
+                                    if (processingThread instanceof ServerThread) {
+                                        ((ServerThread)processingThread).setStartTime();
                                     }
                                 }
                             }
@@ -309,7 +321,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
                                 CallableGuaranteedJob task;
                                 while ((task = tasks.poll()) != null) {
                                     Future<IData> future = executorService.submit(task);
-                                    if (!ordered) submittedTasks.put(task.getJobIdentity(), future);
+                                    submittedTasks.put(task.getJobIdentity(), future);
                                     // when single-threaded, submit only the head task to the executor to be
                                     // processed, so that this thread can then check if any exit criteria is
                                     // met between tasks

@@ -24,6 +24,7 @@
 
 package permafrost.tundra.tn.delivery;
 
+import com.wm.app.b2b.server.ServerThread;
 import permafrost.tundra.lang.Startable;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.time.DurationHelper;
@@ -249,6 +250,10 @@ public class ContinuousFailureDetector implements Startable {
                         } finally {
                             currentBackoffCount++;
                             currentThread.setName(currentThreadName);
+                            if (currentThread instanceof ServerThread) {
+                                // refresh thread start time after each back off wait
+                                ((ServerThread)currentThread).setStartTime();
+                            }
                         }
                     }
                 }

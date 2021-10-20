@@ -58,7 +58,6 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
@@ -91,7 +90,7 @@ public class Deferrer implements Startable {
     /**
      * How long to keep threads alive in the pool when idle.
      */
-    protected static final long DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS = 60 * 60 * 1000L;
+    protected static final long DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS = 60 * 1000L;
     /**
      * How often to seed deferred bizdocs from the database.
      */
