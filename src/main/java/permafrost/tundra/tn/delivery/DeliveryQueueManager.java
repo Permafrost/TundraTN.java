@@ -25,18 +25,28 @@
 package permafrost.tundra.tn.delivery;
 
 import com.wm.app.b2b.server.InvokeState;
-import com.wm.app.b2b.server.ServerAPI;
 import com.wm.app.b2b.server.ServiceException;
+import com.wm.app.b2b.server.scheduler.ScheduleManager;
+import com.wm.app.b2b.server.scheduler.ScheduledTask;
 import com.wm.app.tn.delivery.DeliveryQueue;
 import com.wm.data.IData;
+import com.wm.data.IDataCursor;
 import com.wm.lang.ns.NSName;
+import permafrost.tundra.data.IDataCursorHelper;
 import permafrost.tundra.lang.StartableManager;
+import permafrost.tundra.server.ScheduleHelper;
 import permafrost.tundra.server.SchedulerHelper;
 import permafrost.tundra.server.SchedulerStatus;
+import permafrost.tundra.server.ServerLogHelper;
 import permafrost.tundra.server.ServerThreadFactory;
 import javax.xml.datatype.Duration;
 import java.io.IOException;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.Executors;
@@ -68,6 +78,10 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
      * The cached set of queue names with currently pending QUEUED tasks.
      */
     private final ConcurrentSkipListSet<String> PENDING_QUEUES = new ConcurrentSkipListSet<String>();
+    /**
+     * List of queues with expedited execution and their associated scheduled task IDs.
+     */
+    private volatile Map<String, String> expeditedQueues = null;
     /**
      * The refresh interval in milliseconds for the list of queues with pending QUEUED tasks.
      */
@@ -160,6 +174,7 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
      */
     private synchronized void startup() {
         scheduler = Executors.newScheduledThreadPool(1, new ServerThreadFactory("TundraTN/Queue Manager", InvokeState.getCurrentState()));
+
         // shutdown any processors for queues that have been suspended or disabled or if the Integration Server task
         // scheduler has been paused
         scheduler.scheduleWithFixedDelay(new Runnable() {
@@ -172,7 +187,7 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
                                 processor.stop();
                             }
                         } catch (Throwable ex) {
-                            ServerAPI.logError(ex);
+                            ServerLogHelper.log(ex);
                         }
                     }
                 }
@@ -182,21 +197,30 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
         // restart the scheduler regularly as a safety measure
         scheduler.scheduleWithFixedDelay(new Runnable() {
             public void run() {
-                shutdown();
-                startup();
+                try {
+                    shutdown();
+                    startup();
+                } catch(Throwable ex) {
+                    // ignore exception
+                }
             }
         }, DEFAULT_RESTART_SCHEDULE_MILLISECONDS, DEFAULT_RESTART_SCHEDULE_MILLISECONDS, TimeUnit.MILLISECONDS);
 
-        // refresh the list of pending queues
+        // refresh the list of pending queues and expedite processing for applicable queues
         try {
             if (DeliveryQueueHelper.getEnabledQueueCount() > 0 && DeliveryQueueHelper.hasQueuesProcessedByService(TUNDRA_DELIVERY_SERVICE_PATTERN, true)) {
                 isPendingQueueRefreshEnabled = true;
 
                 try {
-                    long minimumDeliveryInterval = DeliveryQueueHelper.getMinimumDeliveryInterval(TUNDRA_DELIVERY_SERVICE_PATTERN);
-                    pendingQueuesRefreshInterval = minimumDeliveryInterval / 2;
-                    if (pendingQueuesRefreshInterval < MINIMUM_PENDING_QUEUE_REFRESH_MILLISECONDS) {
+                    expeditedQueues = getExpeditedQueues();
+                    if (expeditedQueues.size() > 0) {
                         pendingQueuesRefreshInterval = MINIMUM_PENDING_QUEUE_REFRESH_MILLISECONDS;
+                    } else {
+                        long minimumDeliveryInterval = DeliveryQueueHelper.getMinimumDeliveryInterval(TUNDRA_DELIVERY_SERVICE_PATTERN);
+                        pendingQueuesRefreshInterval = minimumDeliveryInterval / 2;
+                        if (pendingQueuesRefreshInterval < MINIMUM_PENDING_QUEUE_REFRESH_MILLISECONDS) {
+                            pendingQueuesRefreshInterval = MINIMUM_PENDING_QUEUE_REFRESH_MILLISECONDS;
+                        }
                     }
                 } catch (Exception ex) {
                     pendingQueuesRefreshInterval = MINIMUM_PENDING_QUEUE_REFRESH_MILLISECONDS;
@@ -204,14 +228,19 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
 
                 scheduler.scheduleWithFixedDelay(new Runnable() {
                     public void run() {
-                        refreshPendingQueues();
+                        try {
+                            if (SchedulerHelper.status() == SchedulerStatus.STARTED) {
+                                refreshPendingQueues();
+                                expeditePendingQueues();
+                            }
+                        } catch(Throwable ex) {
+                            // ignore exception
+                        }
                     }
                 }, 0, pendingQueuesRefreshInterval, TimeUnit.MILLISECONDS);
             }
-        } catch(IOException ex) {
-            // ignore exception
-        } catch(SQLException ex) {
-            // ignore exception
+        } catch(Exception ex) {
+            ServerLogHelper.log(ex);
         }
     }
 
@@ -241,7 +270,7 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
     /**
      * Refreshes the list of queues with pending QUEUED tasks.
      */
-    private void refreshPendingQueues() {
+    private synchronized void refreshPendingQueues() {
         try {
             Set<String> pendingQueues = DeliveryQueueHelper.getPendingQueues();
             PENDING_QUEUES.addAll(pendingQueues);
@@ -292,6 +321,116 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
      */
     public boolean shouldProcess(String queueName, boolean ordered, Duration age) throws SQLException {
         return isNotCurrentlyProcessing(queueName) && hasQueuedTasks(queueName, ordered, age);
+    }
+
+    /**
+     * Expedites the processing of any expedited pending queues.
+     */
+    private synchronized void expeditePendingQueues() throws ServiceException {
+        Map<String, String> expeditedQueues = this.expeditedQueues;
+
+        // determine list of scheduled tasks to be expedited
+        if (expeditedQueues != null && expeditedQueues.size() > 0) {
+            List<String> expeditedTasks = null;
+            for (String queue : PENDING_QUEUES) {
+                if (expeditedQueues.containsKey(queue)) {
+                    if (expeditedTasks == null) {
+                        expeditedTasks = new ArrayList<String>(Math.min(expeditedQueues.size(), PENDING_QUEUES.size()));
+                    }
+                    String taskID = expeditedQueues.get(queue);
+                    if (taskID != null && isQueueDeliveryTask(queue, taskID)) {
+                        expeditedTasks.add(taskID);
+                    }
+                }
+            }
+
+            // expedite applicable scheduled tasks
+            if (expeditedTasks != null && expeditedTasks.size() > 0) {
+                ScheduleHelper.expedite(expeditedTasks);
+            }
+        }
+    }
+
+    /**
+     * Returns true if scheduled task with the given identity is the delivery task for the given queue name.
+     *
+     * @param queueName The name of the queue.
+     * @param taskID    The scheduled task identity.
+     * @return          True if the scheduled task with the given identity is the delivery task for the given queue name.
+     */
+    private static boolean isQueueDeliveryTask(String queueName, String taskID) {
+        boolean isQueueDeliveryTask = false;
+        if (queueName != null && taskID != null) {
+            try {
+                ScheduledTask task = ScheduleManager.getTask(taskID);
+                if (task != null) {
+                    String service = task.getService();
+                    IData pipeline = task.getInputs();
+                    if (pipeline != null) {
+                        IDataCursor pipelineCursor = pipeline.getCursor();
+                        try {
+                            isQueueDeliveryTask = DeliveryQueueHelper.DELIVER_BATCH_SERVICE_NAME.equals(service) && queueName.equals(IDataCursorHelper.get(pipelineCursor, String.class, "queue"));
+                        } finally {
+                            pipelineCursor.destroy();
+                        }
+                    }
+                }
+            } catch (SQLException ex) {
+                // ignore exception
+            }
+        }
+        return isQueueDeliveryTask;
+    }
+
+    /**
+     * Returns all expedited queues and their associated scheduled task IDs.
+     *
+     * @return                  All expedited queues and their associated scheduled task IDs.
+     * @throws ServiceException If an error occurs.
+     */
+    private static Map<String, String> getExpeditedQueues() throws ServiceException {
+        Map<String, String> expeditedQueues;
+        IData[] tasks = ScheduleHelper.list(DeliveryQueueHelper.DELIVER_BATCH_SERVICE_NAME, "%$schedule/pipeline/$expedite?% == \"true\" and %$schedule/pipeline/$ordered?% != \"true\" and %$schedule/pipeline/$daemonize?% != \"true\" and %$schedule/pipeline/$task.age% == $null", null);
+        if (tasks != null && tasks.length > 0) {
+            expeditedQueues = new HashMap<String, String>(tasks.length);
+            for (IData task : tasks) {
+                if (task != null) {
+                    IDataCursor cursor = task.getCursor();
+                    try {
+                        String taskID = IDataCursorHelper.get(cursor, String.class, "id");
+                        if (taskID != null) {
+                            IData pipeline = IDataCursorHelper.get(cursor, IData.class, "pipeline");
+                            if (pipeline != null) {
+                                IDataCursor pipelineCursor = pipeline.getCursor();
+                                try {
+                                    String queueName = IDataCursorHelper.get(pipelineCursor, String.class, "queue");
+                                    if (queueName != null) {
+                                        try {
+                                            DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
+                                            String service = queue.getSchedule().getService();
+                                            if (service != null && service.startsWith("tundra.tn")) {
+                                                expeditedQueues.put(queueName, taskID);
+                                            }
+                                        } catch(IOException ex) {
+                                            ServerLogHelper.log(ex);
+                                        } catch(SQLException ex) {
+                                            ServerLogHelper.log(ex);
+                                        }
+                                    }
+                                } finally {
+                                    pipelineCursor.destroy();
+                                }
+                            }
+                        }
+                    } finally {
+                        cursor.destroy();
+                    }
+                }
+            }
+        } else {
+            expeditedQueues = Collections.emptyMap();
+        }
+        return expeditedQueues;
     }
 
     /**

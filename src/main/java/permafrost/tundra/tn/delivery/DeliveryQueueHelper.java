@@ -37,9 +37,11 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.lang.ns.NSName;
 import com.wm.util.Masks;
+import permafrost.tundra.data.IDataCursorHelper;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.BooleanHelper;
 import permafrost.tundra.lang.ExceptionHelper;
+import permafrost.tundra.server.ScheduleHelper;
 import javax.xml.datatype.Duration;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
@@ -81,17 +83,21 @@ public final class DeliveryQueueHelper {
      */
     private static final String SELECT_COUNT_QUEUED_JOBS_UNORDERED_SQL = "SELECT COUNT(*) FROM DeliveryJob WHERE JobStatus = 'QUEUED' AND QueueName = ? AND TimeCreated <= ? AND TimeUpdated <= ?";
     /**
-     * SQL statement to return which queues currently have pending QUEUED jobs.
+     * SQL statement to return which enabled or draining queues currently have pending QUEUED jobs.
      */
-    private static final String SELECT_QUEUES_WITH_QUEUED_TASKS_SQL = "SELECT DISTINCT A.QueueName FROM DeliveryQueue A, DeliveryJob B WHERE A.QueueName = B.QueueName AND A.QueueState = 'enabled' AND B.JobStatus = 'QUEUED' AND B.TimeCreated <= ? AND B.TimeUpdated <= ?";
+    private static final String SELECT_QUEUES_WITH_QUEUED_TASKS_SQL = "SELECT DISTINCT A.QueueName FROM DeliveryQueue A, DeliveryJob B WHERE A.QueueName = B.QueueName AND A.QueueState IN ('enabled', 'draining') AND B.JobStatus = 'QUEUED' AND B.TimeCreated <= ? AND B.TimeUpdated <= ?";
     /**
-     * SQL statement to return the count of queues which are enabled.
+     * SQL statement to return the count of queues which are enabled or draining.
      */
-    private static final String SELECT_COUNT_ENABLED_QUEUES_SQL = "SELECT COUNT(*) AS EnabledCount FROM DeliveryQueue WHERE QueueState = 'enabled'";
+    private static final String SELECT_COUNT_ENABLED_QUEUES_SQL = "SELECT COUNT(*) AS EnabledCount FROM DeliveryQueue WHERE QueueState IN ('enabled', 'draining')";
     /**
      * The age a delivery job must be before it is eligible to be processed.
      */
     private static final long DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS = 0L;
+    /**
+     * The name of the service Trading Networks uses to execute delivery queue processing.
+     */
+    static final String DELIVER_BATCH_SERVICE_NAME = "wm.tn.queuing:deliverBatch";
     /**
      * The name of the service used to update a delivery queue.
      */
@@ -191,6 +197,55 @@ public final class DeliveryQueueHelper {
         if (queue == null) return;
         queue.setState(DeliveryQueue.STATE_SUSPENDED);
         save(queue);
+    }
+
+    /**
+     * Runs the given DeliveryQueue's scheduled task immediately.
+     *
+     * @param queue The DeliveryQueue whose scheduled task to run immediately.
+     */
+    public static void expedite(DeliveryQueue queue) throws ServiceException {
+        ScheduleHelper.expedite(getScheduledTask(queue));
+    }
+
+    /**
+     * Returns the scheduled task related to the given DeliveryQueue.
+     *
+     * @param queue             The queue whose scheduled task is to be returned.
+     * @return                  The scheduled task related to the given queue.
+     * @throws ServiceException If an error occurs.
+     */
+    private static String getScheduledTask(DeliveryQueue queue) throws ServiceException {
+        String queueTaskID = null;
+        if (queue != null) {
+            IData[] tasks = ScheduleHelper.list(DELIVER_BATCH_SERVICE_NAME, null, null);
+            for (IData task : tasks) {
+                if (task != null) {
+                    IDataCursor taskCursor = task.getCursor();
+                    try {
+                        String taskID = IDataCursorHelper.get(taskCursor, String.class, "id");
+                        if (taskID != null) {
+                            IData pipeline = IDataCursorHelper.get(taskCursor, IData.class, "pipeline");
+                            if (pipeline != null) {
+                                IDataCursor pipelineCursor = pipeline.getCursor();
+                                try {
+                                    String queueName = IDataCursorHelper.get(pipelineCursor, String.class, "queue");
+                                    if (queue.getQueueName().equals(queueName)) {
+                                        queueTaskID = taskID;
+                                        break;
+                                    }
+                                } finally {
+                                    pipelineCursor.destroy();
+                                }
+                            }
+                        }
+                    } finally {
+                        taskCursor.destroy();
+                    }
+                }
+            }
+        }
+        return queueTaskID;
     }
 
     /**
@@ -559,7 +614,7 @@ public final class DeliveryQueueHelper {
             DeliveryQueue[] queues = list();
             if (queues != null) {
                 for (DeliveryQueue queue : queues) {
-                    if (queue != null && (!enabledOnly || queue.isEnabled())) {
+                    if (queue != null && (!enabledOnly || queue.isEnabled() || queue.isDraining())) {
                         DeliverySchedule schedule = queue.getSchedule();
                         if (schedule != null) {
                             String service = schedule.getService();
