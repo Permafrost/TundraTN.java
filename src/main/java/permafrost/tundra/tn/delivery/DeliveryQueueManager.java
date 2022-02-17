@@ -452,19 +452,20 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
      * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
+     * @param exhaustedService  Optional service to be invoked when all retries are exhausted.
      * @param errorThreshold    How many continuous errors the queue is allowed to encounter before backing off.
      * @throws IOException      If an I/O error is encountered.
      * @throws SQLException     If a database error is encountered.
      * @throws ServiceException If an error is encountered while processing jobs.
      */
-    public void process(String queueName, String service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, long errorThreshold) throws IOException, SQLException, ServiceException {
+    public void process(String queueName, String service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, String exhaustedService, long errorThreshold) throws IOException, SQLException, ServiceException {
         if (queueName == null) throw new NullPointerException("queueName must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
 
         DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
         if (queue == null) throw new ServiceException("Queue '" + queueName + "' does not exist");
 
-        process(queue, NSName.create(service), pipeline, age, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus, errorThreshold);
+        process(queue, NSName.create(service), pipeline, age, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus, exhaustedService == null ? null : NSName.create(exhaustedService), errorThreshold);
     }
 
     /**
@@ -486,14 +487,15 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
      * @param ordered           Whether delivery queue jobs should be processed in job creation datetime order.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @param exhaustedStatus   The user status set on the bizdoc when all retries are exhausted.
+     * @param exhaustedService  Optional service to be invoked when all retries are exhausted.
      * @param errorThreshold    How many continuous errors the queue is allowed to encounter before backing off.
      * @throws ServiceException If an error is encountered while processing jobs.
      * @throws SQLException     If an error is encountered with the database.
      */
-    public void process(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, long errorThreshold) throws ServiceException, SQLException {
+    public void process(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, NSName exhaustedService, long errorThreshold) throws ServiceException, SQLException {
         String queueName = queue.getQueueName();
         if (shouldProcess(queueName, ordered, age)) {
-            DeliveryQueueProcessor processor = new DeliveryQueueProcessor(queue, service, pipeline, age, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus, errorThreshold);
+            DeliveryQueueProcessor processor = new DeliveryQueueProcessor(queue, service, pipeline, age, concurrency, retryLimit, retryFactor, timeToWait, threadPriority, daemonize, ordered, suspend, exhaustedStatus, exhaustedService, errorThreshold);
             // only allow one processor at a time to process a given queue; if a new processor is started while
             // there is an existing processor, the new processor exits immediately
             if (register(queueName, processor)) {

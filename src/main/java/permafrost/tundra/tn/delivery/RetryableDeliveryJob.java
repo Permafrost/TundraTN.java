@@ -1,16 +1,26 @@
 package permafrost.tundra.tn.delivery;
 
+import com.wm.app.b2b.server.Service;
+import com.wm.app.b2b.server.Session;
 import com.wm.app.tn.delivery.DeliveryJob;
 import com.wm.app.tn.delivery.DeliveryQueue;
 import com.wm.app.tn.delivery.GuaranteedJob;
+import com.wm.app.tn.doc.BizDocEnvelope;
+import com.wm.data.IData;
+import com.wm.data.IDataCursor;
+import com.wm.data.IDataFactory;
+import com.wm.lang.ns.NSName;
+import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.math.BigDecimalHelper;
 import permafrost.tundra.math.RoundingModeHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.log.EntryType;
-import static permafrost.tundra.tn.delivery.GuaranteedJobHelper.log;
+import permafrost.tundra.tn.profile.ProfileCache;
 import java.math.BigDecimal;
 import java.text.MessageFormat;
+import static permafrost.tundra.tn.delivery.GuaranteedJobHelper.log;
 
 /**
  * A DeliveryJob which delegates to another DeliveryJob, but also supports taking into account the job's retry
@@ -42,6 +52,18 @@ public class RetryableDeliveryJob extends DelegatingDeliveryJob {
      * The user status a BizDocEnvelope is set to if all deliveries of the job are exhausted.
      */
     protected String exhaustedStatus;
+    /**
+     * Optional service to be invoked when/if all retries are exhausted.
+     */
+    protected NSName exhaustedService;
+    /**
+     * Optional session used when invoking the exhausted service.
+     */
+    protected Session exhaustedSession;
+    /**
+     * Optional pipeline used when invoking the exhausted service.
+     */
+    protected IData exhaustedPipeline;
 
     /**
      * Creates a new RetryableDeliveryJob.
@@ -49,8 +71,11 @@ public class RetryableDeliveryJob extends DelegatingDeliveryJob {
      * @param delegate          The delivery job this job delegates to.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhausted.
+     * @param exhaustedService  Optional service to be invoked when all retries are exhausted.
+     * @param exhaustedSession  Optional session to use when invoking the exhausted service.
+     * @param exhaustedPipeline Optional pipeline used when invoking the exhausted service.
      */
-    public RetryableDeliveryJob(DeliveryJob delegate, boolean suspend, String exhaustedStatus) {
+    public RetryableDeliveryJob(DeliveryJob delegate, boolean suspend, String exhaustedStatus, NSName exhaustedService, Session exhaustedSession, IData exhaustedPipeline) {
         super(delegate);
         this.suspend = suspend;
         if (exhaustedStatus == null) {
@@ -58,6 +83,9 @@ public class RetryableDeliveryJob extends DelegatingDeliveryJob {
         } else {
             this.exhaustedStatus = exhaustedStatus;
         }
+        this.exhaustedService = exhaustedService;
+        this.exhaustedSession = exhaustedSession;
+        this.exhaustedPipeline = exhaustedPipeline == null ? IDataFactory.create() : exhaustedPipeline;
     }
 
     /**
@@ -69,6 +97,7 @@ public class RetryableDeliveryJob extends DelegatingDeliveryJob {
     @Override
     public boolean save() {
         boolean result;
+        boolean exhausted = false;
         long nextRetry = -1, timeCreated = getTimeCreated();
         int retryLimit = getRetryLimit();
         int retries = getRetries();
@@ -79,7 +108,7 @@ public class RetryableDeliveryJob extends DelegatingDeliveryJob {
             DeliveryQueue queue = DeliveryQueueHelper.get(queueName);
 
             boolean statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
-            boolean exhausted = retries >= retryLimit && status == GuaranteedJob.FAILED;
+            exhausted = retries >= retryLimit && status == GuaranteedJob.FAILED;
             boolean failed = (retries > 0 && status == GuaranteedJob.QUEUED) || exhausted;
 
             if (failed) {
@@ -121,7 +150,7 @@ public class RetryableDeliveryJob extends DelegatingDeliveryJob {
                 }
             }
 
-            // call the standard save method, note that this updated time updated to current time,
+            // call the standard save method, note that this sets the time updated to current time,
             // which is why we previously updated time created to be the next retry time temporarily
             result = getDelegate().save();
         } catch(Exception ex) {
@@ -135,6 +164,34 @@ public class RetryableDeliveryJob extends DelegatingDeliveryJob {
                     GuaranteedJobHelper.save(this);
                 } catch(Exception ex) {
                     // suppress this exception
+                }
+            }
+
+            if (exhausted && exhaustedService != null) {
+                exhaustedPipeline = IDataHelper.merge(exhaustedPipeline, this.getOutputData());
+                IDataCursor cursor = exhaustedPipeline.getCursor();
+                try {
+                    BizDocEnvelope bizdoc = this.getBizDocEnvelope();
+                    IDataHelper.put(cursor, "$task", this);
+                    if (bizdoc != null) {
+                        bizdoc = BizDocEnvelopeHelper.normalize(bizdoc, true);
+                        IData sender = ProfileCache.getInstance().get(bizdoc.getSenderId());
+                        IData receiver = ProfileCache.getInstance().get(bizdoc.getReceiverId());
+                        IDataHelper.put(cursor, "$bizdoc", bizdoc);
+                        IDataHelper.put(cursor, "$sender", sender);
+                        IDataHelper.put(cursor, "$receiver", receiver);
+                        IDataHelper.put(cursor, "bizdoc", bizdoc);
+                        IDataHelper.put(cursor, "sender", sender);
+                        IDataHelper.put(cursor, "receiver", receiver);
+                    }
+
+                    GuaranteedJobHelper.log(this, EntryType.MESSAGE, "Delivery", "Exhausted processing attempt", MessageFormat.format("Exhausted service {0} attempting to process document", exhaustedService.getFullName()));
+                    Service.doInvoke(exhaustedService, exhaustedSession, exhaustedPipeline);
+                    GuaranteedJobHelper.log(this, EntryType.MESSAGE, "Delivery", "Exhausted processing successful", MessageFormat.format("Exhausted service {0} processed document successfully", exhaustedService.getFullName()));
+                } catch(Exception ex) {
+                    GuaranteedJobHelper.log(this, EntryType.ERROR, "Delivery", MessageFormat.format("Exhausted processing failed: {0}", ExceptionHelper.getMessage(ex, true)), ExceptionHelper.getStackTraceString(ex, 3));
+                } finally {
+                    cursor.destroy();
                 }
             }
         }

@@ -56,10 +56,10 @@ import permafrost.tundra.tn.log.EntryType;
 import permafrost.tundra.tn.profile.ProfileCache;
 import permafrost.tundra.tn.profile.ProfileHelper;
 import permafrost.tundra.util.concurrent.AbstractPrioritizedCallable;
+import javax.xml.datatype.Duration;
 import java.text.MessageFormat;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import javax.xml.datatype.Duration;
 
 /**
  * Callable for invoking a given service against a given job.
@@ -130,6 +130,10 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
      */
     private String exhaustedStatus;
     /**
+     * Optional service to be invoked if all deliveries of the job are exhausted.
+     */
+    private NSName exhaustedService;
+    /**
      * Used for detecting if a delivery queue has continuous failure and should terminate.
      */
     private ContinuousFailureDetector continuousFailureDetector;
@@ -151,8 +155,9 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
      * @param timeToWait        The time to wait between each retry.
      * @param suspend           Whether to suspend the delivery queue on job retry exhaustion.
      * @param exhaustedStatus   The status set on the related bizdoc when all retries of the job are exhausted.
+     * @param exhaustedService  Optional service to be invoked when all retries are exhausted.
      */
-    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus, ContinuousFailureDetector continuousFailureDetector) {
+    public CallableGuaranteedJob(DeliveryQueue queue, GuaranteedJob job, NSName service, Session session, IData pipeline, int retryLimit, float retryFactor, Duration timeToWait, boolean suspend, String exhaustedStatus, NSName exhaustedService, ContinuousFailureDetector continuousFailureDetector) {
         if (queue == null) throw new NullPointerException("queue must not be null");
         if (job == null) throw new NullPointerException("job must not be null");
         if (service == null) throw new NullPointerException("service must not be null");
@@ -170,6 +175,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
         this.suspend = suspend;
         this.statusSilence = DeliveryQueueHelper.getStatusSilence(queue);
         this.exhaustedStatus = exhaustedStatus;
+        this.exhaustedService = exhaustedService;
         this.continuousFailureDetector = continuousFailureDetector;
         this.alreadyDequeued = job.isDelivering();
 
@@ -248,7 +254,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
             } finally {
                 owningThread.setName(owningThreadPrefix);
                 if (requiresCompletion) {
-                    setJobCompleted(output, exception, System.nanoTime() - startTime);
+                    setJobCompleted(output, exception, System.nanoTime() - startTime, exhaustedService, session, pipeline);
                 }
                 if (exception != null) {
                     throw exception;
@@ -263,12 +269,15 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
      * Sets the job as either successfully or unsuccessfully completed, depending on whether
      * and exception is provided.
      *
-     * @param serviceOutput The output of the service used to process the job.
-     * @param exception     Optional exception encountered while processing the job.
-     * @param duration      The time taken to process the job in milliseconds.
-     * @throws Exception    If a database error occurs.
+     * @param serviceOutput     The output of the service used to process the job.
+     * @param exception         Optional exception encountered while processing the job.
+     * @param duration          The time taken to process the job in milliseconds.
+     * @param exhaustedService  Optional service to be invoked if all retries are exhausted.
+     * @param exhaustedSession  Optional session to be used when invoking exhausted service.
+     * @param exhaustedPipeline Optional pipeline to be used when invoking exhausted service.
+     * @throws Exception        If a database error occurs.
      */
-    private void setJobCompleted(IData serviceOutput, Throwable exception, long duration) throws Exception {
+    private void setJobCompleted(IData serviceOutput, Throwable exception, long duration, NSName exhaustedService, Session exhaustedSession, IData exhaustedPipeline) throws Exception {
         boolean success = exception == null;
         int retry = 1;
 
@@ -295,7 +304,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
                 }
 
                 if (job instanceof DeliveryJob) {
-                    job = new RetryableDeliveryJob((DeliveryJob)job, suspend, exhaustedStatus);
+                    job = new RetryableDeliveryJob((DeliveryJob)job, suspend, exhaustedStatus, exhaustedService, exhaustedSession, exhaustedPipeline);
                 }
 
                 QueuingUtils.updateStatus(job, success);

@@ -155,6 +155,10 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
      */
     private final String exhaustedStatus;
     /**
+     * Optional service to be invoked when all retries are exhausted.
+     */
+    private final NSName exhaustedService;
+    /**
      * The service to be invoked to process jobs on the given delivery queue.
      */
     private final NSName service;
@@ -200,9 +204,10 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
      * @param ordered           Whether to process tasks in strict task creation order.
      * @param suspend           Whether to suspend the queue on task exhaustion.
      * @param exhaustedStatus   The status used when exhausting all retries of a task.
+     * @param exhaustedService  Optional service to be invoked when all retries are exhausted.
      * @param errorThreshold    The threshold of continuous task failures at which backing off of task processing occurs.
      */
-    public DeliveryQueueProcessor(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, long errorThreshold) {
+    public DeliveryQueueProcessor(DeliveryQueue queue, NSName service, IData pipeline, Duration age, int concurrency, int retryLimit, float retryFactor, Duration timeToWait, int threadPriority, boolean daemonize, boolean ordered, boolean suspend, String exhaustedStatus, NSName exhaustedService, long errorThreshold) {
         this.concurrency = Math.max(concurrency, 1);
         this.retryLimit = retryLimit;
         this.retryFactor = Math.max(retryFactor, 1.0f);
@@ -211,6 +216,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
         this.daemonize = daemonize;
         this.suspend = suspend;
         this.exhaustedStatus = exhaustedStatus;
+        this.exhaustedService = exhaustedService;
         this.service = service;
         this.pipeline = pipeline;
         this.age = age;
@@ -308,7 +314,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
 
                                 if (pendingTasks != null && pendingTasks.size() > 0) {
                                     for (GuaranteedJob pendingTask : pendingTasks) {
-                                        tasks.add(new CallableGuaranteedJob(queue, pendingTask, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, continuousFailureDetector));
+                                        tasks.add(new CallableGuaranteedJob(queue, pendingTask, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, exhaustedService, continuousFailureDetector));
                                     }
                                     // refresh thread startTime whenever new tasks are added
                                     if (processingThread instanceof ServerThread) {
