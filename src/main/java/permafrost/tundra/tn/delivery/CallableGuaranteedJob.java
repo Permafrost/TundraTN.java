@@ -254,7 +254,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
             } finally {
                 owningThread.setName(owningThreadPrefix);
                 if (requiresCompletion) {
-                    setJobCompleted(output, exception, System.nanoTime() - startTime, exhaustedService, session, pipeline);
+                    setJobCompleted(service, output, exception, System.nanoTime() - startTime, exhaustedService, session, pipeline);
                 }
                 if (exception != null) {
                     throw exception;
@@ -277,9 +277,36 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
      * @param exhaustedPipeline Optional pipeline to be used when invoking exhausted service.
      * @throws Exception        If a database error occurs.
      */
-    private void setJobCompleted(IData serviceOutput, Throwable exception, long duration, NSName exhaustedService, Session exhaustedSession, IData exhaustedPipeline) throws Exception {
+    private void setJobCompleted(NSName service, IData serviceOutput, Throwable exception, long duration, NSName exhaustedService, Session exhaustedSession, IData exhaustedPipeline) throws Exception {
         boolean success = exception == null;
         int retry = 1;
+
+        boolean retryRequested = false;
+        String retryRequestedReason = null;
+        if (serviceOutput != null) {
+            IDataCursor cursor = serviceOutput.getCursor();
+            try {
+                retryRequested = IDataHelper.getOrDefault(cursor, "$task.retry.requested?", Boolean.class, false);
+                retryRequestedReason = IDataHelper.get(cursor, "$task.retry.requested.reason", String.class);
+            } finally {
+                cursor.destroy();
+            }
+        }
+
+        String transportStatusMessage;
+        if (exception != null) {
+            transportStatusMessage = ExceptionHelper.getMessage(exception);
+        } else if (retryRequested) {
+            if (retryRequestedReason == null) {
+                transportStatusMessage = "Task retry was requested by service " + service.getFullName();
+            } else {
+                transportStatusMessage = retryRequestedReason;
+            }
+        } else {
+            transportStatusMessage = "Task retry reason unknown";
+        }
+
+        boolean shouldRetry = retryRequested || !success;
 
         continuousFailureDetector.didComplete(success);
 
@@ -288,11 +315,9 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
                 job.setTransportTime(duration/1000000L);
                 job.setOutputData(serviceOutput);
 
-                if (success) {
-                    job.setTransportStatus("success");
-                } else {
+                if (shouldRetry) {
                     job.setTransportStatus("fail");
-                    job.setTransportStatusMessage(StringHelper.truncate(ExceptionHelper.getMessage(exception), TRANSPORT_STATUS_MESSAGE_LENGTH, true));
+                    job.setTransportStatusMessage(StringHelper.truncate(transportStatusMessage, TRANSPORT_STATUS_MESSAGE_LENGTH, true));
 
                     if (retryLimit > 0 && GuaranteedJobHelper.hasUnrecoverableErrors(job)) {
                         // abort the delivery job so it won't be retried
@@ -301,13 +326,15 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
                     } else {
                         GuaranteedJobHelper.setRetryStrategy(job, retryLimit, retryFactor, timeToWait);
                     }
+                } else {
+                    job.setTransportStatus("success");
                 }
 
                 if (job instanceof DeliveryJob) {
                     job = new RetryableDeliveryJob((DeliveryJob)job, suspend, exhaustedStatus, exhaustedService, exhaustedSession, exhaustedPipeline);
                 }
 
-                QueuingUtils.updateStatus(job, success);
+                QueuingUtils.updateStatus(job, !shouldRetry);
 
                 if (job instanceof RetryableDeliveryJob) {
                     job = ((RetryableDeliveryJob)job).getDelegate();
@@ -329,7 +356,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
 
         List<NSService> stack = ServiceHelper.getCallStack();
         stack.add((NSService)Namespace.current().getNode(service));
-        String message = MessageFormat.format("{0} -- {1} processed queued task {2} {3}", ServerLogStatement.getFunction(UserHelper.getCurrentName(), stack, false), queue.getQueueName(), DurationHelper.format(duration, DurationPattern.NANOSECONDS, DurationPattern.XML_MILLISECONDS), success ? "COMPLETED" : "FAILED: " + ExceptionHelper.getMessage(exception));
+        String message = MessageFormat.format("{0} -- {1} processed queued task {2} {3}", ServerLogStatement.getFunction(UserHelper.getCurrentName(), stack, false), queue.getQueueName(), DurationHelper.format(duration, DurationPattern.NANOSECONDS, DurationPattern.XML_MILLISECONDS), success ? "COMPLETED" : "FAILED: " + ExceptionHelper.getStackTraceString(exception, 3, false));
         ServerLogHelper.log(CallableGuaranteedJob.class.getName(), DEFAULT_LOG_LEVEL, message, GuaranteedJobHelper.summarize(job), false);
     }
 
