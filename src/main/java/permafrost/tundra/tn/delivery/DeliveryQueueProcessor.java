@@ -418,7 +418,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
     public synchronized void stop() {
         if (started) {
             started = false;
-            if (processingThread != null) {
+            if (processingThread != null && executorService instanceof ThreadPoolExecutor) {
                 processingThread.interrupt();
             }
             shutdown();
