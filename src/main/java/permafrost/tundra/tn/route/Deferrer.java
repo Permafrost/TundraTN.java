@@ -383,7 +383,7 @@ public class Deferrer implements Startable {
                 pendingRoutes.putAll(drainedRoutes);
             }
 
-            ThreadFactory threadFactory = new ServerThreadFactory("TundraTN/Route Worker", null, InvokeState.getCurrentState(), Thread.NORM_PRIORITY, false);
+            ThreadFactory threadFactory = new ServerThreadFactory("TundraTN/Route Consumer", null, InvokeState.getCurrentState(), Thread.NORM_PRIORITY, false);
             executor = new PrioritizedThreadPoolExecutor(concurrency, concurrency, DEFAULT_THREAD_KEEP_ALIVE_MILLISECONDS, TimeUnit.MILLISECONDS, new BoundedPriorityBlockingQueue<Runnable>(capacity), threadFactory, new ThreadPoolExecutor.AbortPolicy());
             executor.allowCoreThreadTimeOut(true);
 

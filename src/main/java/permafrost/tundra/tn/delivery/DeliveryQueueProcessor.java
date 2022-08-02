@@ -34,7 +34,6 @@ import com.wm.data.IData;
 import com.wm.lang.ns.NSName;
 import com.wm.util.coder.IDataCodable;
 import permafrost.tundra.data.IDataMap;
-import permafrost.tundra.id.UUIDHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.Startable;
 import permafrost.tundra.lang.StringHelper;
@@ -126,13 +125,13 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
      */
     private final Session session;
     /**
-     * The parent or supervisor context used in thread names for correlation and diagnostics.
-     */
-    private final String parentContext;
-    /**
      * The name of the delivery queue whose queued jobs are to be processed.
      */
     private final DeliveryQueue queue;
+    /**
+     * The thread name prefix used on this delivery queue processor's threads.
+     */
+    private final String threadNamePrefix;
     /**
      * The thread priority used when processing tasks.
      */
@@ -223,9 +222,9 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
         this.timeToWait = timeToWait;
         this.ordered = ordered;
         this.invokeState = InvokeState.getCurrentState();
-        this.parentContext = UUIDHelper.generate();
         this.invokedByTradingNetworks = wasInvokedByTradingNetworks();
         this.session = Service.getSession();
+        this.threadNamePrefix = MessageFormat.format("TundraTN/Queue {0} {1}", StringHelper.truncate(queue.getQueueName(), 25, true), DateTimeHelper.now("datetime"));
         this.refillLevel = this.ordered ? 1 : this.concurrency * DEFAULT_QUEUE_REFILL_LEVEL_FACTOR;
         this.refillSize = this.concurrency * DEFAULT_QUEUE_REFILL_SIZE_FACTOR;
         this.continuousFailureDetector = new ContinuousFailureDetector(errorThreshold, this.timeToWait == null ? 0 : this.timeToWait.getTimeInMillis(Calendar.getInstance()));
@@ -472,32 +471,12 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
     }
 
     /**
-     * Returns the thread name prefix to be used for this delivery queue.
-     *
-     * @return              The thread name prefix used when processing the qiven queue.
-     */
-    private String getThreadPrefix() {
-        String output;
-
-        String queueName = StringHelper.truncate(queue.getQueueName(), 25, true);
-        String datetime = DateTimeHelper.now("datetime");
-
-        if (parentContext == null) {
-            output = MessageFormat.format("TundraTN/Queue Worker {0} {1}", queueName, datetime);
-        } else {
-            output = MessageFormat.format("TundraTN/Queue Worker {0} {1} {2}", queueName, parentContext, datetime);
-        }
-
-        return output;
-    }
-
-    /**
      * Returns the thread name to use for the supervising thread.
      *
      * @return the thread name to use for the supervising thread.
      */
     private String getSupervisorName() {
-        return getThreadPrefix() + (concurrency > 1 ? " Producer" : "");
+        return concurrency > 1 ? threadNamePrefix + " Producer" : getWorkerName();
     }
 
     /**
@@ -506,7 +485,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
      * @return the thread name to use for the worker threads
      */
     private String getWorkerName() {
-        return getThreadPrefix() + " Consumer";
+        return threadNamePrefix + " Consumer";
     }
 
     /**

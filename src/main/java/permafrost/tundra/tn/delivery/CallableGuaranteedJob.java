@@ -215,7 +215,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
 
             Thread owningThread = Thread.currentThread();
             String owningThreadPrefix = owningThread.getName();
-            String threadNameSuffix = MessageFormat.format("{0}, Started={1}", toThreadNameSuffix(job), startDateTime);
+            String threadNameSuffix = MessageFormat.format("{0}, StartTime={1}", toThreadNameSuffix(job), startDateTime);
             boolean requiresCompletion = false;
 
             try {
@@ -367,7 +367,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
      * @return      A string representing the given job.
      */
     private static String toThreadNameSuffix(GuaranteedJob job) {
-        String output = MessageFormat.format("TaskID={0}, TaskCreated={1}", job.getJobId(), DateTimeHelper.format(job.getTimeCreated(), "datetime"));
+        String output = MessageFormat.format("Task/JobID={0}, Task/TimeCreated={1}", job.getJobId(), DateTimeHelper.format(job.getTimeCreated(), "datetime"));
 
         BizDocEnvelope bizdoc = job.getBizDocEnvelope();
         if (bizdoc != null) {
