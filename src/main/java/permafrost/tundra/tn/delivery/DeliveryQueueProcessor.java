@@ -43,7 +43,6 @@ import permafrost.tundra.server.ServerThreadPoolExecutor;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.util.concurrent.DirectExecutorService;
 import javax.xml.datatype.Duration;
-import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.Calendar;
 import java.util.Collections;
@@ -131,7 +130,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
     /**
      * The thread name prefix used on this delivery queue processor's threads.
      */
-    private final String threadNamePrefix;
+    private final String threadNameSuffix;
     /**
      * The thread priority used when processing tasks.
      */
@@ -224,7 +223,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
         this.invokeState = InvokeState.getCurrentState();
         this.invokedByTradingNetworks = wasInvokedByTradingNetworks();
         this.session = Service.getSession();
-        this.threadNamePrefix = MessageFormat.format("TundraTN/Queue {0} {1}", StringHelper.truncate(queue.getQueueName(), 25, true), DateTimeHelper.now("datetime"));
+        this.threadNameSuffix = StringHelper.truncate(queue.getQueueName(), 25, true) + " " + DateTimeHelper.now("datetime");
         this.refillLevel = this.ordered ? 1 : this.concurrency * DEFAULT_QUEUE_REFILL_LEVEL_FACTOR;
         this.refillSize = this.concurrency * DEFAULT_QUEUE_REFILL_SIZE_FACTOR;
         this.continuousFailureDetector = new ContinuousFailureDetector(errorThreshold, this.timeToWait == null ? 0 : this.timeToWait.getTimeInMillis(Calendar.getInstance()));
@@ -476,7 +475,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
      * @return the thread name to use for the supervising thread.
      */
     private String getSupervisorName() {
-        return concurrency > 1 ? threadNamePrefix + " Producer" : getWorkerName();
+        return concurrency > 1 ? "TundraTN/Queue Producer " + threadNameSuffix : getWorkerName();
     }
 
     /**
@@ -485,7 +484,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
      * @return the thread name to use for the worker threads
      */
     private String getWorkerName() {
-        return threadNamePrefix + " Consumer";
+        return "TundraTN/Queue Consumer " + threadNameSuffix;
     }
 
     /**
