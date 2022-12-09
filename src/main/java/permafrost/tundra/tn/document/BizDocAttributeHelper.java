@@ -80,7 +80,7 @@ public final class BizDocAttributeHelper {
     /**
      * The regular expression pattern to use to identify if $document was references in a variable substitution string.
      */
-    protected static final Pattern DOCUMENT_REFERENCE_PATTERN = Pattern.compile("%(\\$document[^%]*)%");
+    private static final Pattern DOCUMENT_REFERENCE_PATTERN = Pattern.compile("%(\\$document[^%]*)%");
 
     /**
      * Performs variable substitution on the given attributes and then merges them into the given BizDocEnvelope.
@@ -100,7 +100,7 @@ public final class BizDocAttributeHelper {
 
             attributes = Transformer.transform(attributes, new Trimmer(true));
 
-            set(bizdoc, attributes);
+            replace(bizdoc, IDataHelper.merge(bizdoc.getAttributes(), attributes));
 
             if (BizDocEnvelopeHelper.shouldPersistAttributes(bizdoc)) BizDocStore.updateAttributes(bizdoc);
         }
@@ -162,12 +162,20 @@ public final class BizDocAttributeHelper {
      */
     public static void normalize(BizDocEnvelope bizdoc) {
         if (bizdoc != null) {
-            IData attributes = bizdoc.getAttributes();
-            if (IDataHelper.size(attributes) > 0) {
-                // clear out the existing attributes
-                bizdoc.set(BIZDOC_ATTRIBUTES_INDEX, IDataFactory.create());
-                set(bizdoc, sanitize(attributes));
-            }
+            replace(bizdoc, sanitize(bizdoc.getAttributes()));
+        }
+    }
+
+    /**
+     * Replaces all attributes in the given BizDocEnvelope with the given attributes.
+     *
+     * @param bizdoc        The BizDocEnvelope to replace the attributes on.
+     * @param attributes    The replacement attributes.
+     */
+    public static void replace(BizDocEnvelope bizdoc, IData attributes) {
+        if (bizdoc != null && attributes != null) {
+            bizdoc.set(BIZDOC_ATTRIBUTES_INDEX, IDataFactory.create());
+            set(bizdoc, attributes);
         }
     }
 
