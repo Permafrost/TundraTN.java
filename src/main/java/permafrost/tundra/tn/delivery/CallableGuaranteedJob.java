@@ -325,6 +325,15 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
                         GuaranteedJobHelper.log(job, EntryType.ERROR, "Delivery", "Delivery aborted", MessageFormat.format("Delivery task {0} on {1} queue {2} was aborted due to unrecoverable errors being encountered, and will not be retried", job.getJobId(), queue.getQueueType(), queue.getQueueName()));
                     } else {
                         GuaranteedJobHelper.setRetryStrategy(job, retryLimit, retryFactor, timeToWait);
+                        if (retryRequested) {
+                            String message;
+                            if (retryRequestedReason == null || "".equals(retryRequestedReason.trim())) {
+                                message = MessageFormat.format("Retry requested for delivery task {0} on {1} queue {2}", job.getJobId(), queue.getQueueType(), queue.getQueueName());
+                            } else {
+                                message = MessageFormat.format("Retry requested for delivery task {0} on {1} queue {2}: {3}", job.getJobId(), queue.getQueueType(), queue.getQueueName(), retryRequestedReason.trim());
+                            }
+                            GuaranteedJobHelper.log(job, EntryType.WARNING, "Delivery", "Retry requested", message);
+                        }
                     }
                 } else {
                     job.setTransportStatus("success");
