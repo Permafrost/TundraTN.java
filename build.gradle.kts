@@ -32,14 +32,14 @@ java {
 }
 
 repositories {
-    jcenter()
+    mavenCentral()
 }
 
 dependencies {
     api("javax.activation:javax.activation-api:1.2.0")
     api(files("libs/wm-isclient.jar", "libs/wm-isserver.jar", "libs/tncore.jar", "/libs/Tundra.jar", "../Tundra.java/build/libs/Tundra.jar"))
 
-    testImplementation("junit:junit:4.13")
+    testImplementation("junit:junit:4.13.1")
     testImplementation("org.hamcrest:hamcrest-all:1.3")
 }
 
