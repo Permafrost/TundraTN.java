@@ -55,7 +55,9 @@ import java.sql.Timestamp;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
@@ -148,7 +150,26 @@ public final class DeliveryQueueHelper {
      * @throws SQLException If a database error is encountered.
      * */
     public static DeliveryQueue[] list() throws IOException, SQLException {
-        return QueueOperations.select(null);
+        DeliveryQueue[] queues = QueueOperations.select(null);
+        // sort by queue name
+        Arrays.sort(queues, new DeliveryQueueNameComparator());
+        return queues;
+    }
+
+    /**
+     * DeliveryQueue Comparator which compares based on queue name.
+     */
+    public static class DeliveryQueueNameComparator implements Comparator<DeliveryQueue> {
+        /**
+         * Compares two DeliveryQueue objects by name.
+         * @param queue         The first object to be compared.
+         * @param otherQueue    The second object to be compared.
+         * @return              The result of the comparison.
+         */
+        @Override
+        public int compare(DeliveryQueue queue, DeliveryQueue otherQueue) {
+            return queue.getQueueName().compareTo(otherQueue.getQueueName());
+        }
     }
 
     /**

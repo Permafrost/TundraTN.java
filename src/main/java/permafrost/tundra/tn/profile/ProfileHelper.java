@@ -24,16 +24,7 @@
 
 package permafrost.tundra.tn.profile;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Enumeration;
-import java.util.Hashtable;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
-import java.util.Vector;
 import com.wm.app.b2b.server.ServiceException;
-import com.wm.app.tn.doc.BizDocType;
 import com.wm.app.tn.profile.Corporation;
 import com.wm.app.tn.profile.Destination;
 import com.wm.app.tn.profile.ExtendedProfileField;
@@ -50,6 +41,16 @@ import com.wm.data.IDataFactory;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.IterableEnumeration;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Enumeration;
+import java.util.Hashtable;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.Vector;
 
 public final class ProfileHelper {
     /**
@@ -195,9 +196,9 @@ public final class ProfileHelper {
     }
 
     /**
-     * Returns a list of all partner cache from the Trading Networks database.
+     * Returns a list of all partner profiles sorted by display name.
      *
-     * @return                  A list of all partner cache from the Trading Networks database.
+     * @return                  A list of all partner profiles sorted by display name.
      * @throws ServiceException If a database error occurs.
      */
     public static Profile[] list() throws ServiceException {
@@ -212,7 +213,27 @@ public final class ProfileHelper {
             }
         }
 
+        // sort by profile display name
+        Collections.sort(output, new ProfileDisplayNameComparator());
+
         return output.toArray(new Profile[0]);
+    }
+
+    /**
+     * Profile Comparator which compares based on display name.
+     */
+    public static class ProfileDisplayNameComparator implements Comparator<Profile> {
+        /**
+         * Compares two profiles using the display name.
+         *
+         * @param profile       The first object to be compared.
+         * @param otherProfile  The second object to be compared.
+         * @return              The result of the comparison.
+         */
+        @Override
+        public int compare(Profile profile, Profile otherProfile) {
+            return profile.getDisplayName().compareTo(otherProfile.getDisplayName());
+        }
     }
 
     /**

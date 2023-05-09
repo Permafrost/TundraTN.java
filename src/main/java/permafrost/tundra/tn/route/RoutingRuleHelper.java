@@ -50,6 +50,8 @@ import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.util.TNFixedDataHelper;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -100,9 +102,9 @@ public class RoutingRuleHelper {
     }
 
     /**
-     * Returns the list of routing rules defined in Trading Networks.
+     * Returns the list of routing rules defined in Trading Networks sorted by rule index.
      *
-     * @return the list of routing rules defined in Trading Networks.
+     * @return the list of routing rules defined in Trading Networks sorted by rule index.
      */
     public static List<RoutingRule> list() {
         RoutingRuleList input = RoutingRuleStore.getList();
@@ -112,7 +114,44 @@ public class RoutingRuleHelper {
                 output.add((RoutingRule)rule);
             }
         }
+        Collections.sort(output, new RoutingRuleIndexComparator());
         return output;
+    }
+
+    /**
+     * RoutingRule Comparator which compares based on rule name.
+     */
+    public static class RoutingRuleNameComparator extends RoutingRuleIndexComparator {
+        /**
+         * Compares two RoutingRule objects by name.
+         * @param rule          The first object to be compared.
+         * @param otherRule     The second object to be compared.
+         * @return              The result of the comparison.
+         */
+        @Override
+        public int compare(RoutingRule rule, RoutingRule otherRule) {
+            int comparison = rule.getName().compareTo(otherRule.getName());
+            if (comparison == 0) {
+                comparison = super.compare(rule, otherRule);
+            }
+            return comparison;
+        }
+    }
+
+    /**
+     * RoutingRule Comparator which compares based on rule index.
+     */
+    public static class RoutingRuleIndexComparator implements Comparator<RoutingRule> {
+        /**
+         * Compares two RoutingRule objects by name.
+         * @param rule          The first object to be compared.
+         * @param otherRule     The second object to be compared.
+         * @return              The result of the comparison.
+         */
+        @Override
+        public int compare(RoutingRule rule, RoutingRule otherRule) {
+            return Integer.valueOf(rule.getIndex()).compareTo(otherRule.getIndex());
+        }
     }
 
     /**

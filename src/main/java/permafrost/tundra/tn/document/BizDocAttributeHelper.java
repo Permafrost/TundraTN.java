@@ -41,9 +41,13 @@ import permafrost.tundra.server.SystemHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.Enumeration;
+import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
@@ -75,6 +79,43 @@ public final class BizDocAttributeHelper {
      */
     public static BizDocAttribute get(String id) {
         return BizDocAttributeStore.get(id, false);
+    }
+
+    /**
+     * Returns a list of BizDocAttribute objects defined sorted by attribute name.
+     *
+     * @return A list of BizDocAttribute objects defined sorted by attribute name.
+     */
+    public static BizDocAttribute[] list() {
+        List<BizDocAttribute> list = new ArrayList<BizDocAttribute>();
+
+        Enumeration enumeration = BizDocAttributeStore.list(false);
+        while(enumeration.hasMoreElements()) {
+            BizDocAttribute attribute = (BizDocAttribute)enumeration.nextElement();
+            list.add(attribute);
+        }
+
+        // sort by attribute name
+        Collections.sort(list, new BizDocAttributeNameComparator());
+
+        return list.toArray(new BizDocAttribute[0]);
+    }
+
+    /**
+     * BizDocType Comparator which compares based on name.
+     */
+    public static class BizDocAttributeNameComparator implements Comparator<BizDocAttribute> {
+        /**
+         * Compares two document attributes using the name.
+         *
+         * @param attribute         The first object to be compared.
+         * @param otherAttribute    The second object to be compared.
+         * @return                  The result of the comparison.
+         */
+        @Override
+        public int compare(BizDocAttribute attribute, BizDocAttribute otherAttribute) {
+            return attribute.getName().compareTo(otherAttribute.getName());
+        }
     }
 
     /**

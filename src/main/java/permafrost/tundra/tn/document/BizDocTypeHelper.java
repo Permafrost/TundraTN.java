@@ -37,6 +37,8 @@ import com.wm.lang.ns.NSName;
 import com.wm.lang.ns.NSNode;
 import com.wm.lang.ns.NSRecord;
 import permafrost.tundra.data.IDataHelper;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -101,6 +103,47 @@ public final class BizDocTypeHelper {
         }
 
         return contentSchema;
+    }
+
+    /**
+     * Returns a list of all document types sorted by document name.
+     *
+     * @return A list of all document types sorted by document name.
+     */
+    public static BizDocType[] list() {
+        String[] identities = BizDocTypeStore.list(false, false);
+        BizDocType[] list;
+
+        if (identities == null) {
+            list = new BizDocType[0];
+        } else {
+            list = new BizDocType[identities.length];
+            for (int i = 0; i < identities.length; i++) {
+                list[i] = get(identities[i]);
+            }
+        }
+
+        // sort by document type name
+        Arrays.sort(list, new BizDocTypeNameComparator());
+
+        return list;
+    }
+
+    /**
+     * BizDocType Comparator which compares based on name.
+     */
+    public static class BizDocTypeNameComparator implements Comparator<BizDocType> {
+        /**
+         * Compares two document types using the name.
+         *
+         * @param docType       The first object to be compared.
+         * @param otherDoctype  The second object to be compared.
+         * @return              The result of the comparison.
+         */
+        @Override
+        public int compare(BizDocType docType, BizDocType otherDoctype) {
+            return docType.getName().compareTo(otherDoctype.getName());
+        }
     }
 
     /**
