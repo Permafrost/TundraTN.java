@@ -24,24 +24,6 @@
 
 package permafrost.tundra.tn.document;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.Charset;
-import java.security.NoSuchAlgorithmException;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.sql.SQLIntegrityConstraintViolationException;
-import java.text.MessageFormat;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.TreeSet;
-import java.util.regex.Pattern;
 import com.wm.app.b2b.server.ContentInfo;
 import com.wm.app.b2b.server.InvokeState;
 import com.wm.app.b2b.server.ServiceException;
@@ -102,6 +84,24 @@ import permafrost.tundra.tn.route.RoutingRuleHelper;
 import permafrost.tundra.xml.XMLHelper;
 import permafrost.tundra.xml.dom.NodeHelper;
 import javax.activation.MimeType;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.Charset;
+import java.security.NoSuchAlgorithmException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.SQLIntegrityConstraintViolationException;
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Pattern;
 
 /**
  * A collection of convenience methods for working with Trading Networks BizDocEnvelope objects.
@@ -1291,7 +1291,7 @@ public final class BizDocEnvelopeHelper {
                             IDataCursor scopeCursor = scope.getCursor();
                             try {
                                 IDataHelper.put(scopeCursor, "$filestream", contentStream);
-                                IDataHelper.put(scopeCursor, "encoding", contentEncoding.displayName());
+                                IDataHelper.put(scopeCursor, "encoding", contentEncoding == null ? "autoDetect" : contentEncoding.displayName());
                                 IDataHelper.put(scopeCursor, "isXML", "true");
                                 scopeCursor.destroy();
 
