@@ -24,15 +24,6 @@
 
 package permafrost.tundra.tn.document;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.Charset;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.text.MessageFormat;
-import java.util.ArrayList;
-import java.util.List;
 import com.wm.app.b2b.server.Service;
 import com.wm.app.b2b.server.ServiceException;
 import com.wm.app.tn.db.Datastore;
@@ -62,6 +53,15 @@ import permafrost.tundra.time.DurationPattern;
 import permafrost.tundra.tn.log.ActivityLogHelper;
 import permafrost.tundra.tn.log.EntryType;
 import javax.activation.MimeType;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.Charset;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A collection of convenience methods for working with Trading Networks BizDocEnvelope content parts.
@@ -206,22 +206,26 @@ public final class BizDocContentHelper {
      */
     public static void addTransportContentPart(BizDocEnvelope document, String contentPartName) throws ServiceException {
         if (BizDocEnvelopeHelper.shouldPersistContent(document)) {
-            String currentDateTime = DateTimeHelper.now("datetime");
-
-            List<NSService> callStack = ServiceHelper.getCallStack();
-            if (contentPartName == null) {
-                contentPartName = MessageFormat.format("tundra_tn_receive_transport_{0}.yaml", DateTimeHelper.format(currentDateTime, "datetime", "yyyyMMddHHmmssSSSZ"));
-            }
-
             IData transport = InvokeStateHelper.currentRedactedTransport();
+            if (transport != null && !"/wm-message".equals(IDataHelper.get(transport, "http/requestUrl"))) {
+                String currentDateTime = DateTimeHelper.now("datetime");
 
-            if (transport != null) {
+                List<NSService> callstack = ServiceHelper.getCallStack();
+                if (contentPartName == null) {
+                    String prefix = "transport_";
+                    if (callstack.size() > 0) {
+                        NSService service = callstack.get(0);
+                        prefix = service.getNSName().getFullName().replaceAll("\\W+", "_") + "_" + prefix;
+                    }
+                    contentPartName = MessageFormat.format("{0}{1}.yaml", prefix, DateTimeHelper.format(currentDateTime, "datetime", "yyyyMMddHHmmssSSSZ"));
+                }
+
                 IData contentPart = IDataFactory.create();
                 IDataCursor contentPartCursor = contentPart.getCursor();
                 try {
                     IDataHelper.put(contentPartCursor, "datetime", currentDateTime);
                     IDataHelper.put(contentPartCursor, "transport", transport);
-                    if (callStack.size() > 0) IDataHelper.put(contentPartCursor, "callstack", CollectionHelper.stringify(callStack));
+                    if (callstack.size() > 0) IDataHelper.put(contentPartCursor, "callstack", CollectionHelper.stringify(callstack));
                 } finally {
                     contentPartCursor.destroy();
                 }
@@ -229,7 +233,7 @@ public final class BizDocContentHelper {
                 IDataYAMLParser parser = new IDataYAMLParser();
                 try {
                     InputStream content = parser.emit(contentPart, CharsetHelper.DEFAULT_CHARSET, InputStream.class);
-                    BizDocContentHelper.addContentPart(document, contentPartName, "text/yaml", CharsetHelper.DEFAULT_CHARSET, content, true);
+                    BizDocContentHelper.addContentPart(document, contentPartName, parser.getContentType(), CharsetHelper.DEFAULT_CHARSET, content, true);
                 } catch(IOException ex) {
                     ExceptionHelper.raise(ex);
                 }
