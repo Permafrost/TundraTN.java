@@ -1426,9 +1426,11 @@ public final class BizDocEnvelopeHelper {
                     // ignore exception
                 }
 
-                route(bizdoc, false, null, parameters, strict);
-
-                ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document routed by " + ServiceHelper.getInitiator(), null, bizdoc, startTime, System.nanoTime());
+                try {
+                    route(bizdoc, true, null, parameters, strict);
+                } finally {
+                    ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document routed by " + ServiceHelper.getInitiator(), null, bizdoc, startTime, System.nanoTime());
+                }
             }
         }
 
