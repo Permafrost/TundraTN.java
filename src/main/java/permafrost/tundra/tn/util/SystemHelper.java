@@ -9,6 +9,7 @@ import com.wm.app.tn.route.RoutingRule;
 import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
+import permafrost.tundra.data.IDataCursorHelper;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.data.IDataJSONParser;
 import permafrost.tundra.data.IDataParser;
@@ -119,6 +120,15 @@ public final class SystemHelper {
     }
 
     /**
+     * The list of keys to be prepended to the exported component.
+     */
+    private static final String[] EXPORT_BIZDOCATTRIBUTE_PREPENDED_KEYS = new String[] { "AttributeID", "AttributeName", "AttributeDescription" };
+    /**
+     * The list of keys to be removed from the exported component.
+     */
+    private static final String[] EXPORT_BIZDOCATTRIBUTE_REMOVED_KEYS = new String[] { "LastModifiedTime", "VERSION_NO" };
+
+    /**
      * Exports all Trading Network document attributes as an IData[].
      *
      * @return All Trading Network document attributes as an IData[].
@@ -129,15 +139,21 @@ public final class SystemHelper {
 
         IData[] export = new IData[attributes.length];
         for (int i = 0; i < attributes.length; i++) {
-            // sort properties by key name and remove null values
-            export[i] = IDataHelper.compact(IDataHelper.sort(attributes[i]));
-            // remove incomparable elements to reduce differences in comparisons across instances
-            IDataHelper.remove(export[i], "LastModifiedTime");
-            IDataHelper.remove(export[i], "VERSION_NO");
+            // sort properties by key name and remove null and incomparable values
+            export[i] = IDataHelper.compact(sort(attributes[i], EXPORT_BIZDOCATTRIBUTE_PREPENDED_KEYS, EXPORT_BIZDOCATTRIBUTE_REMOVED_KEYS));
         }
 
         return export;
     }
+
+    /**
+     * The list of keys to be prepended to the exported component.
+     */
+    private static final String[] EXPORT_BIZDOCTYPE_PREPENDED_KEYS = new String[] { "TypeID", "TypeName", "TypeDescription" };
+    /**
+     * The list of keys to be removed from the exported component.
+     */
+    private static final String[] EXPORT_BIZDOCTYPE_REMOVED_KEYS = new String[] { "LastModifiedTime", "VERSION_NO" };
 
     /**
      * Exports all Trading Network document types as an IData[].
@@ -150,15 +166,17 @@ public final class SystemHelper {
 
         IData[] export = new IData[docTypes.length];
         for (int i = 0; i < docTypes.length; i++) {
-            // sort properties by key name and remove null values
-            export[i] = IDataHelper.compact(IDataHelper.sort(docTypes[i]));
-            // remove incomparable elements to reduce differences in comparisons across instances
-            IDataHelper.remove(export[i], "LastModified");
-            IDataHelper.remove(export[i], "VERSION_NO");
+            // sort properties by key name and remove null and incomparable values
+            export[i] = IDataHelper.compact(sort(docTypes[i], EXPORT_BIZDOCTYPE_PREPENDED_KEYS, EXPORT_BIZDOCTYPE_REMOVED_KEYS));
         }
 
         return export;
     }
+
+    /**
+     * The list of keys to be removed from the exported component.
+     */
+    private static final String[] EXPORT_PROFILE_REMOVED_KEYS = new String[] { "Contact/Address/Address_Type", "Corporate/PreferredProtocolType" };
 
     /**
      * Exports all Trading Network profiles as an IData[].
@@ -171,11 +189,16 @@ public final class SystemHelper {
 
         IData[] export = new IData[profiles.length];
         for (int i = 0; i < profiles.length; i++) {
-            // sort properties by key name and remove null values
-            export[i] = IDataHelper.compact(IDataHelper.sort(profiles[i]));
-            // remove incomparable elements to reduce differences in comparisons across instances
-            IDataHelper.remove(export[i], "Contact/Address/Address_Type");
-            IDataHelper.remove(export[i], "Corporate/PreferredProtocolType");
+            // sort properties by key name and remove null and incomparable values
+            export[i] = IDataHelper.compact(sort(profiles[i], null, EXPORT_PROFILE_REMOVED_KEYS));
+
+            IDataCursor cursor = export[i].getCursor();
+            try {
+                cursor.insertBefore("PartnerName", profiles[i].getDisplayName());
+                cursor.insertBefore("PartnerID", profiles[i].getCorporation().getPartnerID());
+            } finally {
+                cursor.destroy();
+            }
         }
 
         return export;
@@ -196,7 +219,7 @@ public final class SystemHelper {
             export = new IData[queues.length];
             for (int i = 0; i < queues.length; i++) {
                 // sort properties by key name
-                export[i] = IDataHelper.sort(queues[i].getIData());
+                export[i] = IDataHelper.compact(sort(queues[i].getIData(), null, null));
             }
         } catch(IOException ex) {
             ExceptionHelper.raise(ex);
@@ -206,6 +229,15 @@ public final class SystemHelper {
 
         return export;
     }
+
+    /**
+     * The list of keys to be prepended to the exported component.
+     */
+    private static final String[] EXPORT_ROUTINGRULE_PREPENDED_KEYS = new String[] { "RuleID", "RuleName", "RuleDescription" };
+    /**
+     * The list of keys to be removed from the exported component.
+     */
+    private static final String[] EXPORT_ROUTINGRULE_REMOVED_KEYS = new String[] { "DefaultRule?", "IntegrationDetails", "LastChangeID", "LastChangeSession", "LastChangeUser", "LastModified", "ReceiverDisplayName", "RuleIndex", "SenderDisplayName", "ToMwSString", "WmioCloudContainerDetails", "WmioIntegrationDetails" };
 
     /**
      * Exports all Trading Network routing rules as an IData[].
@@ -221,23 +253,57 @@ public final class SystemHelper {
 
         IData[] export = new IData[rules.size()];
         for (int i = 0; i < export.length; i++) {
-            // sort properties by key name and remove null values
-            export[i] = IDataHelper.compact(IDataHelper.sort(rules.get(i)));
-            // remove incomparable elements to reduce differences in comparisons across instances
-            IDataHelper.remove(export[i], "DefaultRule?");
-            IDataHelper.remove(export[i], "IntegrationDetails");
-            IDataHelper.remove(export[i], "LastChangeID");
-            IDataHelper.remove(export[i], "LastChangeSession");
-            IDataHelper.remove(export[i], "LastChangeUser");
-            IDataHelper.remove(export[i], "LastModified");
-            IDataHelper.remove(export[i], "ReceiverDisplayName");
-            IDataHelper.remove(export[i], "RuleIndex");
-            IDataHelper.remove(export[i], "SenderDisplayName");
-            IDataHelper.remove(export[i], "ToMwSString");
-            IDataHelper.remove(export[i], "WmioCloudContainerDetails");
-            IDataHelper.remove(export[i], "WmioIntegrationDetails");
+            // sort properties by key name and remove null and incomparable values
+            export[i] = IDataHelper.compact(sort(rules.get(i), EXPORT_ROUTINGRULE_PREPENDED_KEYS, EXPORT_ROUTINGRULE_REMOVED_KEYS));
         }
 
         return export;
+    }
+
+    /**
+     * Returns a new IData document prepended with the elements whose keys are in the given prepended keys, with the
+     * elements whose keys are in the given removed keys removed, and with the remaining elements sorted by key.
+     *
+     * @param document      The document to sort.
+     * @param prependedKeys The list of keys whose elements are to be prepended to the resulting document.
+     * @param removedKeys   The list of keys whose elements are to be removed to the resulting document.
+     * @return              A new document containing the elements from the given document sorted by key.
+     */
+    private static IData sort(IData document, String[] prependedKeys, String[] removedKeys) {
+        if (document == null) return null;
+
+        IData sortedDocument = IDataHelper.sort(document);
+        IDataCursor sortedCursor = sortedDocument.getCursor();
+
+        IData headDocument = IDataFactory.create();
+        IDataCursor headCursor = headDocument.getCursor();
+
+        try {
+            if (prependedKeys != null) {
+                for (String key : prependedKeys) {
+                    if (key != null) {
+                        Object value = IDataHelper.remove(sortedDocument, key);
+                        if (value != null) {
+                            headCursor.insertAfter(key, value);
+                        }
+                    }
+                }
+            }
+
+            if (removedKeys != null) {
+                for (String key : removedKeys) {
+                    if (key != null) {
+                        IDataHelper.remove(sortedDocument, key);
+                    }
+                }
+            }
+
+            IDataCursorHelper.prepend(headCursor, sortedCursor);
+        } finally {
+            headCursor.destroy();
+            sortedCursor.destroy();
+        }
+
+        return sortedDocument;
     }
 }
