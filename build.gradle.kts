@@ -37,6 +37,7 @@ repositories {
 
 dependencies {
     api("com.sun.activation:javax.activation:1.2.0")
+    api("javax.xml.soap:javax.xml.soap-api:1.4.0")
     api(files("libs/wm-isclient.jar", "libs/wm-isserver.jar", "libs/tncore.jar", "/libs/Tundra.jar", "../Tundra.java/build/libs/Tundra.jar"))
 
     testImplementation("junit:junit:4.13.1")

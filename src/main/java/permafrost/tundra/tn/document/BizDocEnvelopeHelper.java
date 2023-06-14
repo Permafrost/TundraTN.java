@@ -43,6 +43,7 @@ import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocErrorSet;
 import com.wm.app.tn.doc.BizDocType;
 import com.wm.app.tn.doc.UnknownDocType;
+import com.wm.app.tn.doc.XMLDocType;
 import com.wm.app.tn.err.ActivityLogEntry;
 import com.wm.app.tn.route.PreRoutingFlags;
 import com.wm.app.tn.route.RoutingRule;
@@ -51,6 +52,8 @@ import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
+import com.wm.lang.widl.WattException;
+import com.wm.lang.xml.Document;
 import com.wm.util.tspace.Reservation;
 import org.w3c.dom.Node;
 import permafrost.tundra.content.ContentParser;
@@ -1173,6 +1176,9 @@ public final class BizDocEnvelopeHelper {
                 // convert given content to an InputStream if required
                 if (content instanceof InputStream || content instanceof byte[] || content instanceof String) {
                     inputStream = InputStreamHelper.normalize(content, contentEncoding);
+                } else if (content instanceof Document) {
+                    // serialize com.wm.lang.xml.Document object to an InputStream
+                    inputStream = new ByteArrayInputStream(XMLDocType.getDocumentContent((Document)content));
                 } else if (content instanceof Node) {
                     // serialize org.w3c.dom.Node object to an InputStream
                     inputStream = NodeHelper.emit((Node)content, contentEncoding);
@@ -1372,6 +1378,8 @@ public final class BizDocEnvelopeHelper {
             } catch(IOException ex) {
                 ExceptionHelper.raise(ex);
             } catch(NoSuchAlgorithmException ex) {
+                ExceptionHelper.raise(ex);
+            } catch(WattException ex) {
                 ExceptionHelper.raise(ex);
             } finally {
                 pipelineCursor.destroy();
