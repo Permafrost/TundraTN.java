@@ -36,11 +36,14 @@ import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.data.transform.Transformer;
 import permafrost.tundra.data.transform.string.Trimmer;
 import permafrost.tundra.flow.variable.SubstitutionHelper;
+import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.ObjectHelper;
 import permafrost.tundra.server.SystemHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
+import java.text.DecimalFormat;
+import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
@@ -276,18 +279,18 @@ public final class BizDocAttributeHelper {
                     }
                 } else if (attribute.isNumeric()) {
                     if (value instanceof String) {
-                        value = new BigDecimal((String)value).doubleValue();
+                        value = parseNumberAttribute((String)value);
                     }
                 } else if (attribute.isNumberList()) {
                     if (value instanceof String) {
-                        value = new String[]{(String)value};
+                        value = new String[]{ (String)value };
                     }
                     if (value instanceof String[]) {
                         String[] inputArray = (String[])value;
                         Double[] outputArray = new Double[inputArray.length];
                         for (int i = 0; i < inputArray.length; i++) {
                             if (inputArray[i] != null) {
-                                outputArray[i] = new BigDecimal(inputArray[i]).doubleValue();
+                                outputArray[i] = parseNumberAttribute(inputArray[i]);
                             }
                         }
                         value = outputArray;
@@ -338,6 +341,29 @@ public final class BizDocAttributeHelper {
                 bizdoc.setStringValue(key, ObjectHelper.convert(value, String.class));
             }
         }
+    }
+
+    /**
+     * Attempts to parse the given string value as a number attribute.
+     *
+     * @param stringValue   The string to be parsed.
+     * @return              The number that the string represents.
+     */
+    private static Double parseNumberAttribute(String stringValue) {
+        Double parsedValue;
+        try {
+            parsedValue = new BigDecimal(stringValue).doubleValue();
+        } catch(NumberFormatException ex) {
+            try {
+                DecimalFormat format = new DecimalFormat();
+                Number number = format.parse(stringValue);
+                parsedValue = number.doubleValue();
+            } catch(ParseException exception) {
+                ExceptionHelper.addSuppressed(exception, ex);
+                throw new IllegalArgumentException("Unparseable number: \"" + stringValue + "\"", exception);
+            }
+        }
+        return parsedValue;
     }
 
     /**
