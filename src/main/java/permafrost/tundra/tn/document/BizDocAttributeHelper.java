@@ -261,21 +261,14 @@ public final class BizDocAttributeHelper {
             if (attribute != null) {
                 if (attribute.isDate()) {
                     if (value instanceof String) {
-                        value = DateTimeHelper.format((String)value, DEFAULT_DATETIME_PATTERNS, "datetime.jdbc");
+                        value = parseDateTime((String)value);
                     }
                 } else if (attribute.isDateList()) {
                     if (value instanceof String) {
-                        value = new String[]{(String)value};
+                        value = new String[]{ (String)value };
                     }
                     if (value instanceof String[]) {
-                        String[] inputArray = (String[])value;
-                        String[] outputArray = new String[inputArray.length];
-                        for (int i = 0; i < inputArray.length; i++) {
-                            if (inputArray[i] != null) {
-                                outputArray[i] = DateTimeHelper.format(inputArray[i], DEFAULT_DATETIME_PATTERNS, "datetime.jdbc");
-                            }
-                        }
-                        value = outputArray;
+                        value = parseDateTime((String[])value);
                     }
                 } else if (attribute.isNumeric()) {
                     if (value instanceof String) {
@@ -341,6 +334,41 @@ public final class BizDocAttributeHelper {
                 bizdoc.setStringValue(key, ObjectHelper.convert(value, String.class));
             }
         }
+    }
+
+    /**
+     * Parses the given datetime string returning java.sql.Timestamp object.
+     *
+     * @param inputValue    The datetime string to parse.
+     * @return              The datetime string parsed as a java.sql.Timestamp object.
+     */
+    private static Timestamp parseDateTime(String inputValue) {
+        Timestamp outputValue;
+        if (inputValue == null) {
+            outputValue = null;
+        } else {
+            outputValue = new Timestamp(DateTimeHelper.parse(inputValue, DEFAULT_DATETIME_PATTERNS).getTimeInMillis());
+        }
+        return outputValue;
+    }
+
+    /**
+     * Parses the given datetime strings returning java.sql.Timestamp objects.
+     *
+     * @param inputValues   The datetime strings to parse.
+     * @return              The datetime strings parsed as a java.sql.Timestamp objects.
+     */
+    private static Timestamp[] parseDateTime(String[] inputValues) {
+        Timestamp[] outputValues;
+        if (inputValues == null) {
+            outputValues = null;
+        } else {
+            outputValues = new Timestamp[inputValues.length];
+            for (int i = 0; i < inputValues.length; i++) {
+                outputValues[i] = parseDateTime(inputValues[i]);
+            }
+        }
+        return outputValues;
     }
 
     /**
