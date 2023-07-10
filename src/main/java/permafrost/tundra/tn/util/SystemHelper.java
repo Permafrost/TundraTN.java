@@ -167,7 +167,7 @@ public final class SystemHelper {
         IData[] export = new IData[docTypes.length];
         for (int i = 0; i < docTypes.length; i++) {
             // sort properties by key name and remove null and incomparable values
-            export[i] = IDataHelper.compact(sort(docTypes[i], EXPORT_BIZDOCTYPE_PREPENDED_KEYS, EXPORT_BIZDOCTYPE_REMOVED_KEYS));
+            export[i] = IDataHelper.compact(sort(docTypes[i].getIData(), EXPORT_BIZDOCTYPE_PREPENDED_KEYS, EXPORT_BIZDOCTYPE_REMOVED_KEYS));
         }
 
         return export;
