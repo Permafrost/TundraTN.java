@@ -35,6 +35,9 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -69,6 +72,20 @@ public class ProfileID {
     public ProfileID(String value, String type) {
         this.value = value;
         this.type = type;
+    }
+
+    /**
+     * Constructs a new ProfileID representing an external ID with the given type and value.
+     *
+     * @param value The external ID of a Trading Networks partner profile.
+     * @param type  The external ID type for the given value.
+     */
+    public ProfileID(String value, int type) throws LookupStoreException {
+        this.value = value;
+        this.type = IDTYPE_CACHE.get(type);
+        if (this.type == null) {
+            throw new LookupStoreException("Trading Networks partner profile external ID type does not exist: " + type);
+        }
     }
 
     /**
@@ -159,17 +176,18 @@ public class ProfileID {
         if (this.isInternal()) {
             output = this;
         } else {
-            output = CACHE.get(this);
+            output = EXTERNAL_TO_INTERNAL_IDENTITY_CACHE.get(this);
             if (output == null) {
                 Integer typeID = LookupStore.getExternalIDType(this.getType());
-                if (typeID == null)
+                if (typeID == null) {
                     throw new LookupStoreException("Trading Networks partner profile external ID type does not exist: " + this.getType());
+                }
 
                 if (this.getValue() != null) {
                     String internalID = ProfileStore.getInternalID(this.getValue(), typeID);
                     if (internalID != null) {
                         output = new ProfileID(internalID);
-                        CACHE.put(this, output);
+                        EXTERNAL_TO_INTERNAL_IDENTITY_CACHE.put(this, output);
                     }
                 }
             }
@@ -181,20 +199,42 @@ public class ProfileID {
     /**
      * A local in-memory cache of all external identities and the internal identity they relate to.
      */
-    private static final ConcurrentMap<ProfileID, ProfileID> CACHE = new ConcurrentHashMap<ProfileID, ProfileID>();
+    private static final ConcurrentMap<ProfileID, ProfileID> EXTERNAL_TO_INTERNAL_IDENTITY_CACHE = new ConcurrentHashMap<ProfileID, ProfileID>();
+
+    /**
+     * A local in-memory cache of IDType external IDs.
+     */
+    private static final ConcurrentMap<Integer, String> IDTYPE_CACHE = new ConcurrentHashMap<Integer, String>();
     /**
      * SQL statement used to seed the external identity cache.
      */
     private static final String SELECT_EXTERNAL_IDENTITIES_SQL = "SELECT A.PartnerID, C.Description, B.ExternalID FROM Partner A, PartnerID B, IDType C WHERE A.PartnerID = B.InternalID AND A.Deleted = ? AND B.IDType = C.Type";
+    /**
+     * SQL statement used to seed the IDType external ID cache.
+     */
+    private static final String SELECT_IDTYPES_SQL = "SELECT Type, Description FROM IDType";
     /**
      * The default timeout for database queries.
      */
     private static final int DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS = 30;
 
     /**
-     * Seeds the external identity cache with all external identities known at this time.
+     * Seeds the external ID related caches.
+     *
+     * @throws SQLException If an error occurs.
      */
     public static void seed() throws SQLException {
+        try {
+            seedIDTypeCache();
+        } finally {
+            seedExternalToInternalIdentityCache();
+        }
+    }
+
+    /**
+     * Seeds the external identity cache with all external identities known at this time.
+     */
+    public static void seedExternalToInternalIdentityCache() throws SQLException {
         Connection connection = null;
         PreparedStatement statement = null;
         ResultSet resultSet = null;
@@ -210,13 +250,66 @@ public class ProfileID {
 
             resultSet = statement.executeQuery();
 
-            CACHE.clear();
-
+            Map<ProfileID, ProfileID> results = new HashMap<ProfileID, ProfileID>();
             while(resultSet.next()) {
                 String internalID = resultSet.getString(1);
                 String externalIDType = resultSet.getString(2);
                 String externalID = resultSet.getString(3);
-                CACHE.put(new ProfileID(externalID, externalIDType), new ProfileID(internalID));
+                results.put(new ProfileID(externalID, externalIDType), new ProfileID(internalID));
+            }
+
+            EXTERNAL_TO_INTERNAL_IDENTITY_CACHE.putAll(results);
+
+            // remove any external IDs that no longer exist from the cache
+            for (Map.Entry<ProfileID, ProfileID> entry : EXTERNAL_TO_INTERNAL_IDENTITY_CACHE.entrySet()) {
+                ProfileID key = entry.getKey();
+                if (!results.containsKey(key)) {
+                    EXTERNAL_TO_INTERNAL_IDENTITY_CACHE.remove(key);
+                }
+            }
+
+            connection.commit();
+        } catch (SQLException ex) {
+            connection = Datastore.handleSQLException(connection, ex);
+            throw ex;
+        } finally {
+            SQLWrappers.close(resultSet);
+            SQLStatements.releaseStatement(statement);
+            Datastore.releaseConnection(connection);
+        }
+    }
+
+    /**
+     * Seeds the IDType cache with all current records.
+     */
+    public static void seedIDTypeCache() throws SQLException {
+        Connection connection = null;
+        PreparedStatement statement = null;
+        ResultSet resultSet = null;
+
+        try {
+            connection = Datastore.getConnection();
+            statement = connection.prepareStatement(SELECT_IDTYPES_SQL);
+            statement.setQueryTimeout(DEFAULT_SQL_STATEMENT_QUERY_TIMEOUT_SECONDS);
+            statement.clearParameters();
+
+            resultSet = statement.executeQuery();
+
+            Map<Integer, String> results = new TreeMap<Integer, String>();
+            while(resultSet.next()) {
+                Integer id = resultSet.getInt(1);
+                String description = resultSet.getString(2);
+                results.put(id, description);
+            }
+
+            IDTYPE_CACHE.putAll(results);
+
+            // remove any IDTypes that no longer exist from the cache
+            for (Map.Entry<Integer, String> entry : IDTYPE_CACHE.entrySet()) {
+                Integer key = entry.getKey();
+                if (!results.containsKey(key)) {
+                    IDTYPE_CACHE.remove(key);
+                }
             }
 
             connection.commit();

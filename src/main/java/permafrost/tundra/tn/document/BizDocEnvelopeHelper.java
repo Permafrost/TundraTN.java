@@ -38,10 +38,12 @@ import com.wm.app.tn.delivery.DeliveryJob;
 import com.wm.app.tn.delivery.DeliveryQueue;
 import com.wm.app.tn.delivery.DeliveryUtils;
 import com.wm.app.tn.delivery.GuaranteedJob;
+import com.wm.app.tn.doc.BizDocAttributeTransform;
 import com.wm.app.tn.doc.BizDocContentPart;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocErrorSet;
 import com.wm.app.tn.doc.BizDocType;
+import com.wm.app.tn.doc.EnvelopeData;
 import com.wm.app.tn.doc.UnknownDocType;
 import com.wm.app.tn.doc.XMLDocType;
 import com.wm.app.tn.err.ActivityLogEntry;
@@ -52,8 +54,8 @@ import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
-import com.wm.lang.widl.WattException;
 import com.wm.lang.xml.Document;
+import com.wm.lang.xql.TreeExpression;
 import com.wm.util.tspace.Reservation;
 import org.w3c.dom.Node;
 import permafrost.tundra.content.ContentParser;
@@ -88,10 +90,8 @@ import permafrost.tundra.xml.XMLHelper;
 import permafrost.tundra.xml.dom.NodeHelper;
 import javax.activation.MimeType;
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
-import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -130,6 +130,10 @@ public final class BizDocEnvelopeHelper {
      * SQL statement for updating a bizdoc's system and user status with optimistic concurrency.
      */
     private static final String UPDATE_BIZDOC_STATUS_SQL = "UPDATE BizDoc SET RoutingStatus = ?, UserStatus = ?, LastModified = ? WHERE DocID = ? AND RoutingStatus = ? AND UserStatus = ?";
+    /**
+     * The PartnerID associated with the Unknown partner profile.
+     */
+    public static final String UNKNOWN_PARTNER_ID = "000000000000000000000000";
 
     /**
      * Disallow instantiation of this class.
@@ -1360,6 +1364,13 @@ public final class BizDocEnvelopeHelper {
                             }
                         }
 
+                        // override any values if specified in the given TN_parms parameters
+                        applyParameters(bizdoc, parameters);
+
+                        // if sender and/or receiver are Unknown, this could've been caused by a loss of database
+                        // connectivity, so try to recover using TundraTN profile cache to resolve the partners
+                        recognizePartnersIfUnknown(bizdoc, content);
+
                         // assign a new DocumentID if bizdoc doesn't have one already
                         if (bizdoc.getDocumentId() == null) {
                             if (defaultIdentity == null) {
@@ -1375,11 +1386,7 @@ public final class BizDocEnvelopeHelper {
                         }
                     }
                 }
-            } catch(IOException ex) {
-                ExceptionHelper.raise(ex);
-            } catch(NoSuchAlgorithmException ex) {
-                ExceptionHelper.raise(ex);
-            } catch(WattException ex) {
+            } catch(Exception ex) {
                 ExceptionHelper.raise(ex);
             } finally {
                 pipelineCursor.destroy();
@@ -1389,6 +1396,83 @@ public final class BizDocEnvelopeHelper {
         }
 
         return bizdoc;
+    }
+
+    /**
+     * If sender and/or receiver is Unknown, this could've been caused by a loss of database connectivity, so try to
+     * recover using TundraTN profile cache to resolve the partners. Note this service only works for XML document types
+     * as FlatFile document types do not recognize sender/receiver via message attribute extraction and instead
+     * typically set these statically.
+     *
+     * @param bizdoc        The BizDocEnvelope to be resolved partners for.
+     * @param content       The BizDocEnvelope content against XQL queries will be run to extract partner identities.
+     * @throws Exception    If an error occurs.
+     */
+    private static void recognizePartnersIfUnknown(BizDocEnvelope bizdoc, Object content) throws Exception {
+        // if sender is Unknown try to re-recognize using TundraTN profile cache
+        if (UNKNOWN_PARTNER_ID.equals(bizdoc.getSenderId())) {
+            recognizePartner(bizdoc, content, "SenderID");
+        }
+
+        // if receiver is Unknown try to re-recognize using TundraTN profile cache
+        if (UNKNOWN_PARTNER_ID.equals(bizdoc.getReceiverId())) {
+            recognizePartner(bizdoc, content, "ReceiverID");
+        }
+    }
+
+    /**
+     * If sender and/or receiver is Unknown, this could've been caused by a loss of database connectivity, so try to
+     * recover using TundraTN profile cache to resolve the partners. Note this service only works for XML document types
+     * as FlatFile document types do not recognize sender/receiver via message attribute extraction and instead
+     * typically set these statically.
+     *
+     * @param bizdoc        The BizDocEnvelope to be resolved partners for.
+     * @param content       The BizDocEnvelope content against XQL queries will be run to extract partner identities.
+     * @param attributeName Either "SenderID" or "ReceiverID" indicating which partner to be recognized.
+     * @throws Exception    If an error occurs.
+     */
+    private static void recognizePartner(BizDocEnvelope bizdoc, Object content, String attributeName) throws Exception {
+        if (!("SenderID".equals(attributeName) || "ReceiverID".equals(attributeName))) {
+            throw new IllegalArgumentException("Unsupported attribute (only SenderID and ReceiverID are supported): " + attributeName);
+        }
+
+        boolean isSender = "SenderID".equals(attributeName);
+
+        BizDocType docType = bizdoc.getDocType();
+        if (docType instanceof XMLDocType) {
+            XMLDocType xmlDocType = (XMLDocType) docType;
+
+            EnvelopeData envelopeData = xmlDocType.getEnvelopeData(attributeName);
+            if (envelopeData != null) {
+                BizDocAttributeTransform transformer = envelopeData.getAttributeTransform();
+                if (transformer != null && transformer.getFunction() == BizDocAttributeTransform.FN_PARTNER_LOOKUP) {
+                    String xqlQuery = envelopeData.getQuery();
+                    if (xqlQuery != null) {
+                        TreeExpression expression = xmlDocType.newXqlQuery(xqlQuery);
+                        if (expression != null) {
+                            String[] extractedValues = expression.getStringArray(content);
+                            if (extractedValues != null && extractedValues.length > 0) {
+                                ProfileCacheBizDocAttributeTransform cachedTransformer = new ProfileCacheBizDocAttributeTransform(transformer);
+                                Object recognizedPartnerID = cachedTransformer.apply(extractedValues);
+                                if (recognizedPartnerID instanceof String) {
+                                    // update bizdoc with recognized sender/receiver if different from current value
+                                    String currentPartnerID = isSender ? bizdoc.getSenderId() : bizdoc.getReceiverId();
+                                    if (!currentPartnerID.equals(recognizedPartnerID)) {
+                                        if (isSender) {
+                                            bizdoc.setSenderId((String) recognizedPartnerID);
+                                            bizdoc.setOriginalSenderId(extractedValues[0]);
+                                        } else {
+                                            bizdoc.setReceiverId((String) recognizedPartnerID);
+                                            bizdoc.setOriginalReceiverId(extractedValues[0]);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /**
