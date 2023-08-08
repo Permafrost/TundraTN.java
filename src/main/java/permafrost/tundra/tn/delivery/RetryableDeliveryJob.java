@@ -17,7 +17,7 @@ import permafrost.tundra.math.RoundingModeHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.log.EntryType;
-import permafrost.tundra.tn.profile.ProfileCache;
+import permafrost.tundra.tn.cache.ProfileCache;
 import java.math.BigDecimal;
 import java.text.MessageFormat;
 import static permafrost.tundra.tn.delivery.GuaranteedJobHelper.log;

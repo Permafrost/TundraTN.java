@@ -41,6 +41,7 @@ import com.wm.data.IDataFactory;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.IterableEnumeration;
+import permafrost.tundra.tn.cache.ProfileCache;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -71,11 +72,11 @@ public final class ProfileHelper {
 
         ProfileSummary profile = null;
 
-        id = id.toInternalID(); // normalize to internal ID
+        id = id.intern(); // normalize to internal ID
 
         if (id != null) {
             // if the id is null or doesn't exist, this call returns null
-            profile = getProfileSummary(id.getValue());
+            profile = getProfileSummary(id.getIdentity());
         }
 
         return profile;
@@ -118,11 +119,11 @@ public final class ProfileHelper {
 
         Profile profile = null;
 
-        id = id.toInternalID(); // normalize to internal ID
+        id = id.intern(); // normalize to internal ID
 
         if (id != null) {
             // if the id is null or doesn't exist, this call returns null
-            profile = get(id.getValue());
+            profile = get(id.getIdentity());
         }
 
         return profile;
@@ -131,20 +132,33 @@ public final class ProfileHelper {
     /**
      * Returns the partner profile associated with the given internal ID from the Trading Networks database.
      *
-     * @param id                An internal ID associated with the partner profile to be returned.
+     * @param identity          An internal ID associated with the partner profile to be returned.
      * @return                  The partner profile associated with the given internal ID, or null if no profile for
      *                          this ID exists.
      * @throws ServiceException If a database error occurs.
      */
-    public static Profile get(String id) throws ServiceException {
-        if (id == null) return null;
+    public static Profile get(String identity) throws ServiceException {
+        return get(identity, false);
+    }
+
+    /**
+     * Returns the partner profile associated with the given internal ID from the Trading Networks database.
+     *
+     * @param identity          An internal ID associated with the partner profile to be returned.
+     * @param refresh           If true refreshes the partner profile summaries from the database.
+     * @return                  The partner profile associated with the given internal ID, or null if no profile for
+     *                          this ID exists.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static Profile get(String identity, boolean refresh) throws ServiceException {
+        if (identity == null) return null;
 
         Profile profile = null;
 
         try {
             // if the id is null or doesn't exist, this call returns null
-            ProfileSummary summary = ProfileStore.getProfileSummary(id);
-            if (summary != null) profile = ProfileStore.getProfile(id);
+            ProfileSummary summary = ProfileStore.getProfileSummary(identity, refresh);
+            if (summary != null) profile = ProfileStore.getProfile(identity);
         } catch(ProfileStoreException ex) {
             ExceptionHelper.raise(ex);
         }
@@ -202,7 +216,18 @@ public final class ProfileHelper {
      * @throws ServiceException If a database error occurs.
      */
     public static Profile[] list() throws ServiceException {
-        Vector summaries = ProfileStore.getProfileSummaryList(false, false);
+        return list(false);
+    }
+
+    /**
+     * Returns a list of all partner profiles sorted by display name.
+     *
+     * @param refresh           If true refreshes the cached list of profile summaries from the database first.
+     * @return                  A list of all partner profiles sorted by display name.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static Profile[] list(boolean refresh) throws ServiceException {
+        Vector summaries = ProfileStore.getProfileSummaryList(false, refresh);
         List<Profile> output = new ArrayList<Profile>(summaries.size());
 
         for (Object object : summaries) {
@@ -243,9 +268,9 @@ public final class ProfileHelper {
      * @return                  The external IDs associated with the given profile.
      * @throws ServiceException If a database error occurs.
      */
-    public static ProfileID[] getExternalIDsAsArray(Profile profile) throws ServiceException {
-        Collection<ProfileID> collection = getExternalIDs(profile);
-        return collection.toArray(new ProfileID[0]);
+    public static ExternalID[] getExternalIDsAsArray(Profile profile) throws ServiceException {
+        Collection<ExternalID> collection = getExternalIDs(profile);
+        return collection.toArray(new ExternalID[0]);
     }
 
     /**
@@ -255,15 +280,14 @@ public final class ProfileHelper {
      * @return                  The external IDs associated with the given profile.
      * @throws ServiceException If a database error occurs.
      */
-    public static Collection<ProfileID> getExternalIDs(Profile profile) throws ServiceException {
-        Map<Integer, String> types = getExternalIDTypes();
-        List<ProfileID> list = new ArrayList<ProfileID>(types.size());
+    public static Collection<ExternalID> getExternalIDs(Profile profile) throws ServiceException {
+        List<ExternalID> list = new ArrayList<ExternalID>();
 
         if (profile != null) {
             for (Object object : IterableEnumeration.of(profile.getExternalIDs())) {
                 if (object instanceof ID) {
                     ID id = (ID)object;
-                    list.add(new ProfileID(id.getExternalID(), types.get(id.getIDType())));
+                    list.add(new ExternalID(id.getExternalID(), id.getIDType(), Integer.valueOf(id.getSeqNo())));
                 }
             }
         }
@@ -343,8 +367,8 @@ public final class ProfileHelper {
         IDataCursor cursor = output.getCursor();
 
         try {
-            for (ProfileID profileID : getExternalIDs(profile)) {
-                cursor.insertAfter(profileID.getType(), profileID.getValue());
+            for (ExternalID externalID : getExternalIDs(profile)) {
+                cursor.insertAfter(externalID.getTypeName(), externalID.getIdentity());
             }
         } finally {
             cursor.destroy();
@@ -366,9 +390,9 @@ public final class ProfileHelper {
         int defaultType = ProfileStore.getDefaultIDType();
         String defaultID = null;
 
-        for (ProfileID profileID : getExternalIDs(profile)) {
-            int type = LookupStore.getExternalIDType(profileID.getType());
-            if (type == defaultType) defaultID = profileID.getValue();
+        for (ExternalID externalID : getExternalIDs(profile)) {
+            int type = externalID.getType();
+            if (type == defaultType) defaultID = externalID.getIdentity();
         }
 
         return defaultID;

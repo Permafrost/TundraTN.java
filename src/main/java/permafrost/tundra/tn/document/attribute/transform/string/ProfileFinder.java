@@ -24,10 +24,9 @@
 
 package permafrost.tundra.tn.document.attribute.transform.string;
 
-import com.wm.app.tn.profile.ProfileStoreException;
-import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.tn.document.attribute.transform.Transformer;
-import permafrost.tundra.tn.profile.ProfileID;
+import permafrost.tundra.tn.profile.ExternalID;
+import permafrost.tundra.tn.profile.InternalID;
 
 /**
  * Transforms the given Trading Networks partner profile external identities to internal identities.
@@ -45,16 +44,12 @@ public class ProfileFinder extends Transformer<String> {
     public String[] transform(String[] values, boolean isArray, String arg) {
         String[] output = new String[values.length];
 
-        try {
-            for (int i = 0; i < values.length; i++) {
-                ProfileID externalProfileID = new ProfileID(values[i], arg);
-                ProfileID internalProfileID = externalProfileID.toInternalID();
-                if (internalProfileID != null) {
-                    output[i] = internalProfileID.getValue();
-                }
+        for (int i = 0; i < values.length; i++) {
+            ExternalID externalProfileID = new ExternalID(values[i], arg);
+            InternalID internalProfileID = externalProfileID.intern();
+            if (internalProfileID != null) {
+                output[i] = internalProfileID.getIdentity();
             }
-        } catch(ProfileStoreException ex) {
-            ExceptionHelper.raiseUnchecked(ex);
         }
 
         return output;

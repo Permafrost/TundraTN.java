@@ -25,7 +25,8 @@
 package permafrost.tundra.tn.document;
 
 import com.wm.app.tn.doc.BizDocAttributeTransform;
-import permafrost.tundra.tn.profile.ProfileID;
+import permafrost.tundra.tn.profile.ExternalID;
+import permafrost.tundra.tn.profile.InternalID;
 
 /**
  * A BizDocAttributeTransform that uses the TundraTN profile cache when resolving partner IDs, but delegates all other
@@ -69,10 +70,10 @@ public class ProfileCacheBizDocAttributeTransform extends ProxyBizDocAttributeTr
             String[] args = getArgs();
             if (args != null && args.length > 0) {
                 int externalIDType = Integer.parseInt(args[0]);
-                ProfileID externalID = new ProfileID(externalId, externalIDType);
-                ProfileID internalID = externalID.toInternalID();
+                ExternalID externalID = new ExternalID(externalId, externalIDType);
+                InternalID internalID = externalID.intern();
                 if (internalID != null) {
-                    result = internalID.getValue();
+                    result = internalID.getIdentity();
                 }
             }
         } else {

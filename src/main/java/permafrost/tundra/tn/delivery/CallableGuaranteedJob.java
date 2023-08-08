@@ -53,7 +53,7 @@ import permafrost.tundra.time.DurationPattern;
 import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import permafrost.tundra.tn.document.BizDocEnvelopePriority;
 import permafrost.tundra.tn.log.EntryType;
-import permafrost.tundra.tn.profile.ProfileCache;
+import permafrost.tundra.tn.cache.ProfileCache;
 import permafrost.tundra.tn.profile.ProfileHelper;
 import permafrost.tundra.util.concurrent.AbstractPrioritizedCallable;
 import javax.xml.datatype.Duration;
