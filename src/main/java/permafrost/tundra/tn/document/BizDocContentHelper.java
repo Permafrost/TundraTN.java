@@ -212,12 +212,13 @@ public final class BizDocContentHelper {
 
                 List<NSService> callstack = ServiceHelper.getCallStack();
                 if (contentPartName == null) {
-                    String prefix = "transport_";
+                    String prefix = "diagnostic_transport_";
+                    String suffix = "";
                     if (callstack.size() > 0) {
                         NSService service = callstack.get(0);
-                        prefix = service.getNSName().getFullName().replaceAll("\\W+", "_") + "_" + prefix;
+                        suffix = service.getNSName().getFullName().replaceAll("\\W+", "_") + "_" + suffix;
                     }
-                    contentPartName = MessageFormat.format("{0}{1}.yaml", prefix, DateTimeHelper.format(currentDateTime, "datetime", "yyyyMMddHHmmssSSSZ"));
+                    contentPartName = MessageFormat.format("{0}{1}{2}.yaml", prefix, suffix, DateTimeHelper.format(currentDateTime, "datetime", "yyyyMMddHHmmssSSSZ"));
                 }
 
                 IData contentPart = IDataFactory.create();
