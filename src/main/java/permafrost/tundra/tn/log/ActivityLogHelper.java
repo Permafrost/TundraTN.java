@@ -44,7 +44,6 @@ import permafrost.tundra.server.ServiceHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.time.DurationHelper;
 import permafrost.tundra.time.DurationPattern;
-import permafrost.tundra.tn.document.BizDocEnvelopeHelper;
 import java.io.IOException;
 import java.util.List;
 
@@ -136,33 +135,36 @@ public class ActivityLogHelper {
      */
     @SuppressWarnings("deprecation")
     public static void log(EntryType entryType, String entryClass, String messageSummary, String messageDetail, BizDocEnvelope bizdoc, IData context) {
-        if (bizdoc == null || BizDocEnvelopeHelper.shouldPersistActivityLog(bizdoc)) {
-            entryType = EntryType.normalize(entryType);
+        entryType = EntryType.normalize(entryType);
 
-            if (messageDetail == null) messageDetail = "";
-            String[] messageDetailLines = StringHelper.lines(messageDetail);
-            if (messageSummary == null) messageSummary = messageDetailLines[0];
-            if (entryClass == null) entryClass = "General";
+        if (messageDetail == null) messageDetail = "";
+        String[] messageDetailLines = StringHelper.lines(messageDetail);
+        if (messageSummary == null) messageSummary = messageDetailLines[0];
+        if (entryClass == null) entryClass = "General";
 
-            StringBuilder messageDetailBuilder = new StringBuilder();
-            for (String line : messageDetailLines) {
-                messageDetailBuilder.append(line);
-                messageDetailBuilder.append("\n");
-            }
-            messageDetailBuilder.append("---\n");
-            messageDetailBuilder.append(getContextString(context));
+        StringBuilder messageDetailBuilder = new StringBuilder();
+        for (String line : messageDetailLines) {
+            messageDetailBuilder.append(line);
+            messageDetailBuilder.append("\n");
+        }
+        messageDetailBuilder.append("---\n");
+        messageDetailBuilder.append(getContextString(context));
 
-            messageSummary = StringHelper.truncate(messageSummary.trim(), 240, true);
-            messageDetail = StringHelper.truncate(messageDetailBuilder.toString().trim(), 1024, true);
+        messageSummary = StringHelper.truncate(messageSummary.trim(), 240, true);
+        messageDetail = StringHelper.truncate(messageDetailBuilder.toString().trim(), 1024, true);
 
-            ActivityLogEntry log = new ActivityLogEntry(entryType.getValue(), entryClass, messageSummary, messageDetail);
-            if (bizdoc != null) {
-                log.setRelatedDocId(bizdoc.getInternalId());
-                String conversationID = bizdoc.getConversationId();
-                if (conversationID != null) log.setRelatedConversationId(conversationID);
-                String partnerID = bizdoc.getSenderId();
-                if (partnerID != null) log.setRelatedPartnerId(partnerID);
-            }
+        ActivityLogEntry log = new ActivityLogEntry(entryType.getValue(), entryClass, messageSummary, messageDetail);
+        if (bizdoc != null) {
+            log.setRelatedDocId(bizdoc.getInternalId());
+
+            String conversationID = bizdoc.getConversationId();
+            if (conversationID != null) log.setRelatedConversationId(conversationID);
+
+            String partnerID = bizdoc.getSenderId();
+            if (partnerID != null) log.setRelatedPartnerId(partnerID);
+
+            bizdoc.addError(log);
+        } else {
             SystemLog2.dbLog(log);
         }
     }
