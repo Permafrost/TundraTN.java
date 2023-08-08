@@ -54,6 +54,7 @@ import com.wm.data.IData;
 import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.data.IDataUtil;
+import com.wm.lang.ns.NSService;
 import com.wm.lang.xml.Document;
 import com.wm.lang.xql.TreeExpression;
 import com.wm.util.tspace.Reservation;
@@ -1144,6 +1145,8 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException If a recognition error occurs.
      */
     public static BizDocEnvelope recognize(Object content, String contentIdentity, IData contentNamespace, IData parameters, IData pipeline) throws ServiceException {
+        long startTime = System.nanoTime();
+
         BizDocEnvelope bizdoc = null;
 
         if (content != null) {
@@ -1359,7 +1362,19 @@ public final class BizDocEnvelopeHelper {
                             if (bytesContentPart != null) {
                                 String bytesContentPartType = bytesContentPart.getMimeType();
                                 if (contentType != null && "application/x-wmidatabin".equals(MIMETypeHelper.of(bytesContentPartType).getBaseType())) {
-                                    BizDocContentHelper.addContentPart(bizdoc, "content", contentType.toString(), contentEncoding, InputStreamHelper.normalize(bytes), true);
+                                    String prefix = "diagnostic_content_";
+                                    String suffix = "";
+                                    List<NSService> callstack = ServiceHelper.getCallStack();
+                                    if (callstack.size() > 0) {
+                                        NSService service = callstack.get(0);
+                                        suffix = service.getNSName().getFullName().replaceAll("\\W+", "_") + "_" + suffix;
+                                    }
+                                    String extension = MIMETypeHelper.classify(contentType).getDefaultFileExtension();
+                                    String datetime = DateTimeHelper.now("yyyyMMddHHmmssSSSZ");
+                                    String partName = MessageFormat.format("{0}{1}{2}.{3}", prefix, suffix, datetime, extension);
+                                    BizDocContentHelper.addContentPart(bizdoc, partName, contentType.toString(), contentEncoding, InputStreamHelper.normalize(bytes), true);
+
+                                    ActivityLogHelper.log(EntryType.WARNING, "General", "Document content malformed", "Refer to diagnostic content part: " + partName, bizdoc);
                                 }
                             }
                         }
@@ -1386,7 +1401,9 @@ public final class BizDocEnvelopeHelper {
                         }
                     }
                 }
+                ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document recognized", null, bizdoc, startTime, System.nanoTime());
             } catch(Exception ex) {
+                ActivityLogHelper.log(EntryType.ERROR, "General", ExceptionHelper.getMessage(ex), ExceptionHelper.getStackTraceString(ex, 3), bizdoc, startTime, System.nanoTime());
                 ExceptionHelper.raise(ex);
             } finally {
                 pipelineCursor.destroy();
