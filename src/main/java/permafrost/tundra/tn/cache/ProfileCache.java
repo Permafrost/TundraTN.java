@@ -77,9 +77,7 @@ public class ProfileCache extends CacheProvider<String, IData> {
     /**
      * Disallow instantiation of this class;
      */
-    private ProfileCache() {
-        this.lazy = true;
-    }
+    private ProfileCache() {}
 
     /**
      * Returns the unique name of this cache provider.
