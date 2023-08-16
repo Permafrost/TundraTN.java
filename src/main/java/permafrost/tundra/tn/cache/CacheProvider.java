@@ -168,7 +168,6 @@ public abstract class CacheProvider<K,V> implements Startable, IDataCodable {
      *
      * @param key           The key whose value is to be fetched.
      * @return              The value associated with the given key fetched from source.
-     * @throws Exception    If an error occurs.
      */
     protected V fetch(K key) {
         V value = null;
@@ -185,7 +184,6 @@ public abstract class CacheProvider<K,V> implements Startable, IDataCodable {
      * Fetches all keys and values from the cache's source resource.
      *
      * @return              All keys and values from the cache's source resource.
-     * @throws Exception    If an error occurs.
      */
     abstract protected Map<K, V> fetch();
 
