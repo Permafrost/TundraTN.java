@@ -317,6 +317,7 @@ public final class ProfileHelper {
             if (partnerID != null) {
                 IDataCursor cursor = output.getCursor();
                 try {
+                    IDataHelper.put(cursor, "DisplayName", profile.getDisplayName(), false);
                     IDataHelper.put(cursor, "DefaultID", getDefaultExternalID(profile), false);
                     IDataHelper.put(cursor, "ExternalID", getExternalIDsAsIData(profile), false);
                     IDataHelper.put(cursor, "ExtendedFields", getExtendedFieldsAsIData(partnerID), false);
