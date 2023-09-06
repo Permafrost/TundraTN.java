@@ -66,6 +66,7 @@ import permafrost.tundra.content.StrictException;
 import permafrost.tundra.content.UnsupportedException;
 import permafrost.tundra.content.ValidationException;
 import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.data.IDataJSONParser;
 import permafrost.tundra.id.ULID;
 import permafrost.tundra.id.UUIDHelper;
 import permafrost.tundra.io.InputStreamHelper;
@@ -80,6 +81,7 @@ import permafrost.tundra.mime.MIMEClassification;
 import permafrost.tundra.mime.MIMETypeHelper;
 import permafrost.tundra.security.MessageDigestHelper;
 import permafrost.tundra.server.ServiceHelper;
+import permafrost.tundra.sql.SQLHelper;
 import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.tn.cache.ProfileCache;
 import permafrost.tundra.tn.delivery.GuaranteedJobHelper;
@@ -91,10 +93,12 @@ import permafrost.tundra.xml.XMLHelper;
 import permafrost.tundra.xml.dom.NodeHelper;
 import javax.activation.MimeType;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.text.MessageFormat;
@@ -103,6 +107,7 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
@@ -309,49 +314,283 @@ public final class BizDocEnvelopeHelper {
     }
 
     /**
-     * Returns true if the given document is a duplicate of another existing document, where duplicates are defined
+     * Wrapper class for results to the isDuplicate(BizDocEnvelope) and isDuplicate(BizDocEnvelope,InputStream) methods.
+     */
+    public static class DuplicateResult {
+        /**
+         * Whether the result was a duplicate.
+         */
+        boolean isDuplicate;
+        /**
+         * The unique key used to check for duplicates.
+         */
+        String uniqueKey;
+        /**
+         * The content used to calculate the unique key, or null if not applicable.
+         */
+        InputStream content;
+
+        /**
+         * The document this duplicate result relates to.
+         */
+        BizDocEnvelope document;
+        /**
+         * The pre-existing document that this document is a duplicate of, or null if not applicable.
+         */
+        String duplicateID;
+
+        /**
+         * Constructs a new DuplicateResult object.
+         *
+         * @param document      The BizDocEnvelope document that was duplicate checked.
+         * @param content       The content used to calculate the unique key, or null if not applicable.
+         * @param uniqueKey     The unique key used to check for duplicates.
+         * @param isDuplicate   Whether the document was a duplicate or not.
+         * @param duplicateID   This pre-existing BizDocEnvelope that the given document is a duplicate of, if any.
+         */
+        public DuplicateResult(BizDocEnvelope document, InputStream content, String uniqueKey, boolean isDuplicate, String duplicateID) {
+            if (document == null) throw new NullPointerException("document must not be null");
+            if (uniqueKey == null) throw new NullPointerException("uniqueKey must not be null");
+
+            this.document = document;
+            this.content = content;
+            this.uniqueKey = uniqueKey;
+            this.isDuplicate = isDuplicate;
+            this.duplicateID = duplicateID;
+        }
+
+        /**
+         * Returns the content used to calculate the unique key, or null if not applicable.
+         * @return the content used to calculate the unique key, or null if not applicable.
+         */
+        public InputStream getContent() {
+            return content;
+        }
+
+        /**
+         * Returns the unique key used to check for duplicate documents.
+         * @return the unique key used to check for duplicate documents.
+         */
+        public String getUniqueKey() {
+            return uniqueKey;
+        }
+
+        /**
+         * Returns whether the document was a duplicate of another already existing document with the same unique key.
+         * @return whether the document was a duplicate of another already existing document with the same unique key.
+         */
+        public boolean isDuplicate() {
+            return isDuplicate;
+        }
+
+        /**
+         * Returns the document this duplicate result relates to.
+         * @return the document this duplicate result relates to.
+         */
+        public BizDocEnvelope getDocument() {
+            return document;
+        }
+
+        /**
+         * Returns the pre-existing document that this document is a duplicate of, or null if not applicable.
+         * @return the pre-existing document that this document is a duplicate of, or null if not applicable.
+         */
+        public BizDocEnvelope getDuplicate() {
+            BizDocEnvelope duplicate = null;
+            try {
+                duplicate = get(duplicateID);
+            } catch(DatastoreException ex) {
+                ExceptionHelper.raiseUnchecked(ex);
+            }
+            return duplicate;
+        }
+
+        /**
+         * Returns a string representation of this object.
+         * @return a string representation of this object.
+         */
+        public String toString() {
+            String pattern;
+            if (isDuplicate()) {
+                pattern = "Document ({0}) detected to be the duplicate of another pre-existing document ({1}) using the following unique key: {2}";
+            } else {
+                pattern = "Document ({0}) detected to be unique (not a duplicate of any other documents) using the following unique key: {2}";
+            }
+            return MessageFormat.format(pattern, getDocument().getInternalId(), duplicateID, getUniqueKey());
+        }
+    }
+
+    /**
+     * Returns whether the given document is a duplicate of another existing document, where duplicates are defined
      * as having the same document type, sender, receiver, and document ID.
      *
      * @param document          The document to check whether it is a duplicate.
-     * @return                  True if this document is a duplicate.
+     * @return                  The result of the duplicate check.
      * @throws ServiceException If a database error occurs.
      */
-    public static boolean isDuplicate(BizDocEnvelope document) throws ServiceException {
-        boolean isDuplicate = false;
+    public static DuplicateResult isDuplicate(BizDocEnvelope document) throws ServiceException {
+        return isDuplicate(document, (InputStream)null);
+    }
 
-        if (document != null) {
-            Connection connection = null;
-            PreparedStatement statement = null;
+    /**
+     * Returns whether the given document is a duplicate of another existing document, where duplicates are defined
+     * as having the same document type, sender, receiver, and either SHA-512 message digest calculated from the given
+     * IData content or document ID if content is null.
+     *
+     * @param document          The document to check whether it is a duplicate.
+     * @param content           The content to use to calculate the SHA-512 message digest used as a unique key,
+     *                          provided as an IData document which is first canonicalized by recursively sorting keys
+     *                          in ascending lexicographic order and then serialized as minified JSON before calculating
+     *                          the message digest.
+     * @return                  The result of the duplicate check.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static DuplicateResult isDuplicate(BizDocEnvelope document, IData content) throws ServiceException {
+        InputStream inputStream = null;
 
-
-            try {
-                StringBuilder key = new StringBuilder();
-                key.append(document.getDocType().getId());
-                key.append(document.getSenderId());
-                key.append(document.getReceiverId());
-                key.append(document.getDocumentId());
-
-                connection = Datastore.getConnection();
-
-                statement = SQLStatements.prepareStatement(connection, "bdunique.insert");
-                SQLWrappers.setCharString(statement, 1, document.getInternalId());
-                SQLWrappers.setChoppedString(statement, 2, key.toString(), "BizDocUniqueKeys.UniqueKey");
-
-                try {
-                    statement.executeUpdate();
-                } catch (SQLException ex) {
-                    isDuplicate = true;
-                }
-            } catch (SQLException ex) {
-                connection = Datastore.handleSQLException(connection, ex);
-                ExceptionHelper.raise(ex);
-            } finally {
-                SQLStatements.releaseStatement(statement);
-                Datastore.releaseConnection(connection);
+        try {
+            if (content != null) {
+                IData canonicalizedContent = IDataHelper.sort(content);
+                IDataJSONParser parser = new IDataJSONParser(false);
+                inputStream = parser.emit(canonicalizedContent);
             }
+        } catch(IOException ex) {
+            ExceptionHelper.raise(ex);
         }
 
-        return isDuplicate;
+        return isDuplicate(document, inputStream);
+    }
+
+    /**
+     * Returns whether the given document is a duplicate of another existing document, where duplicates are defined
+     * as having the same document type, sender, receiver, and either SHA-512 message digest calculated from the given
+     * content or document ID if content is null.
+     *
+     * @param document          The document to check whether it is a duplicate.
+     * @param content           The content to use to calculate the SHA-512 message digest used as a unique key.
+     * @return                  The result of the duplicate check.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static DuplicateResult isDuplicate(BizDocEnvelope document, InputStream content) throws ServiceException {
+        DuplicateResult result = null;
+
+        try {
+            String identity;
+            if (content == null) {
+                identity = document.getDocumentId();
+            } else {
+                Map.Entry<InputStream, byte[]> digest = MessageDigestHelper.digest(MessageDigestHelper.DEFAULT_ALGORITHM, content, CharsetHelper.DEFAULT_CHARSET);
+                content = digest.getKey();
+                identity = BytesHelper.base64Encode(digest.getValue());
+            }
+
+            String uniqueKey = document.getDocType().getId() + document.getSenderId() + document.getReceiverId() + identity;
+            String duplicateID = isDuplicate(document.getInternalId(), uniqueKey);
+            boolean isDuplicate = duplicateID != null;
+
+            result = new DuplicateResult(document, content, uniqueKey, isDuplicate, duplicateID);
+        } catch(Exception ex) {
+            ExceptionHelper.raise(ex);
+        }
+
+        return result;
+    }
+
+    /**
+     * Returns the pre-existing duplicate document's DocID if a duplicate exists for the given UniqueKey.
+     *
+     * @param docID             The DocID of the document being checked for duplicates.
+     * @param uniqueKey         The UniqueKey associated for the document.
+     * @return                  The DocID of the duplicate document, or null if no duplicate exists.
+     * @throws SQLException     If a database error occurs.
+     */
+    private static String isDuplicate(String docID, String uniqueKey) throws SQLException {
+        if (docID == null) throw new NullPointerException("docID must not be null");
+        if (uniqueKey == null) throw new NullPointerException("uniqueKey must not be null");
+
+        String duplicateID = null;
+
+        while(duplicateID == null) {
+            try {
+                insertUniqueKey(docID, uniqueKey);
+            } catch(SQLException ex) {
+                // ignore exception
+            }
+            duplicateID = selectDocumentIdentityByUniqueKey(uniqueKey);
+        }
+
+        return docID.equals(duplicateID) ? null : duplicateID;
+    }
+
+    /**
+     * SQL statement to select the DocID associated with a given UniqueKey.
+     */
+    private static final String SELECT_DOCUMENT_IDENTITY_BY_UNIQUE_KEY_SQL = "SELECT DocID FROM BizDocUniqueKeys WHERE UniqueKey = ?";
+
+    /**
+     * Returns the DocID associated with the given UniqueKey from the BizDocUniqueKeys table, or null if no row exists
+     * with the given UniqueKey.
+     *
+     * @param uniqueKey         The UniqueKey value to select by.
+     * @return                  The DocID associated with the given UniqueKey, or null if the UniqueKey does not exist.
+     * @throws SQLException     If a database error occurs.
+     */
+    private static String selectDocumentIdentityByUniqueKey(String uniqueKey) throws SQLException {
+        if (uniqueKey == null) throw new NullPointerException("uniqueKey must not be null");
+
+        Connection connection = null;
+        PreparedStatement statement = null;
+        ResultSet resultSet = null;
+        String docID = null;
+
+        try {
+            connection = Datastore.getConnection();
+
+            statement = SQLHelper.prepareStatement(connection, SELECT_DOCUMENT_IDENTITY_BY_UNIQUE_KEY_SQL);
+            SQLWrappers.setChoppedString(statement, 1, uniqueKey, "BizDocUniqueKeys.UniqueKey");
+
+            boolean hasResultSet = statement.execute();
+            if (hasResultSet) {
+                resultSet = statement.getResultSet();
+                if (resultSet.next()) {
+                    docID = resultSet.getString(1);
+                }
+            }
+        } finally {
+            SQLHelper.close(resultSet);
+            SQLHelper.close(statement);
+            Datastore.releaseConnection(connection);
+        }
+
+        return docID;
+    }
+
+    /**
+     * Inserts the given DocID and UniqueKey row into the BizDocUniqueKeys table.
+     *
+     * @param docID             The document identity to insert.
+     * @param uniqueKey         The unique key to insert.
+     * @throws SQLException     If a database error occurs.
+     */
+    private static void insertUniqueKey(String docID, String uniqueKey) throws SQLException {
+        if (docID == null) throw new NullPointerException("docID must not be null");
+        if (uniqueKey == null) throw new NullPointerException("uniqueKey must not be null");
+
+        Connection connection = null;
+        PreparedStatement statement = null;
+
+        try {
+            connection = Datastore.getConnection();
+
+            statement = SQLStatements.prepareStatement(connection, "bdunique.insert");
+            SQLWrappers.setCharString(statement, 1, docID);
+            SQLWrappers.setChoppedString(statement, 2, uniqueKey, "BizDocUniqueKeys.UniqueKey");
+
+            statement.executeUpdate();
+        } finally {
+            SQLStatements.releaseStatement(statement);
+            Datastore.releaseConnection(connection);
+        }
     }
 
     /**
