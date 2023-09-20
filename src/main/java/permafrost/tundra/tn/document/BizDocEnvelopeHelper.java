@@ -67,6 +67,7 @@ import permafrost.tundra.content.UnsupportedException;
 import permafrost.tundra.content.ValidationException;
 import permafrost.tundra.data.IDataHelper;
 import permafrost.tundra.data.IDataJSONParser;
+import permafrost.tundra.data.IDataMap;
 import permafrost.tundra.id.ULID;
 import permafrost.tundra.id.UUIDHelper;
 import permafrost.tundra.io.InputStreamHelper;
@@ -102,6 +103,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.text.MessageFormat;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
@@ -314,6 +316,63 @@ public final class BizDocEnvelopeHelper {
     }
 
     /**
+     * Calculates the unique key used for duplicate detection for the given document and content.
+     *
+     * @param document          The document to calculate the unique key for.
+     * @param content           The optional content to use to calculate the unique key (using a SHA-512 message digest)
+     *                          or if not provided the unique key will be calculated using the document identity.
+     * @return                  The calculated unique key.
+     * @throws ServiceException If an error occurs.
+     */
+    public static Map.Entry<String, InputStream> getUniqueKey(BizDocEnvelope document, IData content) throws ServiceException {
+        InputStream inputStream = null;
+
+        try {
+            if (content != null) {
+                IData canonicalizedContent = IDataHelper.sort(content);
+                IDataJSONParser parser = new IDataJSONParser(false);
+                inputStream = parser.emit(canonicalizedContent);
+            }
+        } catch(IOException ex) {
+            ExceptionHelper.raise(ex);
+        }
+
+        return getUniqueKey(document, inputStream);
+    }
+
+    /**
+     * Calculates the unique key used for duplicate detection for the given document and content.
+     *
+     * @param document          The document to calculate the unique key for.
+     * @param content           The optional content to use to calculate the unique key (using a SHA-512 message digest)
+     *                          or if not provided the unique key will be calculated using the document identity.
+     * @return                  The calculated unique key.
+     * @throws ServiceException If an error occurs.
+     */
+    public static Map.Entry<String, InputStream> getUniqueKey(BizDocEnvelope document, InputStream content) throws ServiceException {
+        Map.Entry<String, InputStream> result = null;
+
+        try {
+            String identity;
+            if (content == null) {
+                identity = document.getDocumentId();
+            } else {
+                Map.Entry<InputStream, byte[]> digest = MessageDigestHelper.digest(MessageDigestHelper.DEFAULT_ALGORITHM, content, CharsetHelper.DEFAULT_CHARSET);
+                content = digest.getKey();
+                identity = BytesHelper.base64Encode(digest.getValue());
+            }
+
+            String uniqueKey = document.getDocType().getId() + document.getSenderId() + document.getReceiverId() + identity;
+
+            result = new AbstractMap.SimpleImmutableEntry<String, InputStream>(uniqueKey, content);
+        } catch(Exception ex) {
+            ExceptionHelper.raise(ex);
+        }
+
+        return result;
+    }
+
+    /**
      * Wrapper class for results to the isDuplicate(BizDocEnvelope) and isDuplicate(BizDocEnvelope,InputStream) methods.
      */
     public static class DuplicateResult {
@@ -446,19 +505,7 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException If a database error occurs.
      */
     public static DuplicateResult isDuplicate(BizDocEnvelope document, IData content) throws ServiceException {
-        InputStream inputStream = null;
-
-        try {
-            if (content != null) {
-                IData canonicalizedContent = IDataHelper.sort(content);
-                IDataJSONParser parser = new IDataJSONParser(false);
-                inputStream = parser.emit(canonicalizedContent);
-            }
-        } catch(IOException ex) {
-            ExceptionHelper.raise(ex);
-        }
-
-        return isDuplicate(document, inputStream);
+        return isDuplicate(document, getUniqueKey(document, content));
     }
 
     /**
@@ -472,23 +519,31 @@ public final class BizDocEnvelopeHelper {
      * @throws ServiceException If a database error occurs.
      */
     public static DuplicateResult isDuplicate(BizDocEnvelope document, InputStream content) throws ServiceException {
+        return isDuplicate(document, getUniqueKey(document, content));
+    }
+
+    /**
+     * Returns whether the given document is a duplicate of another existing document, where duplicates are defined
+     * as having the same document type, sender, receiver, and either SHA-512 message digest calculated from the given
+     * content or document ID if content is null.
+     *
+     * @param document          The document to check whether it is a duplicate.
+     * @param uniqueKey         The unique key used to check for duplicates.
+     * @return                  The result of the duplicate check.
+     * @throws ServiceException If a database error occurs.
+     */
+    private static DuplicateResult isDuplicate(BizDocEnvelope document,  Map.Entry<String, InputStream> uniqueKey) throws ServiceException {
         DuplicateResult result = null;
 
         try {
-            String identity;
-            if (content == null) {
-                identity = document.getDocumentId();
-            } else {
-                Map.Entry<InputStream, byte[]> digest = MessageDigestHelper.digest(MessageDigestHelper.DEFAULT_ALGORITHM, content, CharsetHelper.DEFAULT_CHARSET);
-                content = digest.getKey();
-                identity = BytesHelper.base64Encode(digest.getValue());
-            }
-
-            String uniqueKey = document.getDocType().getId() + document.getSenderId() + document.getReceiverId() + identity;
-            String duplicateID = isDuplicate(document.getInternalId(), uniqueKey);
+            String duplicateID = isDuplicate(document.getInternalId(), uniqueKey.getKey());
             boolean isDuplicate = duplicateID != null;
+            result = new DuplicateResult(document, uniqueKey.getValue(), uniqueKey.getKey(), isDuplicate, duplicateID);
 
-            result = new DuplicateResult(document, content, uniqueKey, isDuplicate, duplicateID);
+            // add the calculated unique key as an attribute to the document
+            IDataMap attributes = new IDataMap();
+            attributes.put("Unique Key", uniqueKey.getKey());
+            BizDocAttributeHelper.merge(document, attributes, null, false);
         } catch(Exception ex) {
             ExceptionHelper.raise(ex);
         }
