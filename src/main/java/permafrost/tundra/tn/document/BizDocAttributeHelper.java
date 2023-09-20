@@ -137,16 +137,17 @@ public final class BizDocAttributeHelper {
     public static void merge(BizDocEnvelope bizdoc, IData attributes, IData scope, boolean substitute) throws ServiceException {
         if (bizdoc != null && attributes != null) {
             attributes = sanitize(attributes);
+            if (!IDataHelper.isEmpty(attributes)) {
+                if (substitute) {
+                    attributes = SubstitutionHelper.substitute(attributes, null, true, false, null, getScope(bizdoc, attributes, scope));
+                }
 
-            if (substitute) {
-                attributes = SubstitutionHelper.substitute(attributes, null, true, false, null, getScope(bizdoc, attributes, scope));
+                attributes = Transformer.transform(attributes, new Trimmer(true));
+
+                replace(bizdoc, IDataHelper.merge(bizdoc.getAttributes(), attributes));
+
+                if (BizDocEnvelopeHelper.shouldPersistAttributes(bizdoc)) BizDocStore.updateAttributes(bizdoc);
             }
-
-            attributes = Transformer.transform(attributes, new Trimmer(true));
-
-            replace(bizdoc, IDataHelper.merge(bizdoc.getAttributes(), attributes));
-
-            if (BizDocEnvelopeHelper.shouldPersistAttributes(bizdoc)) BizDocStore.updateAttributes(bizdoc);
         }
     }
 
@@ -378,7 +379,7 @@ public final class BizDocAttributeHelper {
      * @return              The number that the string represents.
      */
     private static Double parseNumberAttribute(String stringValue) {
-        Double parsedValue;
+        double parsedValue;
         try {
             parsedValue = new BigDecimal(stringValue).doubleValue();
         } catch(NumberFormatException ex) {
@@ -406,22 +407,24 @@ public final class BizDocAttributeHelper {
 
         IData output = IDataFactory.create();
 
-        IDataCursor inputCursor = input.getCursor();
-        IDataCursor outputCursor = output.getCursor();
+        if (!IDataHelper.isEmpty(input)) {
+            IDataCursor inputCursor = input.getCursor();
+            IDataCursor outputCursor = output.getCursor();
 
-        try {
-            Set<String> names = getNames();
+            try {
+                Set<String> names = getNames();
 
-            while(inputCursor.next()) {
-                String key = inputCursor.getKey();
-                Object value = inputCursor.getValue();
-                if (names.contains(key)) {
-                    outputCursor.insertAfter(key, value);
+                while (inputCursor.next()) {
+                    String key = inputCursor.getKey();
+                    Object value = inputCursor.getValue();
+                    if (names.contains(key)) {
+                        outputCursor.insertAfter(key, value);
+                    }
                 }
+            } finally {
+                inputCursor.destroy();
+                outputCursor.destroy();
             }
-        } finally {
-            inputCursor.destroy();
-            outputCursor.destroy();
         }
 
         return output;
