@@ -24,13 +24,6 @@ are required to be included on the project's classpath:
 
 * `Tundra.jar` - https://github.com/Permafrost/Tundra.java
 
-[JUnit] 4 is required for the unit tests in the project. The
-following libraries are required to be included on the test
-classpath:
-
-* `junit.jar`
-* `hamcrest-core.jar`
-
 ## Contributions
 
 1. Check out the latest master to make sure the feature hasn't been
@@ -54,7 +47,6 @@ further details.
 
 [API Documentation]: <http://permafrost.github.io/TundraTN.java/>
 [JAR]: <http://en.wikipedia.org/wiki/JAR_(file_format)>
-[JUnit]: <http://junit.org/>
 [LICENSE]: <https://github.com/Permafrost/Tundra.java/blob/master/LICENSE>
 [Tundra]: <https://github.com/Permafrost/Tundra>
 [TundraTN]: <https://github.com/Permafrost/TundraTN>
