@@ -106,15 +106,15 @@ public class Deferrer implements Startable {
     /**
      * The default number of threads to use for executing deferred routes.
      */
-    protected static final int DEFAULT_THREAD_POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
-    /**
-     * Maximum time to wait to shutdown the executor in milliseconds.
-     */
-    protected static final long DEFAULT_SHUTDOWN_TIMEOUT_MILLISECONDS = 5 * 60 * 1000L;
+    protected static final int DEFAULT_THREAD_POOL_SIZE = Runtime.getRuntime().availableProcessors() * 4;
     /**
      * The maximum number of routes to cache in memory or to queue in the executor.
      */
-    protected static final int DEFAULT_WORK_QUEUE_CAPACITY = DEFAULT_THREAD_POOL_SIZE * 2048;
+    protected static final int DEFAULT_WORK_QUEUE_CAPACITY = Runtime.getRuntime().availableProcessors() * 4096;
+    /**
+     * Maximum time to wait to shut down the executor in milliseconds.
+     */
+    protected static final long DEFAULT_SHUTDOWN_TIMEOUT_MILLISECONDS = 5 * 60 * 1000L;
     /**
      * Is this object started or stopped?
      */
@@ -378,7 +378,7 @@ public class Deferrer implements Startable {
     protected synchronized void start(List<Runnable> pendingTasks) {
         if (!started) {
             ConcurrentMap<String, Future<IData>> drainedRoutes = pendingRoutes;
-            pendingRoutes = new ConcurrentHashMap<String, Future<IData>>(capacity);
+            pendingRoutes = new ConcurrentHashMap<String, Future<IData>>(drainedRoutes == null || drainedRoutes.size() <= 16 ? 16 : drainedRoutes.size());
             if (drainedRoutes != null) {
                 pendingRoutes.putAll(drainedRoutes);
             }
