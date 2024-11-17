@@ -373,8 +373,7 @@ public class RoutingRuleHelper {
         if (rule == null) rule = match(bizdoc, parameters);
 
         Deferrer deferrer = Deferrer.getInstance();
-
-        if (deferrer.isStarted() && (isAsynchronous(rule) || shouldDefer(parameters))) {
+        if (deferrer.isStarted() && isAsynchronous(rule)) {
             deferrer.defer(bizdoc, rule, parameters);
         } else {
             route(rule, bizdoc, parameters);
@@ -450,26 +449,6 @@ public class RoutingRuleHelper {
             }
         }
         return isRoutable;
-    }
-
-    /**
-     * Whether the given parameters include a hint to use deferred routing via a key named $deferredRouting with a value
-     * of true.
-     *
-     * @param parameters    The optional TN_parms routing hints to use.
-     * @return              True if routing should be deferred, false if not.
-     */
-    public static boolean shouldDefer(IData parameters) {
-        boolean shouldDefer = false;
-        if (parameters != null) {
-            IDataCursor cursor = parameters.getCursor();
-            try {
-                shouldDefer = IDataHelper.getOrDefault(cursor, "$deferredRouting", Boolean.class, false);
-            } finally {
-                cursor.destroy();
-            }
-        }
-        return shouldDefer;
     }
 
     private static final NSService WM_TN_ROUTE_ROUTE = (NSService)Namespace.current().getNode("wm.tn.route:route");
