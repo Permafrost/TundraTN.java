@@ -34,6 +34,8 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.lang.ns.NSService;
 import permafrost.tundra.data.IDataHelper;
+import permafrost.tundra.data.IDataHjsonParser;
+import permafrost.tundra.data.IDataParser;
 import permafrost.tundra.data.IDataYAMLParser;
 import permafrost.tundra.data.transform.Transformer;
 import permafrost.tundra.data.transform.string.Squeezer;
@@ -205,8 +207,7 @@ public class ActivityLogHelper {
             }
 
             context = Transformer.transform(context, new Squeezer(true));
-            IDataYAMLParser parser = new IDataYAMLParser();
-            output = parser.emit(context, String.class);
+            output = emit(context);
         } catch (IOException ex) {
             // ignore exception
         } catch (ServiceException ex) {
@@ -216,5 +217,29 @@ public class ActivityLogHelper {
         }
 
         return output;
+    }
+
+    /**
+     * Whether the Java version we are running on is version 6.
+     */
+    private static final boolean IS_JAVA_VERSION_6 = System.getProperty("java.version").startsWith("1.6.0");
+
+    /**
+     * Emits the given IData document as a string.
+     *
+     * @param document          The IData document to emit.
+     * @return                  The string representation of the IData document.
+     * @throws IOException      If an IO error occurs.
+     * @throws ServiceException If an error occurs.
+     */
+    private static String emit(IData document) throws IOException, ServiceException {
+        IDataParser parser;
+        if (IS_JAVA_VERSION_6) {
+            // serialize using JSON on Java 6, as snakeyaml > v1.23 no longer supports Java 6
+            parser = new IDataHjsonParser();
+        } else {
+            parser = new IDataYAMLParser();
+        }
+        return parser.emit(document, String.class);
     }
 }
