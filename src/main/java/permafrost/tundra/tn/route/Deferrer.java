@@ -205,7 +205,7 @@ public class Deferrer implements Startable {
      * @param route             The route to be deferred.
      * @return                  The results of routing the bizdoc as a Future object.
      */
-    public Future<IData> defer(CallableDeferredRoute route) {
+    protected Future<IData> defer(CallableDeferredRoute route) {
         Future<IData> result = null;
 
         try {

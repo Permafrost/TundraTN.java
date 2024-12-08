@@ -287,7 +287,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
                         }
 
                         if (activeCount < concurrency || queueSize < refillLevel) {
-                            if (tasks.size() == 0) {
+                            if (tasks.isEmpty()) {
                                 List<GuaranteedJob> pendingTasks = null;
 
                                 // remove any finished tasks from the list of submitted tasks
@@ -310,7 +310,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
                                     pendingTasks = DeliveryQueueHelper.peek(queue, false, age, submittedTasks.keySet(), refillSize - queueSize);
                                 }
 
-                                if (pendingTasks != null && pendingTasks.size() > 0) {
+                                if (pendingTasks != null && !pendingTasks.isEmpty()) {
                                     for (GuaranteedJob pendingTask : pendingTasks) {
                                         tasks.add(new CallableGuaranteedJob(queue, pendingTask, service, session, pipeline, retryLimit, retryFactor, timeToWait, suspend, exhaustedStatus, exhaustedService, continuousFailureDetector));
                                     }
@@ -321,7 +321,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
                                 }
                             }
 
-                            if (tasks.size() > 0) {
+                            if (!tasks.isEmpty()) {
                                 CallableGuaranteedJob task;
                                 while ((task = tasks.poll()) != null) {
                                     Future<IData> future = executorService.submit(task);
@@ -334,7 +334,7 @@ public class DeliveryQueueProcessor implements Startable, IDataCodable {
                                 queueHadTasks = true;
 
                                 // don't wait between task submissions when there are still tasks to be processed
-                                if (ordered || tasks.size() > 0) sleepDuration = 0;
+                                if (ordered || !tasks.isEmpty()) sleepDuration = 0;
                             } else if (activeCount == 0 && queueSize == 0) {
                                 if (queueHadTasks) {
                                     // poll again after a short timed wait, because if the queue had tasks

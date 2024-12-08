@@ -179,7 +179,7 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
         // scheduler has been paused
         scheduler.scheduleWithFixedDelay(new Runnable() {
             public void run() {
-                if (REGISTRY.size() > 0) {
+                if (!REGISTRY.isEmpty()) {
                     boolean isSchedulerStarted = SchedulerHelper.status() == SchedulerStatus.STARTED;
                     for (DeliveryQueueProcessor processor : REGISTRY.values()) {
                         try {
@@ -213,7 +213,7 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
 
                 try {
                     expeditedQueues = getExpeditedQueues();
-                    if (expeditedQueues.size() > 0) {
+                    if (!expeditedQueues.isEmpty()) {
                         pendingQueuesRefreshInterval = MINIMUM_PENDING_QUEUE_REFRESH_MILLISECONDS;
                     } else {
                         long minimumDeliveryInterval = DeliveryQueueHelper.getMinimumDeliveryInterval(TUNDRA_DELIVERY_SERVICE_PATTERN);
@@ -330,7 +330,7 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
         Map<String, String> expeditedQueues = this.expeditedQueues;
 
         // determine list of scheduled tasks to be expedited
-        if (expeditedQueues != null && expeditedQueues.size() > 0) {
+        if (expeditedQueues != null && !expeditedQueues.isEmpty()) {
             List<String> expeditedTasks = null;
             for (String queue : PENDING_QUEUES) {
                 if (expeditedQueues.containsKey(queue)) {
@@ -345,7 +345,7 @@ public class DeliveryQueueManager extends StartableManager<String, DeliveryQueue
             }
 
             // expedite applicable scheduled tasks
-            if (expeditedTasks != null && expeditedTasks.size() > 0) {
+            if (expeditedTasks != null && !expeditedTasks.isEmpty()) {
                 ScheduleHelper.expedite(expeditedTasks);
             }
         }

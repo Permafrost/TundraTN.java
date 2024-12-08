@@ -1035,7 +1035,7 @@ public final class BizDocEnvelopeHelper {
      */
     public static boolean hasErrors(BizDocErrorSet errors, Set<String> messageClasses) {
         if (errors != null && errors.getErrorCount() > 0) {
-            if (messageClasses == null || messageClasses.size() == 0) {
+            if (messageClasses == null || messageClasses.isEmpty()) {
                 messageClasses = getMessageClasses(errors);
             }
 
@@ -1080,11 +1080,11 @@ public final class BizDocEnvelopeHelper {
     }
 
     /**
-     * Returns true if the given BizDocEnvelope has any errors of the given message class.
+     * Returns logged errors with the given class from given BizDocEnvelope.
      *
      * @param document              The BizDocEnvelope to check for errors.
      * @param messageClasses        The classes of error to check for.
-     * @return                      True if the given BizDocEnvelope has errors of the given class.
+     * @return                      Array of errors with the given class logged against the given document.
      * @throws DatastoreException   If a database error occurs.
      */
     public static ActivityLogEntry[] getErrors(IData document, IData messageClasses) throws DatastoreException {
@@ -1113,10 +1113,10 @@ public final class BizDocEnvelopeHelper {
     }
 
     /**
-     * Returns true if the given BizDocEnvelope has any errors.
+     * Returns errors logged against the given BizDocEnvelope.
      *
      * @param document              The BizDocEnvelope to check for errors.
-     * @return                      True if the given BizDocEnvelope has errors.
+     * @return                      Array of errors logged against the given document.
      * @throws DatastoreException   If a database error occurs.
      */
     public static ActivityLogEntry[] getErrors(BizDocEnvelope document) throws DatastoreException {
@@ -1146,7 +1146,7 @@ public final class BizDocEnvelopeHelper {
     private static ActivityLogEntry[] getErrors(BizDocErrorSet errorSet, Set<String> messageClasses) {
         if (errorSet == null) return null;
 
-        if (messageClasses == null || messageClasses.size() == 0) {
+        if (messageClasses == null || messageClasses.isEmpty()) {
             messageClasses = getMessageClasses(errorSet);
         }
 
@@ -1159,7 +1159,7 @@ public final class BizDocEnvelopeHelper {
             try {
                 for (String messageClass : messageClasses) {
                     IData[] entries = IDataUtil.getIDataArray(cursor, messageClass);
-                    if (entries != null && entries.length > 0) {
+                    if (entries != null) {
                         for (IData entry : entries) {
                             if (isActivityLogError(entry)) {
                                 errors.add(toActivityLogEntry(entry));
@@ -1172,7 +1172,7 @@ public final class BizDocEnvelopeHelper {
             }
         }
 
-        return errors.size() == 0 ? null : errors.toArray(new ActivityLogEntry[0]);
+        return errors.isEmpty() ? null : errors.toArray(new ActivityLogEntry[0]);
     }
 
     /**
@@ -1308,7 +1308,7 @@ public final class BizDocEnvelopeHelper {
                             builder.append("] ");
                             builder.append(briefMessage);
 
-                            if (fullMessage != null && !fullMessage.equals("")) {
+                            if (fullMessage != null && !fullMessage.isEmpty()) {
                                 builder.append(": ");
                                 String[] lines = StringHelper.lines(fullMessage);
                                 if (lines != null && lines.length > 0) {
@@ -1335,7 +1335,7 @@ public final class BizDocEnvelopeHelper {
 
                     String message = builder.toString();
 
-                    if (!"".equals(message)) {
+                    if (!message.isEmpty()) {
                         StrictException exception;
 
                         if (ValidationException.class.equals(exceptionClass)) {
@@ -1380,7 +1380,7 @@ public final class BizDocEnvelopeHelper {
             }
         }
 
-        return classes == null || classes.size() == 0 ? null : classes;
+        return classes == null || classes.isEmpty() ? null : classes;
     }
 
     /**
@@ -1392,7 +1392,7 @@ public final class BizDocEnvelopeHelper {
      */
     private static Set<String> getMessageClassesSet(String... messageClasses) {
         Set<String> classes = new HashSet<String>();
-        if (messageClasses != null && messageClasses.length > 0) {
+        if (messageClasses != null) {
             for (String messageClass : messageClasses) {
                 if (messageClass != null) {
                     classes.add(messageClass);
@@ -1659,7 +1659,7 @@ public final class BizDocEnvelopeHelper {
                                     String prefix = "diagnostic_content_";
                                     String suffix = "";
                                     List<NSService> callstack = ServiceHelper.getCallStack();
-                                    if (callstack.size() > 0) {
+                                    if (!callstack.isEmpty()) {
                                         NSService service = callstack.get(0);
                                         suffix = service.getNSName().getFullName().replaceAll("\\W+", "_") + "_" + suffix;
                                     }
@@ -2105,7 +2105,7 @@ public final class BizDocEnvelopeHelper {
      */
     private static String getPersistOption(BizDocEnvelope document) {
         String persistOption = document.getPersistOption();
-        if (persistOption == null || persistOption.equals("")) {
+        if (persistOption == null || persistOption.isEmpty()) {
             persistOption = document.getDocType().getPreRoutingFlags().getPersistOption();
         }
         return persistOption;

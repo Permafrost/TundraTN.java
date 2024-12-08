@@ -326,13 +326,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
                     } else {
                         GuaranteedJobHelper.setRetryStrategy(job, retryLimit, retryFactor, timeToWait);
                         if (retryRequested) {
-                            String message;
-                            if (retryRequestedReason == null || "".equals(retryRequestedReason.trim())) {
-                                message = MessageFormat.format("Retry requested for delivery task {0} on {1} queue {2}", job.getJobId(), queue.getQueueType(), queue.getQueueName());
-                            } else {
-                                message = MessageFormat.format("Retry requested for delivery task {0} on {1} queue {2}: {3}", job.getJobId(), queue.getQueueType(), queue.getQueueName(), retryRequestedReason.trim());
-                            }
-                            GuaranteedJobHelper.log(job, EntryType.WARNING, "Delivery", "Retry requested", message);
+                            GuaranteedJobHelper.log(job, EntryType.WARNING, "Delivery", "Retry requested", getRetryRequestedMessage(retryRequestedReason));
                         }
                     }
                 } else {
@@ -367,6 +361,22 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
         stack.add((NSService)Namespace.current().getNode(service));
         String message = MessageFormat.format("{0} -- {1} processed queued task {2} {3}", ServerLogStatement.getFunction(UserHelper.getCurrentName(), stack, false), queue.getQueueName(), DurationHelper.format(duration, DurationPattern.NANOSECONDS, DurationPattern.XML_MILLISECONDS), success ? "COMPLETED" : "FAILED: " + ExceptionHelper.getStackTraceString(exception, 3, false));
         ServerLogHelper.log(CallableGuaranteedJob.class.getName(), DEFAULT_LOG_LEVEL, message, GuaranteedJobHelper.summarize(job), false);
+    }
+
+    /**
+     * Returns a message describing the requested retry.
+     *
+     * @param retryRequestedReason The reason the retry was requested.
+     * @return                     Message describing the requested retry.
+     */
+    private String getRetryRequestedMessage(String retryRequestedReason) {
+        String message;
+        if (retryRequestedReason == null || retryRequestedReason.trim().isEmpty()) {
+            message = MessageFormat.format("Retry requested for delivery task {0} on {1} queue {2}", job.getJobId(), queue.getQueueType(), queue.getQueueName());
+        } else {
+            message = MessageFormat.format("Retry requested for delivery task {0} on {1} queue {2}: {3}", job.getJobId(), queue.getQueueType(), queue.getQueueName(), retryRequestedReason.trim());
+        }
+        return message;
     }
 
     /**

@@ -196,7 +196,7 @@ public class ActivityLogHelper {
             IDataHelper.put(contextCursor, "Thread", currentThread.getClass().getName() + "#" + currentThread.getId() + " " + currentThread.getName());
 
             List<NSService> callStack = ServiceHelper.getCallStack();
-            if (callStack.size() > 0) {
+            if (!callStack.isEmpty()) {
                 if (callStack.size() > 1) {
                     int index = callStack.size() - 1;
                     if ("tundra.tn:log".equals(callStack.get(index).toString())) {

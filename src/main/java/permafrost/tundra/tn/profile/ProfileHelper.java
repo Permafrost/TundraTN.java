@@ -440,7 +440,7 @@ public final class ProfileHelper {
 
                         gc.destroy();
 
-                        if (fields.size() > 0) {
+                        if (!fields.isEmpty()) {
                             cursor.insertAfter(groupName, group);
                         }
                     }

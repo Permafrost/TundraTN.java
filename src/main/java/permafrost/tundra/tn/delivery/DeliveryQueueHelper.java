@@ -443,7 +443,7 @@ public final class DeliveryQueueHelper {
      */
     public static GuaranteedJob pop(DeliveryQueue queue, boolean ordered, long age) throws SQLException {
         List<GuaranteedJob> jobs;
-        while((jobs = peek(queue, ordered, age, null, 1)).size() > 0) {
+        while(!(jobs = peek(queue, ordered, age, null, 1)).isEmpty()) {
             for (GuaranteedJob job : jobs) {
                 GuaranteedJobHelper.setDelivering(job);
                 // multiple threads or processes may be competing for queued tasks, so we will only return the job at the

@@ -120,7 +120,7 @@ public final class GuaranteedJobHelper {
     public static GuaranteedJob normalize(IData input) {
         if (input == null) return null;
 
-        GuaranteedJob job = null;
+        GuaranteedJob job;
 
         if (input instanceof GuaranteedJob) {
             job = (GuaranteedJob)input;
@@ -303,7 +303,7 @@ public final class GuaranteedJobHelper {
      * @param job               The job to be updated.
      * @throws SQLException     If a database error is encountered.
      */
-    protected static boolean setDelivering(GuaranteedJob job) throws SQLException {
+    public static boolean setDelivering(GuaranteedJob job) throws SQLException {
         boolean isDelivering = false;
 
         if (job != null) {

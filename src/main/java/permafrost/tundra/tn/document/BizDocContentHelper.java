@@ -214,7 +214,7 @@ public final class BizDocContentHelper {
                 if (contentPartName == null) {
                     String prefix = "diagnostic_transport_";
                     String suffix = "";
-                    if (callstack.size() > 0) {
+                    if (!callstack.isEmpty()) {
                         NSService service = callstack.get(0);
                         suffix = service.getNSName().getFullName().replaceAll("\\W+", "_") + "_" + suffix;
                     }
@@ -226,7 +226,7 @@ public final class BizDocContentHelper {
                 try {
                     IDataHelper.put(contentPartCursor, "datetime", currentDateTime);
                     IDataHelper.put(contentPartCursor, "transport", transport);
-                    if (callstack.size() > 0) IDataHelper.put(contentPartCursor, "callstack", CollectionHelper.stringify(callstack));
+                    if (!callstack.isEmpty()) IDataHelper.put(contentPartCursor, "callstack", CollectionHelper.stringify(callstack));
                 } finally {
                     contentPartCursor.destroy();
                 }
