@@ -34,7 +34,7 @@ import com.wm.data.IDataCursor;
 import com.wm.data.IDataFactory;
 import com.wm.lang.ns.NSService;
 import permafrost.tundra.data.IDataHelper;
-import permafrost.tundra.data.IDataYAMLParser;
+import permafrost.tundra.data.IDataJSONParser;
 import permafrost.tundra.data.transform.Transformer;
 import permafrost.tundra.data.transform.string.Squeezer;
 import permafrost.tundra.lang.IterableHelper;
@@ -205,7 +205,7 @@ public class ActivityLogHelper {
             }
 
             context = Transformer.transform(context, new Squeezer(true));
-            IDataYAMLParser parser = new IDataYAMLParser();
+            IDataJSONParser parser = new IDataJSONParser();
             output = parser.emit(context, String.class);
         } catch (IOException ex) {
             // ignore exception
