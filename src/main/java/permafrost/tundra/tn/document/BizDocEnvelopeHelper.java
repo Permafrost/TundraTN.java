@@ -78,6 +78,7 @@ import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.ObjectHelper;
 import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.lang.UnrecoverableException;
+import permafrost.tundra.mime.CasePreservedMimeType;
 import permafrost.tundra.mime.MIMEClassification;
 import permafrost.tundra.mime.MIMETypeHelper;
 import permafrost.tundra.security.MessageDigestHelper;
@@ -1469,7 +1470,13 @@ public final class BizDocEnvelopeHelper {
 
             try {
                 String defaultIdentity = null;
-                MimeType contentType = IDataHelper.get(parameterCursor, "$contentType", MimeType.class);
+                String contentTypeString = IDataHelper.get(parameterCursor, "$contentType", String.class);
+                // use the case preserving MIME type class to support the Trading Networks document type pipeline
+                // matching on $contentType values case-sensitively (which is incorrect, as it should treat MIME types
+                // as case-insensitive as per https://developer.mozilla.org/en-US/docs/Web/HTTP/MIME_types: "MIME types
+                // are case-insensitive but are traditionally written in lowercase. The parameter values can be
+                // case-sensitive."
+                MimeType contentType = contentTypeString == null ? null : new CasePreservedMimeType(contentTypeString);
                 Charset contentEncoding = IDataHelper.get(parameterCursor, "$contentEncoding", Charset.class);
                 String contentSchema = IDataHelper.get(parameterCursor, "$contentSchema", String.class);
                 Integer contentLength = IDataHelper.get(parameterCursor, "$contentLength", Integer.class);
@@ -1695,7 +1702,7 @@ public final class BizDocEnvelopeHelper {
                         }
                     }
                 }
-                ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document recognized", null, bizdoc, startTime, System.nanoTime());
+                ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document recognized", "Document recognized as document type: " + bizdoc.getDocType().getName() + " (" + bizdoc.getDocType().getId() + ")", bizdoc, startTime, System.nanoTime());
             } catch(Exception ex) {
                 ActivityLogHelper.log(EntryType.ERROR, "General", ExceptionHelper.getMessage(ex), ExceptionHelper.getStackTraceString(ex, 3), bizdoc, startTime, System.nanoTime());
                 ExceptionHelper.raise(ex);
