@@ -1476,7 +1476,7 @@ public final class BizDocEnvelopeHelper {
                 // as case-insensitive as per https://developer.mozilla.org/en-US/docs/Web/HTTP/MIME_types: "MIME types
                 // are case-insensitive but are traditionally written in lowercase. The parameter values can be
                 // case-sensitive."
-                MimeType contentType = contentTypeString == null ? null : new CasePreservedMimeType(contentTypeString);
+                MimeType contentType = MIMETypeHelper.of(contentTypeString);
                 Charset contentEncoding = IDataHelper.get(parameterCursor, "$contentEncoding", Charset.class);
                 String contentSchema = IDataHelper.get(parameterCursor, "$contentSchema", String.class);
                 Integer contentLength = IDataHelper.get(parameterCursor, "$contentLength", Integer.class);

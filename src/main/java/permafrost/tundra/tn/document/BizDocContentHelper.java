@@ -275,8 +275,8 @@ public final class BizDocContentHelper {
             String charsetParameter = mimeType.getParameter(charsetParameterName);
             if ("UTF8".equals(charsetParameter)) {
                 mimeType.setParameter(charsetParameterName, "UTF-8");
+                contentType = mimeType.toString();
             }
-            contentType = mimeType.toString();
         }
         return contentType;
     }
