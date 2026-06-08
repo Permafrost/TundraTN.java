@@ -42,6 +42,7 @@ import com.wm.app.tn.doc.BizDocAttributeTransform;
 import com.wm.app.tn.doc.BizDocContentPart;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocErrorSet;
+import com.wm.app.tn.doc.BizDocRelationship;
 import com.wm.app.tn.doc.BizDocType;
 import com.wm.app.tn.doc.EnvelopeData;
 import com.wm.app.tn.doc.UnknownDocType;
@@ -235,8 +236,45 @@ public final class BizDocEnvelopeHelper {
      * @throws DatastoreException   If a database exception occurs.
      */
     public static BizDocEnvelope get(String id, boolean includeContent) throws DatastoreException {
+        return get(id, includeContent, false);
+    }
+
+    /**
+     * Returns the BizDocEnvelope, and optionally its content parts, associated with the given ID.
+     *
+     * @param id                    The ID of the BizDocEnvelope to be returned.
+     * @param includeContent        Whether to include all content parts with the returned BizDocEnvelope.
+     * @param includeRelationships  Whether to include the relationships between this BizDocEnvelope and others, if any.
+     * @return                      The BizDocEnvelope associated with the given ID.
+     * @throws DatastoreException   If a database exception occurs.
+     */
+    public static BizDocEnvelope get(String id, boolean includeContent, boolean includeRelationships) throws DatastoreException {
         if (id == null) return null;
-        return BizDocStore.getDocument(id, includeContent);
+
+        BizDocEnvelope document = BizDocStore.getDocument(id, includeContent);
+        if (document != null && includeRelationships) {
+            includeRelationships(document);
+        }
+
+        return document;
+    }
+
+    /**
+     * Adds any relationships that exist with other documents within the given document structure.
+     *
+     * @param document              The BizDocEnvelope to include relationships on.
+     * @throws DatastoreException   If a database exception occurs.
+     */
+    private static void includeRelationships(BizDocEnvelope document) throws DatastoreException {
+        Connection connection = null;
+        try {
+            connection = Datastore.getConnection();
+            BDRelationshipOperations.select(connection, document);
+        } catch(SQLException ex) {
+            throw new DatastoreException(ex);
+        } finally {
+            Datastore.releaseConnection(connection);
+        }
     }
 
     /**
