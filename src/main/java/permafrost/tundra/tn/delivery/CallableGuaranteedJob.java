@@ -203,7 +203,7 @@ public class CallableGuaranteedJob extends AbstractPrioritizedCallable<IData> {
     public IData call() throws Exception {
         IData output = null;
 
-        // backoff if in a continues failure state
+        // backoff if in a continuous failure state
         continuousFailureDetector.backoffIfRequired();
 
         // only execute the task if we're still started after backoff
