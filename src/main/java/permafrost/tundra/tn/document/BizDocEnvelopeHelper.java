@@ -1574,7 +1574,7 @@ public final class BizDocEnvelopeHelper {
                     defaultIdentity = BytesHelper.base64Encode(digest);
                 }
 
-                if (contentLength != null && contentLength > 0) {
+                if (contentLength != null && contentLength >= 0) {
                     // normalize MIME media type (content type) and character set (encoding)
                     if (contentType == null) {
                         if (bytes == null) bytes = BytesHelper.normalize(inputStream);
