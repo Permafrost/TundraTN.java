@@ -1738,9 +1738,11 @@ public final class BizDocEnvelopeHelper {
                                 bizdoc.setDocumentId(defaultIdentity);
                             }
                         }
+
+                        // log document recognition message to activity log
+                        ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document recognized", "Document recognized as document type: " + bizdoc.getDocType().getName() + " (" + bizdoc.getDocType().getId() + ")", bizdoc, startTime, System.nanoTime());
                     }
                 }
-                ActivityLogHelper.log(EntryType.MESSAGE, "General", "Document recognized", "Document recognized as document type: " + bizdoc.getDocType().getName() + " (" + bizdoc.getDocType().getId() + ")", bizdoc, startTime, System.nanoTime());
             } catch(Exception ex) {
                 ActivityLogHelper.log(EntryType.ERROR, "General", ExceptionHelper.getMessage(ex), ExceptionHelper.getStackTraceString(ex, 3), bizdoc, startTime, System.nanoTime());
                 ExceptionHelper.raise(ex);
