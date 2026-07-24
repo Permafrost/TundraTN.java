@@ -60,8 +60,9 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 /**
@@ -87,7 +88,7 @@ public final class DeliveryQueueHelper {
     /**
      * SQL statement to return which enabled or draining queues currently have pending QUEUED jobs.
      */
-    private static final String SELECT_QUEUES_WITH_QUEUED_TASKS_SQL = "SELECT DISTINCT A.QueueName FROM DeliveryQueue A, DeliveryJob B WHERE A.QueueName = B.QueueName AND A.QueueState IN ('enabled', 'draining') AND B.JobStatus = 'QUEUED' AND B.TimeCreated <= ? AND B.TimeUpdated <= ?";
+    private static final String SELECT_QUEUES_WITH_QUEUED_TASKS_SQL = "SELECT DISTINCT A.QueueName, 0 AS Ordered FROM DeliveryQueue A, DeliveryJob B WHERE A.QueueName = B.QueueName AND A.QueueState IN ('enabled', 'draining') AND B.JobStatus = 'QUEUED' AND B.TimeCreated <= ? AND B.TimeUpdated <= ? UNION ALL SELECT DISTINCT A.QueueName, 1 AS Ordered FROM DeliveryQueue A, DeliveryJob B WHERE A.QueueName = B.QueueName AND A.QueueState IN ('enabled', 'draining') AND B.JobStatus = 'QUEUED' AND B.TimeCreated <= ? AND B.TimeUpdated <= ? AND B.TimeCreated = (SELECT MIN(C.TimeCreated) FROM DeliveryJob C WHERE C.JobStatus = 'QUEUED' AND C.QueueName = B.QueueName)";
     /**
      * SQL statement to return the count of queues which are enabled or draining.
      */
@@ -536,16 +537,16 @@ public final class DeliveryQueueHelper {
     }
 
     /**
-     * Returns the set of queue names that currently have pending QUEUED jobs.
+     * Returns the queue names that currently have pending QUEUED jobs.
      *
-     * @return              The set of queue names that currently have pending QUEUED jobs.
+     * @return              The queue names that currently have pending QUEUED jobs.
      * @throws SQLException If a database error occurs.
      */
-    public static Set<String> getPendingQueues() throws SQLException {
+    public static Map<String, Boolean> getPendingQueues() throws SQLException {
         Connection connection = null;
         PreparedStatement statement = null;
         ResultSet results = null;
-        Set<String> queues = Collections.emptySet();
+        Map<String, Boolean> queues = null;
 
         try {
             connection = Datastore.getConnection();
@@ -557,17 +558,20 @@ public final class DeliveryQueueHelper {
             Timestamp timestamp = new Timestamp(System.currentTimeMillis() - DEFAULT_DELIVERY_JOB_AGE_THRESHOLD_MILLISECONDS);
             SQLWrappers.setTimestamp(statement, ++index, timestamp);
             SQLWrappers.setTimestamp(statement, ++index, timestamp);
+            SQLWrappers.setTimestamp(statement, ++index, timestamp);
+            SQLWrappers.setTimestamp(statement, ++index, timestamp);
 
             results = statement.executeQuery();
 
-            boolean setCreated = false;
-
             while(results.next()) {
-                if (!setCreated) {
-                    queues = new TreeSet<String>();
-                    setCreated = true;
+                if (queues == null) {
+                    queues = new TreeMap<String, Boolean>();
                 }
-                queues.add(results.getString(1));
+                String name = results.getString(1);
+                boolean ordered = results.getBoolean(2);
+                if (!queues.containsKey(name) || (queues.get(name) == false && ordered)) {
+                    queues.put(name, ordered);
+                }
             }
 
             connection.commit();
@@ -580,7 +584,7 @@ public final class DeliveryQueueHelper {
             Datastore.releaseConnection(connection);
         }
 
-        return queues;
+        return queues == null ? Collections.<String, Boolean>emptyMap() : queues;
     }
 
     /**
