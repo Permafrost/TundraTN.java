@@ -104,10 +104,13 @@ public final class BizDocContentHelper {
      * @throws ServiceException If an error occurs.
      */
     public static void addContentPart(BizDocEnvelope document, String partName, String contentType, Charset charset, InputStream content, boolean overwrite) throws ServiceException {
+        boolean replaced = false;
+
         if (overwrite) {
             BizDocContentPart contentPart = document.getContentPart(partName);
             if (contentPart != null) {
                 removeContentPart(document, partName);
+                replaced = true;
             }
         }
 
@@ -128,6 +131,9 @@ public final class BizDocContentHelper {
             IDataHelper.put(cursor, "mimeType", mimeType.toString());
 
             Service.doInvoke("wm.tn.doc", "addContentPart", pipeline);
+
+            String action = replaced ? "replaced" : "added", summary = "Content part " + action, message = summary + ": " + partName;
+            ActivityLogHelper.log(EntryType.MESSAGE, "General", summary, message, document);
         } catch(Exception ex) {
             ExceptionHelper.raise(ex);
         } finally {
