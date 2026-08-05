@@ -109,7 +109,7 @@ public final class BizDocContentHelper {
         if (overwrite) {
             BizDocContentPart contentPart = document.getContentPart(partName);
             if (contentPart != null) {
-                removeContentPart(document, partName);
+                removeContentPart(document, partName, false);
                 replaced = true;
             }
         }
@@ -149,6 +149,18 @@ public final class BizDocContentHelper {
      * @throws ServiceException If a database error occurs.
      */
     public static void removeContentPart(BizDocEnvelope document, String partName) throws ServiceException {
+        removeContentPart(document, partName, true);
+    }
+
+    /**
+     * Deletes the given BizDocContentPart from the Trading Networks database.
+     *
+     * @param document          The BizDocEnvelope whose content part is to be deleted.
+     * @param partName          The name of the content part to be deleted.
+     * @param activityLog       Logs a message to the activity log against the document if true.
+     * @throws ServiceException If a database error occurs.
+     */
+    public static void removeContentPart(BizDocEnvelope document, String partName, boolean activityLog) throws ServiceException {
         if (document == null || partName == null) return;
 
         if (BizDocEnvelopeHelper.shouldPersistContent(document)) {
@@ -163,6 +175,11 @@ public final class BizDocContentHelper {
                 SQLWrappers.setCharString(statement, 2, partName);
                 statement.executeUpdate();
                 connection.commit();
+
+                if (activityLog) {
+                    String summary = "Content part removed", message = summary + ": " + partName;
+                    ActivityLogHelper.log(EntryType.MESSAGE, "General", summary, message, document);
+                }
             } catch (SQLException ex) {
                 connection = Datastore.handleSQLException(connection, ex);
                 ExceptionHelper.raise(ex);
