@@ -42,7 +42,6 @@ import com.wm.app.tn.doc.BizDocAttributeTransform;
 import com.wm.app.tn.doc.BizDocContentPart;
 import com.wm.app.tn.doc.BizDocEnvelope;
 import com.wm.app.tn.doc.BizDocErrorSet;
-import com.wm.app.tn.doc.BizDocRelationship;
 import com.wm.app.tn.doc.BizDocType;
 import com.wm.app.tn.doc.EnvelopeData;
 import com.wm.app.tn.doc.UnknownDocType;
@@ -79,7 +78,6 @@ import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.ObjectHelper;
 import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.lang.UnrecoverableException;
-import permafrost.tundra.mime.CasePreservedMimeType;
 import permafrost.tundra.mime.MIMEClassification;
 import permafrost.tundra.mime.MIMETypeHelper;
 import permafrost.tundra.security.MessageDigestHelper;
@@ -728,32 +726,62 @@ public final class BizDocEnvelopeHelper {
     public static boolean setStatus(BizDocEnvelope bizdoc, String systemStatus, String previousSystemStatus, String userStatus, String previousUserStatus, boolean silence) throws ServiceException {
         if (bizdoc == null || silence) return false;
 
+        long startTime = System.nanoTime();
+
         boolean result = false;
 
-        if ("DONE".equals(userStatus) && hasErrors(bizdoc)) {
-            userStatus = userStatus + " W/ ERRORS";
-        }
+        int retries = 0;
+        final int retryLimit = 5;
+        final int retryFactor = 2;
+        final long retryWait = 1000;
+        List<Throwable> exceptions = null;
 
-        if (previousSystemStatus == null && previousUserStatus == null) {
-            if (bizdoc.isPersisted()) {
-                result = BizDocStore.changeStatus(bizdoc.getInternalId(), systemStatus, userStatus);
-            } else {
-                result = true;
-            }
-            if (result) {
-                if (systemStatus != null) bizdoc.setSystemStatus(systemStatus);
-                if (userStatus != null) bizdoc.setUserStatus(userStatus);
-            }
-        } else if (systemStatus != null && userStatus != null) {
-            result = setStatusForPrevious(bizdoc, systemStatus, previousSystemStatus, userStatus, previousUserStatus);
-        } else if (systemStatus != null) {
-            result = setSystemStatusForPrevious(bizdoc, systemStatus, previousSystemStatus);
-        } else {
-            result = setUserStatusForPrevious(bizdoc, userStatus, previousUserStatus);
-        }
+        do {
+            try {
+                if ("DONE".equals(userStatus) && hasErrors(bizdoc)) {
+                    userStatus = userStatus + " W/ ERRORS";
+                }
 
-        if (result) {
-            ActivityLogHelper.log(EntryType.normalize("MESSAGE"), "General", "Status changed", getStatusMessage(systemStatus, userStatus), bizdoc);
+                if (previousSystemStatus == null && previousUserStatus == null) {
+                    if (bizdoc.isPersisted()) {
+                        result = BizDocStore.changeStatus(bizdoc.getInternalId(), systemStatus, userStatus);
+                    } else {
+                        result = true;
+                    }
+                    if (result) {
+                        if (systemStatus != null) bizdoc.setSystemStatus(systemStatus);
+                        if (userStatus != null) bizdoc.setUserStatus(userStatus);
+                    }
+                } else if (systemStatus != null && userStatus != null) {
+                    result = setStatusForPrevious(bizdoc, systemStatus, previousSystemStatus, userStatus, previousUserStatus);
+                } else if (systemStatus != null) {
+                    result = setSystemStatusForPrevious(bizdoc, systemStatus, previousSystemStatus);
+                } else {
+                    result = setUserStatusForPrevious(bizdoc, userStatus, previousUserStatus);
+                }
+
+                if (result) {
+                    ActivityLogHelper.log(EntryType.normalize("MESSAGE"), "General", "Status changed", getStatusMessage(systemStatus, userStatus), bizdoc, startTime, System.nanoTime());
+                }
+
+                break;
+            } catch(Throwable ex) {
+                if (exceptions == null) {
+                    exceptions = new ArrayList<Throwable>();
+                }
+                exceptions.add(ex);
+                try {
+                    Thread.sleep(retryWait * (retryFactor ^ retries));
+                } catch(InterruptedException e) {
+                    // ignore
+                } finally {
+                    retries += 1;
+                }
+            }
+        } while(retries < retryLimit);
+
+        if (retries >= retryLimit) {
+            ExceptionHelper.raiseUnchecked(exceptions);
         }
 
         return result;
