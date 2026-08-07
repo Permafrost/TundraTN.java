@@ -39,6 +39,7 @@ import permafrost.tundra.data.IDataParser;
 import permafrost.tundra.data.IDataYAMLParser;
 import permafrost.tundra.data.transform.Transformer;
 import permafrost.tundra.data.transform.string.Squeezer;
+import permafrost.tundra.lang.ExceptionHelper;
 import permafrost.tundra.lang.IterableHelper;
 import permafrost.tundra.lang.StringHelper;
 import permafrost.tundra.server.NameHelper;
@@ -47,6 +48,7 @@ import permafrost.tundra.time.DateTimeHelper;
 import permafrost.tundra.time.DurationHelper;
 import permafrost.tundra.time.DurationPattern;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -155,19 +157,46 @@ public class ActivityLogHelper {
         messageSummary = StringHelper.truncate(messageSummary.trim(), 240, true);
         messageDetail = StringHelper.truncate(messageDetailBuilder.toString().trim(), 1024, true);
 
-        ActivityLogEntry log = new ActivityLogEntry(entryType.getValue(), entryClass, messageSummary, messageDetail);
-        if (bizdoc != null) {
-            log.setRelatedDocId(bizdoc.getInternalId());
+        int retries = 0;
+        final int retryLimit = 5;
+        final int retryFactor = 2;
+        final long retryWait = 1000;
+        List<Throwable> exceptions = null;
 
-            String conversationID = bizdoc.getConversationId();
-            if (conversationID != null) log.setRelatedConversationId(conversationID);
+        do {
+            try {
+                ActivityLogEntry log = new ActivityLogEntry(entryType.getValue(), entryClass, messageSummary, messageDetail);
+                if (bizdoc != null) {
+                    log.setRelatedDocId(bizdoc.getInternalId());
 
-            String partnerID = bizdoc.getSenderId();
-            if (partnerID != null) log.setRelatedPartnerId(partnerID);
+                    String conversationID = bizdoc.getConversationId();
+                    if (conversationID != null) log.setRelatedConversationId(conversationID);
 
-            bizdoc.addError(log);
-        } else {
-            SystemLog2.dbLog(log);
+                    String partnerID = bizdoc.getSenderId();
+                    if (partnerID != null) log.setRelatedPartnerId(partnerID);
+
+                    bizdoc.addError(log);
+                } else {
+                    SystemLog2.dbLog(log);
+                }
+                break;
+            } catch(Throwable ex) {
+                if (exceptions == null) {
+                    exceptions = new ArrayList<Throwable>();
+                }
+                exceptions.add(ex);
+                try {
+                    Thread.sleep(retryWait * (retryFactor ^ retries));
+                } catch(InterruptedException e) {
+                    // ignore
+                } finally {
+                    retries += 1;
+                }
+            }
+        } while(retries < retryLimit);
+
+        if (retries >= retryLimit) {
+            ExceptionHelper.raiseUnchecked(exceptions);
         }
     }
 
